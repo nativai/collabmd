@@ -1,5 +1,5 @@
 import { PreviewRenderer } from './preview-renderer.js';
-import { generateRoomId } from '../domain/room.js';
+import { USER_NAME_MAX_LENGTH, normalizeUserName, generateRoomId } from '../domain/room.js';
 import { EditorSession } from '../infrastructure/editor-session.js';
 import { getRoomFromHash, navigateToRoom } from '../infrastructure/runtime-config.js';
 import { LayoutController } from '../presentation/layout-controller.js';
@@ -12,6 +12,12 @@ export class CollabMdApp {
     this.elements = {
       backButton: document.getElementById('backToLanding'),
       createRoomButton: document.getElementById('createRoomBtn'),
+      currentUserName: document.getElementById('currentUserName'),
+      displayNameCancel: document.getElementById('displayNameCancel'),
+      displayNameDialog: document.getElementById('displayNameDialog'),
+      displayNameForm: document.getElementById('displayNameForm'),
+      displayNameInput: document.getElementById('displayNameInput'),
+      editNameButton: document.getElementById('editNameBtn'),
       editorContainer: document.getElementById('editorContainer'),
       editorPage: document.getElementById('editor-page'),
       joinRoomButton: document.getElementById('joinRoomBtn'),
@@ -31,6 +37,7 @@ export class CollabMdApp {
     this.connectionState = { status: 'disconnected', unreachable: false };
     this.sessionLoadToken = 0;
     this.connectionHelpShown = false;
+    this.userNameStorageKey = 'collabmd-user-name';
 
     this.toastController = new ToastController(this.elements.toastContainer);
     this.outlineController = new OutlineController();
@@ -52,6 +59,7 @@ export class CollabMdApp {
     this.previewRenderer.applyTheme(this.themeController.getTheme());
     this.outlineController.initialize();
     this.layoutController.initialize();
+    this.syncCurrentUserName();
     this.bindEvents();
 
     window.addEventListener('hashchange', () => this.handleHashChange());
@@ -89,6 +97,19 @@ export class CollabMdApp {
     this.elements.shareButton?.addEventListener('click', () => {
       void this.copyCurrentRoomLink();
     });
+
+    this.elements.editNameButton?.addEventListener('click', () => {
+      this.openDisplayNameDialog();
+    });
+
+    this.elements.displayNameCancel?.addEventListener('click', () => {
+      this.elements.displayNameDialog?.close();
+    });
+
+    this.elements.displayNameForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      this.handleDisplayNameSubmit();
+    });
   }
 
   createResizeHandler() {
@@ -123,6 +144,7 @@ export class CollabMdApp {
     this.elements.userAvatars.innerHTML = '';
     this.elements.userCount.textContent = 'Offline';
     this.elements.userCount.style.opacity = '0.6';
+    this.syncCurrentUserName();
   }
 
   async showEditor(roomId) {
@@ -148,6 +170,7 @@ export class CollabMdApp {
       onAwarenessChange: (users) => this.updateOnlineUsers(users),
       onConnectionChange: (state) => this.handleConnectionChange(state),
       onContentChange: () => this.previewRenderer.queueRender(),
+      preferredUserName: this.getStoredUserName(),
     });
 
     this.session = session;
@@ -208,6 +231,7 @@ export class CollabMdApp {
     this.onlineUsers = users;
     this.renderAvatars();
     this.renderPresence();
+    this.syncCurrentUserName();
   }
 
   renderPresence() {
@@ -256,6 +280,88 @@ export class CollabMdApp {
       overflow.style.color = 'var(--color-text-muted)';
       overflow.textContent = `+${this.onlineUsers.length - 5}`;
       avatars.appendChild(overflow);
+    }
+  }
+
+  openDisplayNameDialog() {
+    const dialog = this.elements.displayNameDialog;
+    const input = this.elements.displayNameInput;
+
+    if (!dialog || !input) {
+      return;
+    }
+
+    input.value = this.getCurrentUserName();
+
+    if (typeof dialog.showModal === 'function') {
+      dialog.showModal();
+    } else {
+      dialog.setAttribute('open', 'true');
+    }
+
+    requestAnimationFrame(() => {
+      input.focus();
+      input.select();
+    });
+  }
+
+  handleDisplayNameSubmit() {
+    const input = this.elements.displayNameInput;
+    const dialog = this.elements.displayNameDialog;
+
+    if (!input || !dialog || !this.session) {
+      return;
+    }
+
+    const normalizedName = this.session.setUserName(input.value);
+    if (!normalizedName) {
+      input.focus();
+      this.toastController.show(`Name must be 1-${USER_NAME_MAX_LENGTH} characters`);
+      return;
+    }
+
+    this.storeUserName(normalizedName);
+    this.syncCurrentUserName();
+    dialog.close();
+    this.toastController.show(`Display name updated to ${normalizedName}`);
+  }
+
+  getCurrentUser() {
+    return this.onlineUsers.find((user) => user.isLocal) ?? this.session?.getLocalUser() ?? null;
+  }
+
+  getCurrentUserName() {
+    return this.getCurrentUser()?.name ?? this.getStoredUserName() ?? 'Set name';
+  }
+
+  getStoredUserName() {
+    try {
+      return normalizeUserName(window.localStorage.getItem(this.userNameStorageKey) ?? '');
+    } catch {
+      return null;
+    }
+  }
+
+  storeUserName(name) {
+    try {
+      window.localStorage.setItem(this.userNameStorageKey, name);
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
+  syncCurrentUserName() {
+    const button = this.elements.editNameButton;
+    const label = this.elements.currentUserName;
+    const currentUserName = this.getCurrentUserName();
+
+    if (label) {
+      label.textContent = currentUserName;
+    }
+
+    if (button) {
+      button.title = `Change display name (${currentUserName})`;
+      button.setAttribute('aria-label', `Change display name. Current name: ${currentUserName}`);
     }
   }
 

@@ -9,21 +9,30 @@ const USER_COLORS = [
   '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#f59e0b',
   '#6366f1', '#10b981', '#f43f5e', '#0ea5e9', '#a855f7',
 ];
+export const USER_NAME_MAX_LENGTH = 24;
 
 function pickRandom(items) {
   return items[Math.floor(Math.random() * items.length)];
+}
+
+export function normalizeUserName(value) {
+  const normalized = String(value ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, USER_NAME_MAX_LENGTH);
+  return normalized || null;
 }
 
 export function generateRoomId() {
   return `${pickRandom(ROOM_ADJECTIVES)}-${pickRandom(ROOM_NOUNS)}-${Math.floor(Math.random() * 999)}`;
 }
 
-export function createRandomUser() {
+export function createRandomUser(preferredName = null) {
   const color = pickRandom(USER_COLORS);
 
   return {
     color,
     colorLight: `${color}33`,
-    name: pickRandom(USER_NAMES),
+    name: normalizeUserName(preferredName) ?? pickRandom(USER_NAMES),
   };
 }

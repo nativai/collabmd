@@ -22,7 +22,7 @@ import { yCollab } from 'y-codemirror.next';
 import * as Y from 'yjs';
 
 import { DEFAULT_CONTENT } from '../domain/default-content.js';
-import { createRandomUser } from '../domain/room.js';
+import { createRandomUser, normalizeUserName } from '../domain/room.js';
 import { resolveWsBaseUrl } from './runtime-config.js';
 
 function createEditorTheme(theme) {
@@ -101,6 +101,7 @@ export class EditorSession {
     onAwarenessChange,
     onConnectionChange,
     onContentChange,
+    preferredUserName,
   }) {
     this.editorContainer = editorContainer;
     this.initialTheme = initialTheme;
@@ -108,8 +109,11 @@ export class EditorSession {
     this.onAwarenessChange = onAwarenessChange;
     this.onConnectionChange = onConnectionChange;
     this.onContentChange = onContentChange;
+    this.preferredUserName = preferredUserName;
     this.editorView = null;
     this.provider = null;
+    this.awareness = null;
+    this.localUser = null;
     this.themeCompartment = new Compartment();
     this.syntaxThemeCompartment = new Compartment();
     this.ydoc = null;
@@ -123,7 +127,7 @@ export class EditorSession {
     this.ytext = this.ydoc.getText('codemirror');
 
     const undoManager = new Y.UndoManager(this.ytext);
-    const user = createRandomUser();
+    const user = createRandomUser(this.preferredUserName);
     const provider = new WebsocketProvider(this.wsBaseUrl, roomId, this.ydoc, {
       disableBc: true,
       maxBackoffTime: 5000,
@@ -132,6 +136,8 @@ export class EditorSession {
     this.provider = provider;
 
     const awareness = provider.awareness;
+    this.awareness = awareness;
+    this.localUser = user;
     awareness.setLocalStateField('user', user);
 
     this.trackConnectionStatus();
@@ -241,6 +247,25 @@ export class EditorSession {
     return '';
   }
 
+  getLocalUser() {
+    return this.localUser;
+  }
+
+  setUserName(name) {
+    const normalizedName = normalizeUserName(name);
+    if (!normalizedName || !this.awareness || !this.localUser) {
+      return null;
+    }
+
+    this.localUser = {
+      ...this.localUser,
+      name: normalizedName,
+    };
+    this.awareness.setLocalStateField('user', this.localUser);
+
+    return normalizedName;
+  }
+
   requestMeasure() {
     this.editorView?.requestMeasure();
   }
@@ -249,6 +274,8 @@ export class EditorSession {
     this.provider?.disconnect();
     this.provider?.destroy();
     this.provider = null;
+    this.awareness = null;
+    this.localUser = null;
 
     this.editorView?.destroy();
     this.editorView = null;

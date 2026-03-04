@@ -146,6 +146,10 @@
           <span class="toolbar-btn-label">Preview</span>
         </button>
 
+        <button class="btn btn-ghost toolbar-btn toolbar-name-btn" id="editNameBtn" aria-label="Change display name" title="Change display name">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          <span class="toolbar-btn-label toolbar-user-name" id="currentUserName">Set name</span>
+        </button>
         <div class="user-avatars" id="userAvatars"></div>
         <button class="btn btn-ghost toolbar-btn" id="shareBtn" aria-label="Copy room link" title="Share room link">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
@@ -198,6 +202,32 @@
 
     <!-- Toast notifications -->
     <div class="toast-container" id="toastContainer"></div>
+
+    <dialog class="app-dialog" id="displayNameDialog">
+      <form class="app-dialog-form" id="displayNameForm" method="dialog">
+        <div class="app-dialog-header">
+          <h2 class="app-dialog-title">Update display name</h2>
+          <p class="app-dialog-copy">Your new name will be visible to everyone in the current room.</p>
+        </div>
+        <label class="app-dialog-field" for="displayNameInput">
+          <span class="app-dialog-label">Name</span>
+          <input
+            type="text"
+            class="input"
+            id="displayNameInput"
+            name="displayName"
+            maxlength="24"
+            autocomplete="nickname"
+            spellcheck="false"
+            required
+          >
+        </label>
+        <div class="app-dialog-actions">
+          <button type="button" class="btn btn-secondary" id="displayNameCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save name</button>
+        </div>
+      </form>
+    </dialog>
   </div>
 
   <script src="./assets/vendor/mermaid/mermaid.min.js" defer></script>
