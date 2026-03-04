@@ -18,3 +18,7 @@ Thumbs.db
 
 coverage/
 dist/
+data/
+public/assets/js/app.js
+public/assets/js/app.js.map
+public/assets/vendor/

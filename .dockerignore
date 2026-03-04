@@ -1,0 +1,9 @@
+node_modules
+npm-debug.log*
+.git
+.gitignore
+.DS_Store
+data
+public/assets/js/app.js
+public/assets/js/app.js.map
+public/assets/vendor
