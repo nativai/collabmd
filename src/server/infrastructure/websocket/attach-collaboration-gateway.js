@@ -12,6 +12,8 @@ function extractRoomName(pathname, wsBasePath) {
 
 export function attachCollaborationGateway({ httpServer, roomRegistry, wsBasePath }) {
   const websocketServer = new WebSocketServer({ noServer: true });
+  let isShuttingDown = false;
+  let closePromise = null;
 
   websocketServer.on('connection', (ws, req, requestUrl) => {
     void (async () => {
@@ -41,6 +43,11 @@ export function attachCollaborationGateway({ httpServer, roomRegistry, wsBasePat
   });
 
   httpServer.on('upgrade', (req, socket, head) => {
+    if (isShuttingDown) {
+      rejectUpgrade(socket, 503, 'Server Shutting Down');
+      return;
+    }
+
     const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     const matchesRealtimeRoute =
       requestUrl.pathname === wsBasePath || requestUrl.pathname.startsWith(`${wsBasePath}/`);
@@ -55,5 +62,50 @@ export function attachCollaborationGateway({ httpServer, roomRegistry, wsBasePat
     });
   });
 
-  return websocketServer;
+  async function close() {
+    if (closePromise) {
+      return closePromise;
+    }
+
+    isShuttingDown = true;
+
+    closePromise = new Promise((resolve, reject) => {
+      const forceCloseTimer = setTimeout(() => {
+        websocketServer.clients.forEach((client) => {
+          try {
+            client.terminate();
+          } catch {
+            // Ignore termination errors during forced shutdown.
+          }
+        });
+      }, 1000);
+      forceCloseTimer.unref?.();
+
+      websocketServer.close((error) => {
+        clearTimeout(forceCloseTimer);
+
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+
+      websocketServer.clients.forEach((client) => {
+        try {
+          client.close(1001, 'Server shutting down');
+        } catch {
+          // Ignore close errors during shutdown.
+        }
+      });
+    });
+
+    return closePromise;
+  }
+
+  return {
+    close,
+    websocketServer,
+  };
 }

@@ -61,18 +61,59 @@ Useful commands:
 npm run build
 npm run check
 npm run start:prod
+npm run tunnel
+npm run start:tunnel
 ```
 
 `npm start` always rebuilds the browser bundle before starting the server. `npm run start:prod` expects a previous `npm run build`.
 
+## Cloudflare Tunnel
+
+The app can be exposed from your local machine through a Cloudflare Tunnel. Since the editor already uses same-origin WebSocket routing (`/ws/:room`), the tunnel works for both HTTP and collaboration traffic without extra app changes.
+
+Install `cloudflared` first:
+
+- macOS: `brew install cloudflared`
+- Linux / Windows: use the official Cloudflare Tunnel installer
+
+Run the local app and the tunnel in one command:
+
+```bash
+npm run start:tunnel
+```
+
+If you already have the app running locally, start only the tunnel:
+
+```bash
+npm run tunnel
+```
+
+The quick tunnel points to `http://127.0.0.1:1234` by default. You can override that with environment variables:
+
+```bash
+TUNNEL_TARGET_PORT=4000 npm run tunnel
+TUNNEL_TARGET_URL=http://127.0.0.1:4000 npm run tunnel
+```
+
+You can also pass extra `cloudflared` flags:
+
+```bash
+CLOUDFLARED_EXTRA_ARGS="--loglevel info" npm run tunnel
+```
+
 ## Environment variables
 
-- `HOST`: bind host, default `0.0.0.0`
+- `HOST`: bind host, default `127.0.0.1` in development and `0.0.0.0` in production
 - `PORT`: HTTP + WebSocket port, default `1234`
 - `WS_BASE_PATH`: WebSocket base path, default `/ws`
 - `PUBLIC_WS_BASE_URL`: optional public WebSocket URL override for reverse proxies
 - `PERSISTENCE_DIR`: folder for persisted room state, default `data/rooms`
 - `ROOM_NAMESPACE`: namespace used for persisted room keys, default `collabmd`
+- `CLOUDFLARED_BIN`: `cloudflared` binary path, default `cloudflared`
+- `TUNNEL_TARGET_HOST`: local host used by the tunnel helper, default `127.0.0.1`
+- `TUNNEL_TARGET_PORT`: local port used by the tunnel helper, default `1234`
+- `TUNNEL_TARGET_URL`: full local target URL override for the tunnel helper
+- `CLOUDFLARED_EXTRA_ARGS`: extra arguments appended to `cloudflared tunnel`
 
 Copy the example file when you want environment-based deployment settings:
 

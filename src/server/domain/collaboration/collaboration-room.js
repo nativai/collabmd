@@ -50,10 +50,16 @@ export class CollaborationRoom {
       return;
     }
 
-    const update = await this.persistenceStore.read(this.docKey);
+    try {
+      const update = await this.persistenceStore.read(this.docKey);
 
-    if (update) {
-      Y.applyUpdate(this.doc, update, 'persistence');
+      if (update) {
+        Y.applyUpdate(this.doc, update, 'persistence');
+      }
+    } catch (error) {
+      const quarantinedPath = await this.persistenceStore.quarantine?.(this.docKey);
+      const quarantineNote = quarantinedPath ? ` Moved corrupt snapshot to ${quarantinedPath}.` : '';
+      console.error(`[room:${this.name}] Failed to hydrate persisted state: ${error.message}.${quarantineNote}`);
     }
 
     this.hydrated = true;

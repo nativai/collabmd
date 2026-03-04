@@ -32,7 +32,7 @@ const httpServer = createServer((req, res) => {
   });
 });
 
-attachCollaborationGateway({
+const collaborationGateway = attachCollaborationGateway({
   httpServer,
   roomRegistry,
   wsBasePath: config.wsBasePath,
@@ -42,21 +42,61 @@ function getDisplayHost(host) {
   return host === '127.0.0.1' ? 'localhost' : host;
 }
 
-function shutdown(signal) {
-  console.log(`[server] Received ${signal}, shutting down`);
+let shutdownPromise = null;
 
-  httpServer.close((error) => {
-    if (error) {
-      console.error('[server] Shutdown error:', error.message);
-      process.exitCode = 1;
+async function closeHttpServer() {
+  return new Promise((resolve, reject) => {
+    httpServer.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve();
+    });
+
+    if (typeof httpServer.closeIdleConnections === 'function') {
+      httpServer.closeIdleConnections();
     }
-
-    process.exit();
   });
 }
 
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+function shutdown(signal) {
+  if (shutdownPromise) {
+    return shutdownPromise;
+  }
+
+  console.log(`[server] Received ${signal}, shutting down`);
+
+  const forceExitTimer = setTimeout(() => {
+    console.error('[server] Forced shutdown after timeout');
+    process.exit(1);
+  }, 5000);
+  forceExitTimer.unref?.();
+
+  shutdownPromise = Promise.all([
+    collaborationGateway.close(),
+    closeHttpServer(),
+  ])
+    .then(() => {
+      clearTimeout(forceExitTimer);
+      process.exit(0);
+    })
+    .catch((error) => {
+      clearTimeout(forceExitTimer);
+      console.error('[server] Shutdown error:', error.message);
+      process.exit(1);
+    });
+
+  return shutdownPromise;
+}
+
+process.once('SIGINT', () => {
+  void shutdown('SIGINT');
+});
+process.once('SIGTERM', () => {
+  void shutdown('SIGTERM');
+});
 
 httpServer.listen(config.port, config.host, () => {
   console.log('');

@@ -5,9 +5,11 @@
   "description": "Realtime collaborative markdown editor with Mermaid diagram support",
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "check": "npm run build && node --check src/server/index.js && node --check scripts/build-client.mjs",
+    "check": "npm run build && node --check src/server/index.js && node --check scripts/build-client.mjs && node --check scripts/cloudflare-tunnel.mjs && node --check scripts/start-with-cloudflare-tunnel.mjs",
     "start": "npm run build && node src/server/index.js",
-    "start:prod": "node src/server/index.js"
+    "start:prod": "node src/server/index.js",
+    "tunnel": "node scripts/cloudflare-tunnel.mjs",
+    "start:tunnel": "node scripts/start-with-cloudflare-tunnel.mjs"
   },
   "keywords": ["markdown", "collaboration", "yjs", "mermaid"],
   "engines": {
