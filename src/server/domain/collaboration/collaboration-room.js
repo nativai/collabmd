@@ -6,10 +6,49 @@ import * as decoding from 'lib0/decoding';
 
 import { MSG_AWARENESS, MSG_SYNC } from './protocol.js';
 
-function sendMessage(ws, payload) {
-  if (ws.readyState === ws.OPEN) {
-    ws.send(payload);
+function closeSlowClient(ws, { maxBufferedAmountBytes, name }) {
+  if (ws.backpressureCloseIssued) {
+    return false;
   }
+
+  ws.backpressureCloseIssued = true;
+  console.warn(
+    `[room:${name}] Closing slow client after bufferedAmount=${ws.bufferedAmount} bytes exceeded ${maxBufferedAmountBytes} bytes`,
+  );
+
+  try {
+    ws.close(1013, 'Client too slow');
+  } catch {
+    try {
+      ws.terminate?.();
+    } catch {
+      // Ignore termination errors while shedding load.
+    }
+  }
+
+  return false;
+}
+
+function sendMessage(ws, payload, { maxBufferedAmountBytes, name }) {
+  if (ws.readyState !== ws.OPEN) {
+    return false;
+  }
+
+  if (ws.bufferedAmount > maxBufferedAmountBytes) {
+    return closeSlowClient(ws, { maxBufferedAmountBytes, name });
+  }
+
+  ws.send(payload, (error) => {
+    if (error) {
+      console.error(`[room:${name}] Failed to send websocket frame:`, error.message);
+    }
+  });
+
+  if (ws.bufferedAmount > maxBufferedAmountBytes) {
+    return closeSlowClient(ws, { maxBufferedAmountBytes, name });
+  }
+
+  return true;
 }
 
 function readAwarenessEntries(update) {
@@ -29,15 +68,17 @@ function readAwarenessEntries(update) {
 }
 
 export class CollaborationRoom {
-  constructor({ name, docNamespace, persistenceStore, onEmpty }) {
+  constructor({ name, docNamespace, maxBufferedAmountBytes, persistenceStore, onEmpty }) {
     this.name = name;
     this.docKey = `${docNamespace}-${name}`;
+    this.maxBufferedAmountBytes = maxBufferedAmountBytes;
     this.persistenceStore = persistenceStore;
     this.onEmpty = onEmpty;
     this.doc = new Y.Doc({ gc: true });
     this.awareness = new awarenessProtocol.Awareness(this.doc);
     this.clients = new Set();
     this.hydrated = false;
+    this.hydratePromise = null;
     this.persistTimer = null;
 
     this.awareness.setLocalState(null);
@@ -50,19 +91,25 @@ export class CollaborationRoom {
       return;
     }
 
-    try {
-      const update = await this.persistenceStore.read(this.docKey);
+    if (!this.hydratePromise) {
+      this.hydratePromise = (async () => {
+        try {
+          const update = await this.persistenceStore.read(this.docKey);
 
-      if (update) {
-        Y.applyUpdate(this.doc, update, 'persistence');
-      }
-    } catch (error) {
-      const quarantinedPath = await this.persistenceStore.quarantine?.(this.docKey);
-      const quarantineNote = quarantinedPath ? ` Moved corrupt snapshot to ${quarantinedPath}.` : '';
-      console.error(`[room:${this.name}] Failed to hydrate persisted state: ${error.message}.${quarantineNote}`);
+          if (update) {
+            Y.applyUpdate(this.doc, update, 'persistence');
+          }
+        } catch (error) {
+          const quarantinedPath = await this.persistenceStore.quarantine?.(this.docKey);
+          const quarantineNote = quarantinedPath ? ` Moved corrupt snapshot to ${quarantinedPath}.` : '';
+          console.error(`[room:${this.name}] Failed to hydrate persisted state: ${error.message}.${quarantineNote}`);
+        } finally {
+          this.hydrated = true;
+        }
+      })();
     }
 
-    this.hydrated = true;
+    await this.hydratePromise;
   }
 
   registerDocListeners() {
@@ -77,7 +124,7 @@ export class CollaborationRoom {
       for (const client of this.clients) {
         if (client !== origin) {
           try {
-            sendMessage(client, message);
+            sendMessage(client, message, this);
           } catch (error) {
             console.error(`[room:${this.name}] Failed to broadcast sync update:`, error.message);
           }
@@ -102,7 +149,7 @@ export class CollaborationRoom {
 
       for (const client of this.clients) {
         try {
-          sendMessage(client, message);
+          sendMessage(client, message, this);
         } catch (error) {
           console.error(`[room:${this.name}] Failed to broadcast awareness update:`, error.message);
         }
@@ -140,7 +187,7 @@ export class CollaborationRoom {
     const syncEncoder = encoding.createEncoder();
     encoding.writeVarUint(syncEncoder, MSG_SYNC);
     syncProtocol.writeSyncStep1(syncEncoder, this.doc);
-    sendMessage(ws, encoding.toUint8Array(syncEncoder));
+    sendMessage(ws, encoding.toUint8Array(syncEncoder), this);
 
     const awarenessStates = this.awareness.getStates();
     if (awarenessStates.size > 0) {
@@ -150,7 +197,7 @@ export class CollaborationRoom {
         awarenessEncoder,
         awarenessProtocol.encodeAwarenessUpdate(this.awareness, Array.from(awarenessStates.keys())),
       );
-      sendMessage(ws, encoding.toUint8Array(awarenessEncoder));
+      sendMessage(ws, encoding.toUint8Array(awarenessEncoder), this);
     }
   }
 
@@ -190,7 +237,7 @@ export class CollaborationRoom {
           syncProtocol.readSyncMessage(decoder, encoder, this.doc, ws);
 
           if (encoding.length(encoder) > 1) {
-            sendMessage(ws, encoding.toUint8Array(encoder));
+            sendMessage(ws, encoding.toUint8Array(encoder), this);
           }
           break;
         }

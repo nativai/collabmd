@@ -10,12 +10,52 @@ function extractRoomName(pathname, wsBasePath) {
   return decodeURIComponent(roomSegment || 'default');
 }
 
-export function attachCollaborationGateway({ httpServer, roomRegistry, wsBasePath }) {
-  const websocketServer = new WebSocketServer({ noServer: true });
+export function attachCollaborationGateway({
+  heartbeatIntervalMs,
+  httpServer,
+  maxPayload,
+  roomRegistry,
+  wsBasePath,
+}) {
+  const websocketServer = new WebSocketServer({
+    maxPayload,
+    noServer: true,
+    perMessageDeflate: false,
+  });
   let isShuttingDown = false;
   let closePromise = null;
+  const heartbeatTimer = setInterval(() => {
+    websocketServer.clients.forEach((client) => {
+      if (client.isAlive === false) {
+        try {
+          client.terminate();
+        } catch {
+          // Ignore termination errors while collecting dead clients.
+        }
+        return;
+      }
+
+      client.isAlive = false;
+
+      try {
+        client.ping();
+      } catch {
+        try {
+          client.terminate();
+        } catch {
+          // Ignore termination errors while pinging clients.
+        }
+      }
+    });
+  }, heartbeatIntervalMs);
+  heartbeatTimer.unref?.();
 
   websocketServer.on('connection', (ws, req, requestUrl) => {
+    ws.isAlive = true;
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
+
     void (async () => {
       const roomName = extractRoomName(requestUrl.pathname, wsBasePath);
       const room = roomRegistry.getOrCreate(roomName);
@@ -68,6 +108,7 @@ export function attachCollaborationGateway({ httpServer, roomRegistry, wsBasePat
     }
 
     isShuttingDown = true;
+    clearInterval(heartbeatTimer);
 
     closePromise = new Promise((resolve, reject) => {
       const forceCloseTimer = setTimeout(() => {

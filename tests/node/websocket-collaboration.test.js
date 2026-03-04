@@ -24,11 +24,16 @@ function waitForOpen(socket) {
 
 function waitForClose(socket) {
   if (socket.readyState === WebSocket.CLOSED) {
-    return Promise.resolve();
+    return Promise.resolve({ code: 1005, reason: '' });
   }
 
   return new Promise((resolve) => {
-    socket.once('close', resolve);
+    socket.once('close', (code, reason) => {
+      resolve({
+        code,
+        reason: reason.toString(),
+      });
+    });
   });
 }
 
@@ -131,4 +136,26 @@ test('WebSocket collaboration broadcasts awareness and persists room content', a
   const persistedDoc = new Y.Doc();
   Y.applyUpdate(persistedDoc, persistedUpdate);
   assert.equal(persistedDoc.getText('codemirror').toString(), '# Persisted from test');
+});
+
+test('WebSocket server rejects oversized payloads', async (t) => {
+  const app = await startTestServer({
+    roomNamespace: 'collabmd-ws-size-test',
+    wsMaxPayloadBytes: 128,
+  });
+  t.after(() => app.close());
+
+  const ws = new WebSocket(app.wsUrl('oversized-room'));
+  t.after(async () => {
+    ws.close();
+    await Promise.allSettled([waitForClose(ws)]);
+  });
+
+  await waitForOpen(ws);
+  await waitForMessage(ws, (data) => getMessageType(data) === MSG_SYNC);
+
+  ws.send(Buffer.alloc(1024, 1));
+
+  const closeEvent = await waitForClose(ws);
+  assert.equal(closeEvent.code, 1009);
 });

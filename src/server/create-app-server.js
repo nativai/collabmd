@@ -32,6 +32,7 @@ export function createAppServer(config = loadConfig()) {
   const roomStore = new FileRoomStore({ directory: config.persistenceDir });
   const roomRegistry = new RoomRegistry({
     createRoom: ({ name, onEmpty }) => new CollaborationRoom({
+      maxBufferedAmountBytes: config.wsMaxBufferedAmountBytes,
       name,
       docNamespace: config.roomNamespace,
       onEmpty,
@@ -48,7 +49,12 @@ export function createAppServer(config = loadConfig()) {
       res.end('Internal Server Error');
     });
   });
+  httpServer.headersTimeout = config.httpHeadersTimeoutMs;
+  httpServer.keepAliveTimeout = config.httpKeepAliveTimeoutMs;
+  httpServer.requestTimeout = config.httpRequestTimeoutMs;
   const collaborationGateway = attachCollaborationGateway({
+    heartbeatIntervalMs: config.wsHeartbeatIntervalMs,
+    maxPayload: config.wsMaxPayloadBytes,
     httpServer,
     roomRegistry,
     wsBasePath: config.wsBasePath,

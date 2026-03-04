@@ -32,7 +32,7 @@ scripts/
 
 ## Requirements
 
-- Node.js 18+
+- Node.js 24+
 - npm
 
 ## Local development
@@ -135,7 +135,13 @@ CLOUDFLARED_EXTRA_ARGS="--loglevel info" npm run tunnel
 
 - `HOST`: bind host, default `127.0.0.1` in development and `0.0.0.0` in production
 - `PORT`: HTTP + WebSocket port, default `1234`
+- `HTTP_KEEP_ALIVE_TIMEOUT_MS`: keep-alive timeout for HTTP sockets, default `5000`
+- `HTTP_HEADERS_TIMEOUT_MS`: header read timeout, default `60000`
+- `HTTP_REQUEST_TIMEOUT_MS`: full HTTP request timeout, default `30000`
 - `WS_BASE_PATH`: WebSocket base path, default `/ws`
+- `WS_HEARTBEAT_INTERVAL_MS`: heartbeat interval used to evict dead WebSocket clients, default `30000`
+- `WS_MAX_BUFFERED_AMOUNT_BYTES`: buffered outbound bytes allowed per WebSocket before the server drops a slow client, default `1048576`
+- `WS_MAX_PAYLOAD_BYTES`: maximum inbound WebSocket frame size, default `4194304`
 - `PUBLIC_WS_BASE_URL`: optional public WebSocket URL override for reverse proxies
 - `PERSISTENCE_DIR`: folder for persisted room state, default `data/rooms`
 - `ROOM_NAMESPACE`: namespace used for persisted room keys, default `collabmd`
@@ -160,7 +166,14 @@ Recommended setup:
 1. Use the included `Dockerfile`.
 2. Expose port `1234` in Coolify.
 3. Mount a persistent volume to `/app/data` so room state survives container restarts.
-4. Set `PUBLIC_WS_BASE_URL` only if your WebSocket endpoint differs from the app origin.
+4. Run a single replica only. This server keeps room state in process and does not coordinate rooms across multiple instances.
+5. Set `PUBLIC_WS_BASE_URL` only if your WebSocket endpoint differs from the app origin.
+
+Suggested hardening for smaller VPS instances:
+
+- Keep the default heartbeat and payload limits unless you have a concrete reason to raise them.
+- Put Cloudflare, Caddy, or Nginx in front so repeated static asset requests are cached before they reach Node.
+- Monitor container RSS and CPU after launch; room fan-out is mostly memory + network bound, not database bound.
 
 Health check:
 

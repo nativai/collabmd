@@ -29,6 +29,21 @@ function setHeaders(res, headers) {
   }
 }
 
+function createStaticFileReader() {
+  const cache = new Map();
+
+  return async function readStaticFile(filePath) {
+    if (!cache.has(filePath)) {
+      cache.set(filePath, readFile(filePath).catch((error) => {
+        cache.delete(filePath);
+        throw error;
+      }));
+    }
+
+    return cache.get(filePath);
+  };
+}
+
 function resolvePublicFile(publicDir, pathname) {
   const requestedPath = pathname === '/' ? '/index.html' : pathname;
   const safePath = normalize(requestedPath).replace(/^(\.\.[/\\])+/, '');
@@ -43,6 +58,8 @@ function resolvePublicFile(publicDir, pathname) {
 }
 
 export function createRequestHandler(config) {
+  const readStaticFile = createStaticFileReader();
+
   return async function handleRequest(req, res) {
     const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 
@@ -85,7 +102,7 @@ export function createRequestHandler(config) {
     }
 
     try {
-      const file = await readFile(filePath);
+      const file = await readStaticFile(filePath);
       const extension = extname(filePath);
       const isAsset = requestUrl.pathname.startsWith('/assets/');
 
