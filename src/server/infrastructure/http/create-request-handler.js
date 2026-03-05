@@ -57,7 +57,36 @@ function resolvePublicFile(publicDir, pathname) {
   return absolutePath;
 }
 
-export function createRequestHandler(config) {
+async function readRequestBody(req, maxBytes = 8_388_608) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        reject(new Error('Request body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+    req.on('error', reject);
+  });
+}
+
+function jsonResponse(res, statusCode, data) {
+  const body = JSON.stringify(data);
+  res.writeHead(statusCode, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  res.end(body);
+}
+
+export function createRequestHandler(config, vaultFileStore) {
   const readStaticFile = createStaticFileReader();
 
   return async function handleRequest(req, res) {
@@ -66,14 +95,24 @@ export function createRequestHandler(config) {
     setHeaders(res, {
       ...SECURITY_HEADERS,
       'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
     });
 
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    // Health check
     if (requestUrl.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('ok');
       return;
     }
 
+    // Runtime config
     if (requestUrl.pathname === '/app-config.js') {
       const body = buildRuntimeConfig(config);
       res.writeHead(200, {
@@ -83,6 +122,150 @@ export function createRequestHandler(config) {
       res.end(req.method === 'HEAD' ? undefined : body);
       return;
     }
+
+    // === Vault API ===
+
+    // GET /api/files — file tree
+    if (requestUrl.pathname === '/api/files' && req.method === 'GET') {
+      try {
+        const tree = await vaultFileStore.tree();
+        jsonResponse(res, 200, { tree });
+      } catch (error) {
+        console.error('[api] Failed to read file tree:', error.message);
+        jsonResponse(res, 500, { error: 'Failed to read file tree' });
+      }
+      return;
+    }
+
+    // GET /api/file?path=... — read file
+    if (requestUrl.pathname === '/api/file' && req.method === 'GET') {
+      const filePath = requestUrl.searchParams.get('path');
+      if (!filePath) {
+        jsonResponse(res, 400, { error: 'Missing path parameter' });
+        return;
+      }
+
+      try {
+        const content = await vaultFileStore.readMarkdownFile(filePath);
+        if (content === null) {
+          jsonResponse(res, 404, { error: 'File not found' });
+          return;
+        }
+        jsonResponse(res, 200, { path: filePath, content });
+      } catch (error) {
+        console.error('[api] Failed to read file:', error.message);
+        jsonResponse(res, 500, { error: 'Failed to read file' });
+      }
+      return;
+    }
+
+    // PUT /api/file — write/update file
+    if (requestUrl.pathname === '/api/file' && req.method === 'PUT') {
+      try {
+        const body = JSON.parse(await readRequestBody(req));
+        if (!body.path || typeof body.content !== 'string') {
+          jsonResponse(res, 400, { error: 'Missing path or content' });
+          return;
+        }
+        const result = await vaultFileStore.writeMarkdownFile(body.path, body.content);
+        if (!result.ok) {
+          jsonResponse(res, 400, { error: result.error });
+          return;
+        }
+        jsonResponse(res, 200, { ok: true });
+      } catch (error) {
+        console.error('[api] Failed to write file:', error.message);
+        jsonResponse(res, 500, { error: 'Failed to write file' });
+      }
+      return;
+    }
+
+    // POST /api/file — create new file
+    if (requestUrl.pathname === '/api/file' && req.method === 'POST') {
+      try {
+        const body = JSON.parse(await readRequestBody(req));
+        if (!body.path) {
+          jsonResponse(res, 400, { error: 'Missing path' });
+          return;
+        }
+        const result = await vaultFileStore.createFile(body.path, body.content || '');
+        if (!result.ok) {
+          jsonResponse(res, 409, { error: result.error });
+          return;
+        }
+        jsonResponse(res, 201, { ok: true, path: body.path });
+      } catch (error) {
+        console.error('[api] Failed to create file:', error.message);
+        jsonResponse(res, 500, { error: 'Failed to create file' });
+      }
+      return;
+    }
+
+    // DELETE /api/file?path=... — delete file
+    if (requestUrl.pathname === '/api/file' && req.method === 'DELETE') {
+      const filePath = requestUrl.searchParams.get('path');
+      if (!filePath) {
+        jsonResponse(res, 400, { error: 'Missing path parameter' });
+        return;
+      }
+
+      try {
+        const result = await vaultFileStore.deleteFile(filePath);
+        if (!result.ok) {
+          jsonResponse(res, 400, { error: result.error });
+          return;
+        }
+        jsonResponse(res, 200, { ok: true });
+      } catch (error) {
+        console.error('[api] Failed to delete file:', error.message);
+        jsonResponse(res, 500, { error: 'Failed to delete file' });
+      }
+      return;
+    }
+
+    // PATCH /api/file — rename/move file
+    if (requestUrl.pathname === '/api/file' && req.method === 'PATCH') {
+      try {
+        const body = JSON.parse(await readRequestBody(req));
+        if (!body.oldPath || !body.newPath) {
+          jsonResponse(res, 400, { error: 'Missing oldPath or newPath' });
+          return;
+        }
+        const result = await vaultFileStore.renameFile(body.oldPath, body.newPath);
+        if (!result.ok) {
+          jsonResponse(res, 400, { error: result.error });
+          return;
+        }
+        jsonResponse(res, 200, { ok: true, path: body.newPath });
+      } catch (error) {
+        console.error('[api] Failed to rename file:', error.message);
+        jsonResponse(res, 500, { error: 'Failed to rename file' });
+      }
+      return;
+    }
+
+    // POST /api/directory — create directory
+    if (requestUrl.pathname === '/api/directory' && req.method === 'POST') {
+      try {
+        const body = JSON.parse(await readRequestBody(req));
+        if (!body.path) {
+          jsonResponse(res, 400, { error: 'Missing path' });
+          return;
+        }
+        const result = await vaultFileStore.createDirectory(body.path);
+        if (!result.ok) {
+          jsonResponse(res, 400, { error: result.error });
+          return;
+        }
+        jsonResponse(res, 201, { ok: true });
+      } catch (error) {
+        console.error('[api] Failed to create directory:', error.message);
+        jsonResponse(res, 500, { error: 'Failed to create directory' });
+      }
+      return;
+    }
+
+    // === Static file serving ===
 
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' });

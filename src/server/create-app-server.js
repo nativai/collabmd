@@ -4,7 +4,7 @@ import { loadConfig } from './config/env.js';
 import { CollaborationRoom } from './domain/collaboration/collaboration-room.js';
 import { RoomRegistry } from './domain/collaboration/room-registry.js';
 import { createRequestHandler } from './infrastructure/http/create-request-handler.js';
-import { FileRoomStore } from './infrastructure/persistence/file-room-store.js';
+import { VaultFileStore } from './infrastructure/persistence/vault-file-store.js';
 import { attachCollaborationGateway } from './infrastructure/websocket/attach-collaboration-gateway.js';
 
 function getDisplayHost(host) {
@@ -29,17 +29,16 @@ function closeHttpServer(httpServer) {
 }
 
 export function createAppServer(config = loadConfig()) {
-  const roomStore = new FileRoomStore({ directory: config.persistenceDir });
+  const vaultFileStore = new VaultFileStore({ vaultDir: config.vaultDir });
   const roomRegistry = new RoomRegistry({
     createRoom: ({ name, onEmpty }) => new CollaborationRoom({
       maxBufferedAmountBytes: config.wsMaxBufferedAmountBytes,
       name,
-      docNamespace: config.roomNamespace,
       onEmpty,
-      persistenceStore: roomStore,
+      vaultFileStore,
     }),
   });
-  const requestHandler = createRequestHandler(config);
+  const requestHandler = createRequestHandler(config, vaultFileStore);
   const httpServer = createServer((req, res) => {
     requestHandler(req, res).catch((error) => {
       console.error('[http] Unhandled request error:', error.message);
@@ -61,8 +60,11 @@ export function createAppServer(config = loadConfig()) {
   });
 
   let shutdownPromise = null;
+  let vaultFileCount = 0;
 
   async function listen() {
+    vaultFileCount = await vaultFileStore.countMarkdownFiles();
+
     return new Promise((resolve, reject) => {
       httpServer.once('error', reject);
       httpServer.listen(config.port, config.host, () => {
@@ -72,7 +74,7 @@ export function createAppServer(config = loadConfig()) {
           address,
           host: getDisplayHost(config.host),
           port: typeof address === 'object' && address ? address.port : config.port,
-          wsPath: `${config.wsBasePath}/:room`,
+          wsPath: `${config.wsBasePath}/:file`,
         });
       });
     });
@@ -98,6 +100,7 @@ export function createAppServer(config = loadConfig()) {
     httpServer,
     listen,
     roomRegistry,
-    roomStore,
+    vaultFileStore,
+    get vaultFileCount() { return vaultFileCount; },
   };
 }

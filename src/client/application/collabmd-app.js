@@ -1,7 +1,8 @@
 import { PreviewRenderer } from './preview-renderer.js';
 import { USER_NAME_MAX_LENGTH, normalizeUserName, generateRoomId } from '../domain/room.js';
 import { EditorSession } from '../infrastructure/editor-session.js';
-import { getRoomFromHash, navigateToRoom } from '../infrastructure/runtime-config.js';
+import { getFileFromHash, navigateToFile } from '../infrastructure/runtime-config.js';
+import { FileExplorerController } from '../presentation/file-explorer-controller.js';
 import { LayoutController } from '../presentation/layout-controller.js';
 import { OutlineController } from '../presentation/outline-controller.js';
 import { ScrollSyncController } from '../presentation/scroll-sync-controller.js';
@@ -11,8 +12,6 @@ import { ToastController } from '../presentation/toast-controller.js';
 export class CollabMdApp {
   constructor() {
     this.elements = {
-      backButton: document.getElementById('backToLanding'),
-      createRoomButton: document.getElementById('createRoomBtn'),
       currentUserName: document.getElementById('currentUserName'),
       displayNameCancel: document.getElementById('displayNameCancel'),
       displayNameDialog: document.getElementById('displayNameDialog'),
@@ -21,38 +20,41 @@ export class CollabMdApp {
       editNameButton: document.getElementById('editNameBtn'),
       editorContainer: document.getElementById('editorContainer'),
       editorPage: document.getElementById('editor-page'),
-      joinRoomButton: document.getElementById('joinRoomBtn'),
-      landingPage: document.getElementById('landing'),
       lineInfo: document.getElementById('lineInfo'),
       previewContent: document.getElementById('previewContent'),
       previewContainer: document.getElementById('previewContainer'),
-      roomInput: document.getElementById('roomInput'),
-      roomName: document.getElementById('roomName'),
       shareButton: document.getElementById('shareBtn'),
       toastContainer: document.getElementById('toastContainer'),
       toggleWrapButton: document.getElementById('toggleWrapBtn'),
       userAvatars: document.getElementById('userAvatars'),
       userCount: document.getElementById('userCount'),
       wrapToggleLabel: document.getElementById('wrapToggleLabel'),
+      activeFileName: document.getElementById('activeFileName'),
+      sidebarToggle: document.getElementById('sidebarToggle'),
+      sidebar: document.getElementById('sidebar'),
+      emptyState: document.getElementById('emptyState'),
     };
 
     this.session = null;
+    this.currentFilePath = null;
     this.onlineUsers = [];
     this.connectionState = { status: 'disconnected', unreachable: false };
     this.sessionLoadToken = 0;
     this.connectionHelpShown = false;
     this.userNameStorageKey = 'collabmd-user-name';
     this.lineWrappingStorageKey = 'collabmd-editor-line-wrap';
+    this.sidebarVisibleKey = 'collabmd-sidebar-visible';
     this.followedUserClientId = null;
     this.followedCursorSignature = '';
 
     this.toastController = new ToastController(this.elements.toastContainer);
+    this.fileExplorer = new FileExplorerController({
+      onFileSelect: (filePath) => navigateToFile(filePath),
+      onFileDelete: () => navigateToFile(null),
+    });
     this.outlineController = new OutlineController({
       onNavigateToHeading: ({ sourceLine }) => {
-        if (!Number.isFinite(sourceLine)) {
-          return;
-        }
-
+        if (!Number.isFinite(sourceLine)) return;
         this.scrollSyncController.suspendSync(250);
         this.session?.scrollToLine(sourceLine, 0);
       },
@@ -65,6 +67,7 @@ export class CollabMdApp {
           this.scrollSyncController.syncPreviewToEditor();
         });
       },
+      onWikiLinkClick: (target) => this.handleWikiLinkClick(target),
       outlineController: this.outlineController,
       previewElement: this.elements.previewContent,
     });
@@ -88,44 +91,23 @@ export class CollabMdApp {
     this.outlineController.initialize();
     this.layoutController.initialize();
     this.scrollSyncController.initialize();
+    this.fileExplorer.initialize();
     this.syncCurrentUserName();
     this.syncWrapToggle();
     this.bindEvents();
+    this.restoreSidebarState();
 
     window.addEventListener('hashchange', () => this.handleHashChange());
     window.addEventListener('resize', this.createResizeHandler());
 
-    this.handleHashChange();
+    this.fileExplorer.refresh().then(() => {
+      this.handleHashChange();
+    });
   }
 
   bindEvents() {
-    this.elements.createRoomButton?.addEventListener('click', () => {
-      navigateToRoom(generateRoomId());
-    });
-
-    this.elements.joinRoomButton?.addEventListener('click', () => {
-      const roomId = this.elements.roomInput?.value.trim();
-      if (!roomId) {
-        this.elements.roomInput?.focus();
-        this.toastController.show('Enter a room name to join');
-        return;
-      }
-
-      navigateToRoom(roomId);
-    });
-
-    this.elements.roomInput?.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        this.elements.joinRoomButton?.click();
-      }
-    });
-
-    this.elements.backButton?.addEventListener('click', () => {
-      window.location.hash = '';
-    });
-
     this.elements.shareButton?.addEventListener('click', () => {
-      void this.copyCurrentRoomLink();
+      void this.copyCurrentLink();
     });
 
     this.elements.editNameButton?.addEventListener('click', () => {
@@ -144,11 +126,14 @@ export class CollabMdApp {
     this.elements.toggleWrapButton?.addEventListener('click', () => {
       this.toggleLineWrapping();
     });
+
+    this.elements.sidebarToggle?.addEventListener('click', () => {
+      this.toggleSidebar();
+    });
   }
 
   createResizeHandler() {
     let resizeTimer = null;
-
     return () => {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
@@ -160,31 +145,34 @@ export class CollabMdApp {
   }
 
   async handleHashChange() {
-    const roomId = getRoomFromHash();
+    const filePath = getFileFromHash();
 
-    if (!roomId) {
-      this.showLanding();
+    if (!filePath) {
+      this.showEmptyState();
       return;
     }
 
-    await this.showEditor(roomId);
+    await this.openFile(filePath);
   }
 
-  showLanding() {
+  showEmptyState() {
     this.sessionLoadToken += 1;
     this.cleanupSession();
+    this.currentFilePath = null;
+    this.fileExplorer.setActiveFile(null);
 
-    this.elements.landingPage?.classList.remove('hidden');
+    this.elements.emptyState?.classList.remove('hidden');
     this.elements.editorPage?.classList.add('hidden');
     this.elements.previewContent.innerHTML = '';
     this.elements.userAvatars.innerHTML = '';
-    this.elements.userCount.textContent = 'Offline';
-    this.elements.userCount.style.opacity = '0.6';
-    this.syncCurrentUserName();
-    this.syncWrapToggle();
+    this.elements.userCount.textContent = '';
+
+    if (this.elements.activeFileName) {
+      this.elements.activeFileName.textContent = 'CollabMD';
+    }
   }
 
-  async showEditor(roomId) {
+  async openFile(filePath) {
     const loadToken = this.sessionLoadToken + 1;
     this.sessionLoadToken = loadToken;
 
@@ -193,10 +181,18 @@ export class CollabMdApp {
     this.connectionHelpShown = false;
     this.onlineUsers = [];
     this.connectionState = { status: 'connecting', unreachable: false };
+    this.currentFilePath = filePath;
 
-    this.elements.landingPage?.classList.add('hidden');
+    this.fileExplorer.setActiveFile(filePath);
+
+    this.elements.emptyState?.classList.add('hidden');
     this.elements.editorPage?.classList.remove('hidden');
-    this.elements.roomName.textContent = roomId;
+
+    const displayName = filePath.split('/').pop().replace(/\.md$/i, '');
+    if (this.elements.activeFileName) {
+      this.elements.activeFileName.textContent = displayName;
+    }
+
     this.showEditorLoading();
     this.renderPresence();
 
@@ -214,7 +210,7 @@ export class CollabMdApp {
     this.session = session;
 
     try {
-      await session.initialize(roomId);
+      await session.initialize(filePath);
 
       if (loadToken !== this.sessionLoadToken) {
         session.destroy();
@@ -233,9 +229,7 @@ export class CollabMdApp {
         this.session = null;
       }
 
-      if (loadToken !== this.sessionLoadToken) {
-        return;
-      }
+      if (loadToken !== this.sessionLoadToken) return;
 
       this.showEditorLoadError();
       this.syncWrapToggle();
@@ -252,6 +246,39 @@ export class CollabMdApp {
     this.followedCursorSignature = '';
   }
 
+  handleWikiLinkClick(target) {
+    const files = this.fileExplorer.flatFiles;
+    const normalized = target.endsWith('.md') ? target : `${target}.md`;
+
+    const match = files.find((f) => {
+      return f === normalized || f.endsWith(`/${normalized}`) || f.replace(/\.md$/i, '') === target;
+    });
+
+    if (match) {
+      navigateToFile(match);
+    } else {
+      this.toastController.show(`File not found: ${target}`);
+    }
+  }
+
+  // Sidebar
+
+  toggleSidebar() {
+    const sidebar = this.elements.sidebar;
+    if (!sidebar) return;
+    const isHidden = sidebar.classList.toggle('collapsed');
+    localStorage.setItem(this.sidebarVisibleKey, isHidden ? 'false' : 'true');
+  }
+
+  restoreSidebarState() {
+    const stored = localStorage.getItem(this.sidebarVisibleKey);
+    if (stored === 'false') {
+      this.elements.sidebar?.classList.add('collapsed');
+    }
+  }
+
+  // Line wrapping
+
   toggleLineWrapping() {
     const currentState = this.session?.isLineWrappingEnabled() ?? this.getStoredLineWrapping();
     const nextState = !currentState;
@@ -263,25 +290,31 @@ export class CollabMdApp {
     this.scrollSyncController.syncPreviewToEditor();
   }
 
+  // Theme
+
   handleThemeChange(theme) {
     this.previewRenderer.applyTheme(theme);
     this.previewRenderer.queueRender();
     this.session?.applyTheme(theme);
   }
 
+  // Connection
+
   handleConnectionChange(state) {
     this.connectionState = state;
     this.renderPresence();
 
     if (state.firstConnection) {
-      this.toastController.show('Connected to collaboration server');
+      this.toastController.show('Connected');
     }
 
     if (state.unreachable && !this.connectionHelpShown) {
       this.connectionHelpShown = true;
-      this.toastController.show(`Cannot reach collaboration server at ${state.wsBaseUrl}`, 6000);
+      this.toastController.show(`Cannot reach server at ${state.wsBaseUrl}`, 6000);
     }
   }
+
+  // Presence
 
   updateOnlineUsers(users) {
     this.onlineUsers = users;
@@ -293,9 +326,7 @@ export class CollabMdApp {
 
   renderPresence() {
     const badge = this.elements.userCount;
-    if (!badge) {
-      return;
-    }
+    if (!badge) return;
 
     if (this.connectionState.status === 'connected') {
       badge.textContent = `${this.onlineUsers.length} online`;
@@ -304,7 +335,7 @@ export class CollabMdApp {
     }
 
     if (this.connectionState.status === 'connecting') {
-      badge.textContent = this.connectionState.unreachable ? 'Server unreachable' : 'Connecting...';
+      badge.textContent = this.connectionState.unreachable ? 'Unreachable' : 'Connecting...';
       badge.style.opacity = '0.6';
       return;
     }
@@ -315,16 +346,14 @@ export class CollabMdApp {
 
   renderAvatars() {
     const avatars = this.elements.userAvatars;
-    if (!avatars) {
-      return;
-    }
+    if (!avatars) return;
 
     avatars.innerHTML = '';
     const visibleUsers = [...this.onlineUsers];
-    const followedIndex = visibleUsers.findIndex((user) => user.clientId === this.followedUserClientId);
+    const followedIndex = visibleUsers.findIndex((u) => u.clientId === this.followedUserClientId);
     if (followedIndex > 0) {
-      const [followedUser] = visibleUsers.splice(followedIndex, 1);
-      visibleUsers.unshift(followedUser);
+      const [followed] = visibleUsers.splice(followedIndex, 1);
+      visibleUsers.unshift(followed);
     }
 
     visibleUsers.slice(0, 5).forEach((user) => {
@@ -342,8 +371,6 @@ export class CollabMdApp {
         avatar.title = user.clientId === this.followedUserClientId
           ? `Stop following ${user.name}`
           : `Follow ${user.name}`;
-        avatar.setAttribute('aria-label', avatar.title);
-        avatar.setAttribute('aria-pressed', String(user.clientId === this.followedUserClientId));
         avatar.addEventListener('click', () => this.toggleFollowUser(user.clientId));
       }
 
@@ -360,20 +387,18 @@ export class CollabMdApp {
     }
   }
 
+  // Follow user
+
   toggleFollowUser(clientId) {
-    if (!clientId) {
-      return;
-    }
+    if (!clientId) return;
 
     if (this.followedUserClientId === clientId) {
       this.stopFollowingUser();
       return;
     }
 
-    const user = this.onlineUsers.find((candidate) => candidate.clientId === clientId && !candidate.isLocal);
-    if (!user) {
-      return;
-    }
+    const user = this.onlineUsers.find((u) => u.clientId === clientId && !u.isLocal);
+    if (!user) return;
 
     this.followedUserClientId = clientId;
     this.followedCursorSignature = '';
@@ -384,41 +409,28 @@ export class CollabMdApp {
       }
     });
 
-    if (user.hasCursor) {
-      this.toastController.show(`Following ${user.name}`);
-      return;
-    }
-
-    this.toastController.show(`Following ${user.name}. Waiting for their cursor.`);
+    this.toastController.show(
+      user.hasCursor ? `Following ${user.name}` : `Following ${user.name}. Waiting for cursor.`,
+    );
   }
 
   stopFollowingUser(showToast = true) {
-    if (!this.followedUserClientId) {
-      return;
-    }
-
-    const followedUserName = this.onlineUsers.find((user) => user.clientId === this.followedUserClientId)?.name ?? 'collaborator';
+    if (!this.followedUserClientId) return;
+    const name = this.onlineUsers.find((u) => u.clientId === this.followedUserClientId)?.name ?? 'collaborator';
     this.followedUserClientId = null;
     this.followedCursorSignature = '';
     this.renderAvatars();
-
-    if (showToast) {
-      this.toastController.show(`Stopped following ${followedUserName}`);
-    }
+    if (showToast) this.toastController.show(`Stopped following ${name}`);
   }
 
   syncFollowedUser() {
-    if (!this.followedUserClientId) {
-      return;
-    }
-
-    const followedUser = this.onlineUsers.find((user) => user.clientId === this.followedUserClientId);
-    if (!followedUser || followedUser.isLocal) {
+    if (!this.followedUserClientId) return;
+    const user = this.onlineUsers.find((u) => u.clientId === this.followedUserClientId);
+    if (!user || user.isLocal) {
       this.stopFollowingUser(false);
       return;
     }
-
-    this.followUserCursor(followedUser);
+    this.followUserCursor(user);
   }
 
   followUserCursor(user, { force = false } = {}) {
@@ -432,48 +444,35 @@ export class CollabMdApp {
       return;
     }
 
-    const nextSignature = `${user.clientId}:${cursorAnchor}:${cursorHead}`;
-    if (!force && nextSignature === this.followedCursorSignature) {
-      return;
-    }
+    const nextSig = `${user.clientId}:${cursorAnchor}:${cursorHead}`;
+    if (!force && nextSig === this.followedCursorSignature) return;
 
     const didScroll = this.session?.scrollToUserCursor(user.clientId, 'center')
       || this.session?.scrollToPosition(cursorHead, 'center')
       || this.session?.scrollToLine(cursorLine);
-    if (didScroll) {
-      this.followedCursorSignature = nextSignature;
-    }
+    if (didScroll) this.followedCursorSignature = nextSig;
   }
+
+  // Display name dialog
 
   openDisplayNameDialog() {
     const dialog = this.elements.displayNameDialog;
     const input = this.elements.displayNameInput;
-
-    if (!dialog || !input) {
-      return;
-    }
+    if (!dialog || !input) return;
 
     input.value = this.getCurrentUserName();
-
     if (typeof dialog.showModal === 'function') {
       dialog.showModal();
     } else {
       dialog.setAttribute('open', 'true');
     }
-
-    requestAnimationFrame(() => {
-      input.focus();
-      input.select();
-    });
+    requestAnimationFrame(() => { input.focus(); input.select(); });
   }
 
   handleDisplayNameSubmit() {
     const input = this.elements.displayNameInput;
     const dialog = this.elements.displayNameDialog;
-
-    if (!input || !dialog || !this.session) {
-      return;
-    }
+    if (!input || !dialog || !this.session) return;
 
     const normalizedName = this.session.setUserName(input.value);
     if (!normalizedName) {
@@ -485,136 +484,80 @@ export class CollabMdApp {
     this.storeUserName(normalizedName);
     this.syncCurrentUserName();
     dialog.close();
-    this.toastController.show(`Display name updated to ${normalizedName}`);
+    this.toastController.show(`Display name: ${normalizedName}`);
   }
 
+  // Share
+
+  async copyCurrentLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      this.toastController.show('Link copied');
+    } catch {
+      this.toastController.show('Failed to copy link');
+    }
+  }
+
+  // User name storage
+
   getCurrentUser() {
-    return this.onlineUsers.find((user) => user.isLocal) ?? this.session?.getLocalUser() ?? null;
+    return this.onlineUsers.find((u) => u.isLocal) ?? this.session?.getLocalUser() ?? null;
   }
 
   getCurrentUserName() {
-    return this.getCurrentUser()?.name ?? this.getStoredUserName() ?? 'Set name';
+    return this.getCurrentUser()?.name ?? this.getStoredUserName() ?? '';
   }
 
   getStoredUserName() {
-    try {
-      return normalizeUserName(window.localStorage.getItem(this.userNameStorageKey) ?? '');
-    } catch {
-      return null;
-    }
+    try { return localStorage.getItem(this.userNameStorageKey) || ''; } catch { return ''; }
   }
 
   storeUserName(name) {
-    try {
-      window.localStorage.setItem(this.userNameStorageKey, name);
-    } catch {
-      // Ignore storage errors.
-    }
-  }
-
-  getStoredLineWrapping() {
-    try {
-      return window.localStorage.getItem(this.lineWrappingStorageKey) !== 'false';
-    } catch {
-      return true;
-    }
-  }
-
-  storeLineWrapping(enabled) {
-    try {
-      window.localStorage.setItem(this.lineWrappingStorageKey, String(Boolean(enabled)));
-    } catch {
-      // Ignore storage errors.
-    }
+    try { localStorage.setItem(this.userNameStorageKey, name); } catch { /* ignore */ }
   }
 
   syncCurrentUserName() {
-    const button = this.elements.editNameButton;
-    const label = this.elements.currentUserName;
-    const currentUserName = this.getCurrentUserName();
-
-    if (label) {
-      label.textContent = currentUserName;
-    }
-
-    if (button) {
-      button.title = `Change display name (${currentUserName})`;
-      button.setAttribute('aria-label', `Change display name. Current name: ${currentUserName}`);
-    }
+    const el = this.elements.currentUserName;
+    if (!el) return;
+    const name = this.getCurrentUserName();
+    el.textContent = name || 'Set name';
+    el.classList.toggle('has-name', Boolean(name));
   }
 
-  syncWrapToggle(isWrapped = this.session?.isLineWrappingEnabled() ?? this.getStoredLineWrapping()) {
-    const button = this.elements.toggleWrapButton;
+  // Line wrapping storage
+
+  getStoredLineWrapping() {
+    try { return localStorage.getItem(this.lineWrappingStorageKey) !== 'false'; } catch { return true; }
+  }
+
+  storeLineWrapping(enabled) {
+    try { localStorage.setItem(this.lineWrappingStorageKey, String(enabled)); } catch { /* ignore */ }
+  }
+
+  syncWrapToggle(state) {
+    const enabled = state ?? this.session?.isLineWrappingEnabled() ?? this.getStoredLineWrapping();
     const label = this.elements.wrapToggleLabel;
-    const nextAction = isWrapped ? 'Disable line wrap' : 'Enable line wrap';
-
-    if (label) {
-      label.textContent = isWrapped ? 'Wrap on' : 'Wrap off';
-    }
-
-    if (button) {
-      button.classList.toggle('active', isWrapped);
-      button.title = nextAction;
-      button.setAttribute('aria-label', nextAction);
-    }
+    const button = this.elements.toggleWrapButton;
+    if (label) label.textContent = enabled ? 'Wrap on' : 'Wrap off';
+    if (button) button.setAttribute('aria-label', enabled ? 'Disable line wrap' : 'Enable line wrap');
   }
+
+  // Editor loading states
 
   showEditorLoading() {
-    if (!this.elements.editorContainer) {
-      return;
-    }
-
+    if (!this.elements.editorContainer) return;
     this.elements.editorContainer.innerHTML = `
       <div class="editor-loading" id="editorLoading">
         <div class="loading-spinner"></div>
-        <span class="loading-text">Loading editor...</span>
-      </div>
-    `;
+        <span class="loading-text">Loading file...</span>
+      </div>`;
   }
 
   showEditorLoadError() {
-    if (!this.elements.editorContainer) {
-      return;
-    }
-
+    if (!this.elements.editorContainer) return;
     this.elements.editorContainer.innerHTML = `
       <div class="editor-loading" id="editorLoading">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--color-error)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-      <span class="loading-text" style="color:var(--color-error)">Failed to load editor modules</span>
-      <button class="btn btn-secondary" type="button" id="retryLoadEditor" style="margin-top:var(--space-2)">Retry</button>
-      </div>
-    `;
-
-    this.elements.editorContainer.querySelector('#retryLoadEditor')?.addEventListener('click', () => {
-      void this.handleHashChange();
-    });
-  }
-
-  async copyCurrentRoomLink() {
-    const roomUrl = window.location.href;
-
-    try {
-      await navigator.clipboard.writeText(roomUrl);
-      this.toastController.show('Room link copied to clipboard');
-      return;
-    } catch {
-      // Fallback to a hidden textarea for older browser contexts.
-    }
-
-    const textArea = document.createElement('textarea');
-    textArea.value = roomUrl;
-    textArea.style.position = 'fixed';
-    textArea.style.opacity = '0';
-    document.body.appendChild(textArea);
-    textArea.select();
-
-    try {
-      document.execCommand('copy');
-      this.toastController.show('Room link copied');
-    } catch {
-      this.toastController.show('Could not copy room link');
-    } finally {
-      textArea.remove();
-    }
+        <span class="loading-text">Failed to load file</span>
+      </div>`;
   }
 }

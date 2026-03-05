@@ -68,11 +68,10 @@ function readAwarenessEntries(update) {
 }
 
 export class CollaborationRoom {
-  constructor({ name, docNamespace, maxBufferedAmountBytes, persistenceStore, onEmpty }) {
+  constructor({ name, maxBufferedAmountBytes, vaultFileStore, onEmpty }) {
     this.name = name;
-    this.docKey = `${docNamespace}-${name}`;
     this.maxBufferedAmountBytes = maxBufferedAmountBytes;
-    this.persistenceStore = persistenceStore;
+    this.vaultFileStore = vaultFileStore;
     this.onEmpty = onEmpty;
     this.doc = new Y.Doc({ gc: true });
     this.awareness = new awarenessProtocol.Awareness(this.doc);
@@ -86,23 +85,24 @@ export class CollaborationRoom {
   }
 
   async hydrate() {
-    if (this.hydrated || !this.persistenceStore) {
-      this.hydrated = true;
+    if (this.hydrated) {
       return;
     }
 
     if (!this.hydratePromise) {
       this.hydratePromise = (async () => {
         try {
-          const update = await this.persistenceStore.read(this.docKey);
-
-          if (update) {
-            Y.applyUpdate(this.doc, update, 'persistence');
+          if (this.vaultFileStore) {
+            const content = await this.vaultFileStore.readMarkdownFile(this.name);
+            if (content !== null) {
+              const ytext = this.doc.getText('codemirror');
+              this.doc.transact(() => {
+                ytext.insert(0, content);
+              }, 'hydrate');
+            }
           }
         } catch (error) {
-          const quarantinedPath = await this.persistenceStore.quarantine?.(this.docKey);
-          const quarantineNote = quarantinedPath ? ` Moved corrupt snapshot to ${quarantinedPath}.` : '';
-          console.error(`[room:${this.name}] Failed to hydrate persisted state: ${error.message}.${quarantineNote}`);
+          console.error(`[room:${this.name}] Failed to hydrate from disk: ${error.message}`);
         } finally {
           this.hydrated = true;
         }
@@ -114,7 +114,9 @@ export class CollaborationRoom {
 
   registerDocListeners() {
     this.doc.on('update', (update, origin) => {
-      this.schedulePersist();
+      if (origin !== 'hydrate') {
+        this.schedulePersist();
+      }
 
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, MSG_SYNC);
@@ -158,7 +160,7 @@ export class CollaborationRoom {
   }
 
   schedulePersist() {
-    if (!this.persistenceStore) {
+    if (!this.vaultFileStore) {
       return;
     }
 
@@ -167,15 +169,16 @@ export class CollaborationRoom {
       this.persist().catch((error) => {
         console.error(`[room:${this.name}] Failed to persist document:`, error.message);
       });
-    }, 250);
+    }, 500);
   }
 
   async persist() {
-    if (!this.persistenceStore) {
+    if (!this.vaultFileStore) {
       return;
     }
 
-    await this.persistenceStore.write(this.docKey, Y.encodeStateAsUpdate(this.doc));
+    const content = this.doc.getText('codemirror').toString();
+    await this.vaultFileStore.writeMarkdownFile(this.name, content);
   }
 
   async addClient(ws) {

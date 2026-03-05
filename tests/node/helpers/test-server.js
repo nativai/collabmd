@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'fs/promises';
+import { mkdtemp, rm, mkdir, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -7,13 +7,18 @@ import { createAppServer } from '../../../src/server/create-app-server.js';
 
 export async function startTestServer(overrides = {}) {
   const tempRoot = await mkdtemp(join(tmpdir(), 'collabmd-test-'));
+  const vaultDir = join(tempRoot, 'vault');
+  await mkdir(vaultDir, { recursive: true });
+
+  // Seed a default test file
+  await writeFile(join(vaultDir, 'test.md'), '# Test\n\nHello from test vault.\n', 'utf-8');
+
   const config = {
     ...loadConfig(),
     host: '127.0.0.1',
     nodeEnv: 'test',
-    persistenceDir: join(tempRoot, 'rooms'),
+    vaultDir,
     port: 0,
-    roomNamespace: 'collabmd-test',
     ...overrides,
   };
   const server = createAppServer(config);
@@ -28,7 +33,8 @@ export async function startTestServer(overrides = {}) {
     port,
     server,
     tempRoot,
-    wsUrl: (roomName) => `ws://${config.host}:${port}${config.wsBasePath}/${encodeURIComponent(roomName)}`,
+    vaultDir,
+    wsUrl: (filePath) => `ws://${config.host}:${port}${config.wsBasePath}/${encodeURIComponent(filePath)}`,
   };
 }
 

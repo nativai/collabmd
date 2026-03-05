@@ -42,10 +42,11 @@ process.once('SIGTERM', () => {
 
 server.listen().then(({ host, port, wsPath }) => {
   console.log('');
-  console.log('  CollabMD Collaboration Server');
+  console.log('  CollabMD Vault Server');
   console.log(`  http://${host}:${port}`);
   console.log(`  ws route: ${wsPath}`);
-  console.log(`  persistence: ${server.config.persistenceDir}`);
+  console.log(`  vault: ${server.config.vaultDir}`);
+  console.log(`  files: ${server.vaultFileCount} markdown files`);
   console.log('');
 }).catch((error) => {
   console.error('[server] Failed to start:', error.message);

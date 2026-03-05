@@ -1,28 +1,33 @@
 {
   "name": "collabmd",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
-  "description": "Realtime collaborative markdown editor with Mermaid diagram support",
+  "description": "Collaborative markdown vault — like Obsidian, but online. Serve any directory of markdown files for realtime collaborative editing.",
+  "bin": {
+    "collabmd": "./bin/collabmd.js"
+  },
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "check": "npm run build && node --check src/server/index.js && node --check src/server/create-app-server.js && node --check scripts/build-client.mjs && node --check scripts/cloudflare-tunnel.mjs && node --check scripts/start-test-server.mjs && node --check scripts/start-with-cloudflare-tunnel.mjs && node --check playwright.config.js",
-    "start": "npm run build && node src/server/index.js",
-    "start:prod": "node src/server/index.js",
+    "check": "npm run build && node --check bin/collabmd.js && node --check src/server/index.js && node --check src/server/create-app-server.js && node --check scripts/build-client.mjs && node --check scripts/cloudflare-tunnel.mjs",
+    "start": "npm run build && node bin/collabmd.js",
+    "start:prod": "node bin/collabmd.js",
     "test": "npm run test:unit && npm run test:e2e",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:unit": "node --test --test-force-exit tests/node/*.test.js",
-    "tunnel": "node scripts/cloudflare-tunnel.mjs",
-    "start:tunnel": "node scripts/start-with-cloudflare-tunnel.mjs"
+    "tunnel": "node scripts/cloudflare-tunnel.mjs"
   },
   "keywords": [
     "markdown",
     "collaboration",
+    "obsidian",
+    "vault",
     "yjs",
-    "mermaid"
+    "mermaid",
+    "cli"
   ],
   "engines": {
-    "node": ">=24"
+    "node": ">=20"
   },
   "license": "MIT",
   "dependencies": {

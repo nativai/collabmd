@@ -11,13 +11,15 @@ export function getRuntimeConfig() {
   };
 }
 
-export function getRoomFromHash() {
-  const match = window.location.hash.match(/room=([^&]+)/);
+export function getFileFromHash() {
+  const match = window.location.hash.match(/file=([^&]+)/);
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-export function navigateToRoom(roomId) {
-  window.location.hash = `room=${encodeURIComponent(roomId)}`;
+export function navigateToFile(filePath) {
+  window.location.hash = filePath
+    ? `file=${encodeURIComponent(filePath)}`
+    : '';
 }
 
 export function resolveWsBaseUrl() {

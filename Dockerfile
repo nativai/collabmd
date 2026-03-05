@@ -21,9 +21,12 @@ RUN npm ci --omit=dev
 
 COPY --from=build /app/public ./public
 COPY --from=build /app/src ./src
+COPY --from=build /app/bin ./bin
 
-VOLUME ["/app/data"]
+# Default vault directory — mount a volume here
+VOLUME ["/data"]
+ENV COLLABMD_VAULT_DIR=/data
 
 EXPOSE 1234
 
-CMD ["npm", "run", "start:prod"]
+CMD ["node", "bin/collabmd.js", "--no-tunnel", "/data"]

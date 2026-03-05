@@ -4,6 +4,11 @@ async function waitForEditor(page) {
   await expect(page.locator('.cm-editor')).toBeVisible();
 }
 
+async function openFile(page, filePath) {
+  await page.goto(`/#file=${encodeURIComponent(filePath)}`);
+  await waitForEditor(page);
+}
+
 async function appendEditorContent(page, content) {
   const editor = page.locator('.cm-content').first();
   await editor.click();
@@ -52,23 +57,44 @@ function createScrollSyncRegressionDocument(itemCount = 80) {
   return lines.join('\n');
 }
 
-test('renders markdown preview for a room', async ({ page }) => {
-  await page.goto('/#room=e2e-preview');
-  await waitForEditor(page);
-
-  await appendEditorContent(page, '# Blackbox Heading\n\nParagraph from Playwright.');
-
-  await expect(page.locator('#previewContent')).toContainText('Paragraph from Playwright.');
+test('shows empty state when no file is selected', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#emptyState')).toBeVisible();
+  await expect(page.locator('.empty-state-title')).toContainText('Select a file');
 });
 
-test('syncs collaborative edits across two users', async ({ browser }) => {
+test('sidebar shows vault file tree', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#fileTree')).toBeVisible();
+  await expect(page.locator('#fileTree')).toContainText('README.md');
+});
+
+test('renders markdown preview when a file is opened', async ({ page }) => {
+  await openFile(page, 'README.md');
+
+  await expect(page.locator('#previewContent')).toContainText('My Vault');
+  await expect(page.locator('#previewContent')).toContainText('Welcome to the test vault');
+});
+
+test('opens a file by clicking the sidebar', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#fileTree')).toBeVisible();
+
+  // Click on README.md in the file tree
+  await page.locator('#fileTree .file-tree-item', { hasText: 'README.md' }).first().click();
+
+  await waitForEditor(page);
+  await expect(page.locator('#previewContent')).toContainText('My Vault');
+  await expect(page.locator('#activeFileName')).toContainText('README');
+});
+
+test('syncs collaborative edits across two users on the same file', async ({ browser }) => {
   const pageA = await browser.newPage();
   const pageB = await browser.newPage();
 
-  await pageA.goto('/#room=e2e-collaboration');
-  await pageB.goto('/#room=e2e-collaboration');
+  await openFile(pageA, 'README.md');
+  await openFile(pageB, 'README.md');
 
-  await Promise.all([waitForEditor(pageA), waitForEditor(pageB)]);
   await expect(pageA.locator('#userCount')).toHaveText('2 online');
 
   await appendEditorContent(pageA, '# Shared Draft\n\nUpdated from browser A.');
@@ -84,10 +110,9 @@ test('follows another user to their current cursor position', async ({ browser }
   const followerPage = await browser.newPage();
   const targetPage = await browser.newPage();
 
-  await followerPage.goto('/#room=e2e-follow');
-  await targetPage.goto('/#room=e2e-follow');
+  await openFile(followerPage, 'README.md');
+  await openFile(targetPage, 'README.md');
 
-  await Promise.all([waitForEditor(followerPage), waitForEditor(targetPage)]);
   await expect(followerPage.locator('#userCount')).toHaveText('2 online');
 
   await appendEditorContent(targetPage, createLongMarkdownDocument());
@@ -105,8 +130,7 @@ test('follows another user to their current cursor position', async ({ browser }
 });
 
 test('keeps preview and outline aligned when scrolling list-heavy editor content', async ({ page }) => {
-  await page.goto('/#room=e2e-scroll-sync');
-  await waitForEditor(page);
+  await openFile(page, 'README.md');
 
   await replaceEditorContent(page, createScrollSyncRegressionDocument());
   await expect(page.locator('#previewContent')).toContainText('Second section item 80.');
@@ -135,8 +159,7 @@ test('keeps preview and outline aligned when scrolling list-heavy editor content
 });
 
 test('scrolls the editor to the selected heading when navigating from the outline', async ({ page }) => {
-  await page.goto('/#room=e2e-outline-editor-sync');
-  await waitForEditor(page);
+  await openFile(page, 'README.md');
 
   await replaceEditorContent(page, createScrollSyncRegressionDocument());
   await expect(page.locator('#previewContent')).toContainText('Second section item 80.');
@@ -166,13 +189,12 @@ test('scrolls the editor to the selected heading when navigating from the outlin
 });
 
 test('keeps the outline open on desktop after selecting a section', async ({ page }) => {
-  await page.goto('/#room=e2e-desktop-outline');
-  await waitForEditor(page);
+  await openFile(page, 'README.md');
 
   await page.locator('#outlineToggle').click();
   await expect(page.locator('#outlinePanel')).toBeVisible();
 
-  await page.locator('#outlineNav .outline-item', { hasText: 'Features' }).click();
+  await page.locator('#outlineNav .outline-item', { hasText: 'Links' }).click();
 
   await expect(page.locator('#outlinePanel')).toBeVisible();
 });
@@ -183,8 +205,7 @@ test.describe('mobile outline', () => {
   });
 
   test('closes the outline after selecting a section on mobile', async ({ page }) => {
-    await page.goto('/#room=e2e-mobile-outline');
-    await waitForEditor(page);
+    await openFile(page, 'README.md');
 
     await page.locator('#mobileViewToggle').click();
 
@@ -192,10 +213,10 @@ test.describe('mobile outline', () => {
     await page.locator('#outlineToggle').click();
 
     await expect(page.locator('#outlinePanel')).toBeVisible();
-    await expect(page.locator('#outlineNav')).toContainText('Welcome to CollabMD');
-    await expect(page.locator('#outlineNav')).toContainText('Features');
+    await expect(page.locator('#outlineNav')).toContainText('My Vault');
+    await expect(page.locator('#outlineNav')).toContainText('Links');
 
-    await page.locator('#outlineNav .outline-item', { hasText: 'Features' }).click();
+    await page.locator('#outlineNav .outline-item', { hasText: 'Links' }).click();
 
     await expect(page.locator('#outlinePanel')).toBeHidden();
   });

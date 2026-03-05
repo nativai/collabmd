@@ -1,41 +1,107 @@
 # CollabMD
 
-Realtime collaborative Markdown editor with live preview, Mermaid diagrams, and a Node-based collaboration server.
+Collaborative markdown vault — like Obsidian, but online. Run the CLI in any directory to serve it as a realtime collaborative editing environment with live preview, Mermaid diagrams, and `[[wiki-links]]`.
 
-## Production-oriented changes
+## How it works
 
-- Cleaned up the codebase into `src/client`, `src/server`, and `public`.
-- Removed the monolithic browser script and split the client into application, infrastructure, presentation, and domain modules.
-- Added on-disk room persistence under `data/rooms` so rooms survive server restarts.
-- Added a repeatable client build step and a multi-stage Docker image for VPS/Coolify deployment.
-- Switched the collaboration client to same-origin WebSocket routing by default using `/ws/:room`.
+```text
+cd ~/my-vault
+collabmd
+```
+
+CollabMD starts a local server, scans for markdown files, and opens a browser-based editor with:
+
+- **File explorer sidebar** — browse, create, rename, and delete `.md` files and folders
+- **Realtime collaboration** — multiple people can edit the same file at the same time via Yjs
+- **Live markdown preview** — rendered as you type, with syntax-highlighted code blocks and Mermaid diagrams
+- **`[[wiki-links]]`** — click a wiki-link in the preview to jump to that file
+- **Cloudflare Tunnel** — auto-starts by default so collaborators can reach your vault over the internet
+
+Your filesystem is the source of truth. CollabMD reads `.md` files from disk, uses Yjs for the realtime collaboration layer, and writes plain text back to disk when the last editor disconnects.
+
+## Apakah ini masuk? 
+
+## Mantap
 
 ## Architecture
 
 ```text
+bin/
+  collabmd.js              CLI entry point
 src/
   client/
-    application/     app orchestration and preview rendering
-    domain/          default content and room/user generators
-    infrastructure/  runtime config and collaborative editor session
-    presentation/    theme, layout, outline, and toast controllers
+    application/           app orchestration, preview rendering, wiki-links
+    domain/                room/user generators
+    infrastructure/        runtime config, collaborative editor session
+    presentation/          file explorer, theme, layout, outline, scroll sync, toast
   server/
-    config/          environment loading
-    domain/          collaboration room model and registry
-    infrastructure/  HTTP, persistence, and WebSocket adapters
+    config/                environment loading
+    domain/                collaboration room model and registry
+    infrastructure/        HTTP request handler, vault file store, WebSocket gateway
 public/
-  assets/css/        static styles
-  index.html         app shell
+  assets/css/              static styles
+  index.html               app shell
 scripts/
-  build-client.mjs   client bundling and vendored browser assets
+  build-client.mjs         client bundling and vendored browser assets
+  cloudflare-tunnel.mjs    Cloudflare quick tunnel helper
 ```
 
 ## Requirements
 
-- Node.js 24+
+- Node.js >= 20
 - npm
 
-## Local development
+## Install
+
+### From source
+
+```bash
+git clone https://github.com/andes90/collabmd.git
+cd collabmd
+npm install
+npm run build
+npm link       # optional: makes `collabmd` available globally
+```
+
+## Usage
+
+```bash
+collabmd [directory] [options]
+```
+
+### Arguments
+
+| Argument    | Description                                          |
+|-------------|------------------------------------------------------|
+| `directory` | Path to the vault directory (default: current directory) |
+
+### Options
+
+| Option          | Description                            | Default      |
+|-----------------|----------------------------------------|--------------|
+| `-p, --port`    | Port to listen on                      | `1234`       |
+| `--host`        | Host to bind to                        | `127.0.0.1`  |
+| `--no-tunnel`   | Don't start Cloudflare Tunnel          | tunnel on    |
+| `-v, --version` | Show version                           |              |
+| `-h, --help`    | Show help                              |              |
+
+### Examples
+
+```bash
+# Serve the current directory
+collabmd
+
+# Serve a specific vault
+collabmd ~/my-vault
+
+# Use a custom port, no tunnel
+collabmd --port 3000 --no-tunnel
+
+# Serve an Obsidian vault
+collabmd ~/Documents/Obsidian/MyVault
+```
+
+## Development
 
 Install dependencies:
 
@@ -43,145 +109,127 @@ Install dependencies:
 npm install
 ```
 
-Build and run the app:
+Build and run:
 
 ```bash
 npm start
 ```
 
-Open:
-
-```text
-http://localhost:1234
-```
+Open `http://localhost:1234`.
 
 Useful commands:
 
 ```bash
-npm run build
-npm run check
-npm run start:prod
-npm run test
-npm run test:unit
-npm run test:e2e
-npm run tunnel
-npm run start:tunnel
+npm run build          # Build client bundle
+npm run check          # Syntax check all entry points
+npm run start          # Build + start server
+npm run start:prod     # Start server (expects previous build)
+npm run test           # Run unit + e2e tests
+npm run test:unit      # Fast Node-based unit tests
+npm run test:e2e       # Playwright browser tests
+npm run tunnel         # Start only the Cloudflare tunnel
 ```
-
-`npm start` always rebuilds the browser bundle before starting the server. `npm run start:prod` expects a previous `npm run build`.
 
 ## Testing
 
-The repo now has two automated test layers:
-
-- `npm run test:unit`
-  Fast Node-based coverage for persistence, HTTP endpoints, and WebSocket collaboration behavior.
-- `npm run test:e2e`
-  Blackbox Playwright coverage that boots the full app, drives the browser UI, and verifies preview + collaboration flows.
-- `npm run test`
-  Runs both suites.
-
-Install the Playwright browser once on a new machine:
+### Unit tests
 
 ```bash
-npx playwright install chromium
+npm run test:unit
 ```
 
-Test layout:
+Covers the vault file store, HTTP endpoints, collaboration room, and WebSocket integration behavior.
 
-```text
-tests/
-  node/   Node test runner coverage for server/domain/integration behavior
-  e2e/    Playwright browser tests against a real running app
+### End-to-end tests
+
+```bash
+npx playwright install chromium    # first time only
+npm run test:e2e
 ```
 
-The Playwright suite starts its own isolated test server on `127.0.0.1:4173` and stores temporary room data under `.tmp/`.
+Playwright boots the full app against the `test-vault/` directory and verifies the file explorer, editor, preview, collaboration, outline, and scroll sync flows.
+
+### All tests
+
+```bash
+npm run test
+```
 
 ## Cloudflare Tunnel
 
-The app can be exposed from your local machine through a Cloudflare Tunnel. Since the editor already uses same-origin WebSocket routing (`/ws/:room`), the tunnel works for both HTTP and collaboration traffic without extra app changes.
+By default, the CLI starts a [Cloudflare Quick Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) so your vault is accessible from the internet. Since the editor uses same-origin WebSocket routing (`/ws/:file`), the tunnel works for both HTTP and collaboration traffic.
 
-Install `cloudflared` first:
+Install `cloudflared`:
 
 - macOS: `brew install cloudflared`
-- Linux / Windows: use the official Cloudflare Tunnel installer
+- Linux/Windows: [official installer](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
 
-Run the local app and the tunnel in one command:
-
-```bash
-npm run start:tunnel
-```
-
-If you already have the app running locally, start only the tunnel:
+To disable the tunnel:
 
 ```bash
-npm run tunnel
+collabmd --no-tunnel
 ```
 
-The quick tunnel points to `http://127.0.0.1:1234` by default. You can override that with environment variables:
+You can also configure the tunnel via environment variables:
 
 ```bash
-TUNNEL_TARGET_PORT=4000 npm run tunnel
-TUNNEL_TARGET_URL=http://127.0.0.1:4000 npm run tunnel
+TUNNEL_TARGET_PORT=4000 collabmd
+TUNNEL_TARGET_URL=http://127.0.0.1:4000 collabmd
+CLOUDFLARED_EXTRA_ARGS="--loglevel info" collabmd
 ```
 
-You can also pass extra `cloudflared` flags:
+## Docker / Coolify deployment
 
 ```bash
-CLOUDFLARED_EXTRA_ARGS="--loglevel info" npm run tunnel
+docker build -t collabmd .
+docker run -p 1234:1234 -v /path/to/vault:/data collabmd
 ```
+
+Recommended Coolify setup:
+
+1. Use the included `Dockerfile`.
+2. Expose port `1234`.
+3. Mount a persistent volume to `/data` containing your markdown files.
+4. Run a single replica only — room state is in-process and not shared across instances.
+5. Set `PUBLIC_WS_BASE_URL` only if your WebSocket endpoint differs from the app origin.
+
+Health check: `GET /health`
 
 ## Environment variables
 
-- `HOST`: bind host, default `127.0.0.1` in development and `0.0.0.0` in production
-- `PORT`: HTTP + WebSocket port, default `1234`
-- `HTTP_KEEP_ALIVE_TIMEOUT_MS`: keep-alive timeout for HTTP sockets, default `5000`
-- `HTTP_HEADERS_TIMEOUT_MS`: header read timeout, default `60000`
-- `HTTP_REQUEST_TIMEOUT_MS`: full HTTP request timeout, default `30000`
-- `WS_BASE_PATH`: WebSocket base path, default `/ws`
-- `WS_HEARTBEAT_INTERVAL_MS`: heartbeat interval used to evict dead WebSocket clients, default `30000`
-- `WS_MAX_BUFFERED_AMOUNT_BYTES`: buffered outbound bytes allowed per WebSocket before the server drops a slow client, default `1048576`
-- `WS_MAX_PAYLOAD_BYTES`: maximum inbound WebSocket frame size, default `4194304`
-- `PUBLIC_WS_BASE_URL`: optional public WebSocket URL override for reverse proxies
-- `PERSISTENCE_DIR`: folder for persisted room state, default `data/rooms`
-- `ROOM_NAMESPACE`: namespace used for persisted room keys, default `collabmd`
-- `CLOUDFLARED_BIN`: `cloudflared` binary path, default `cloudflared`
-- `TUNNEL_TARGET_HOST`: local host used by the tunnel helper, default `127.0.0.1`
-- `TUNNEL_TARGET_PORT`: local port used by the tunnel helper, default `1234`
-- `TUNNEL_TARGET_URL`: full local target URL override for the tunnel helper
-- `CLOUDFLARED_EXTRA_ARGS`: extra arguments appended to `cloudflared tunnel`
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `HOST` | Bind host | `127.0.0.1` (dev), `0.0.0.0` (prod) |
+| `PORT` | HTTP + WebSocket port | `1234` |
+| `COLLABMD_VAULT_DIR` | Vault directory path | current directory |
+| `WS_BASE_PATH` | WebSocket base path | `/ws` |
+| `PUBLIC_WS_BASE_URL` | Public WebSocket URL override for reverse proxies | |
+| `HTTP_KEEP_ALIVE_TIMEOUT_MS` | Keep-alive timeout | `5000` |
+| `HTTP_HEADERS_TIMEOUT_MS` | Header read timeout | `60000` |
+| `HTTP_REQUEST_TIMEOUT_MS` | Request timeout | `30000` |
+| `WS_HEARTBEAT_INTERVAL_MS` | Heartbeat interval for evicting dead clients | `30000` |
+| `WS_MAX_BUFFERED_AMOUNT_BYTES` | Max outbound buffer per WebSocket | `1048576` |
+| `WS_MAX_PAYLOAD_BYTES` | Max inbound WebSocket frame | `4194304` |
+| `CLOUDFLARED_BIN` | `cloudflared` binary path | `cloudflared` |
+| `TUNNEL_TARGET_HOST` | Tunnel target host | `127.0.0.1` |
+| `TUNNEL_TARGET_PORT` | Tunnel target port | `1234` |
+| `TUNNEL_TARGET_URL` | Full tunnel target URL override | |
+| `CLOUDFLARED_EXTRA_ARGS` | Extra `cloudflared` flags | |
 
-Copy the example file when you want environment-based deployment settings:
+Copy the example file:
 
 ```bash
 cp .env.example .env
 ```
 
-## Coolify / VPS deployment
-
-This repo now ships with a Dockerfile, so Coolify can deploy it as a Docker-based service.
-
-Recommended setup:
-
-1. Use the included `Dockerfile`.
-2. Expose port `1234` in Coolify.
-3. Mount a persistent volume to `/app/data` so room state survives container restarts.
-4. Run a single replica only. This server keeps room state in process and does not coordinate rooms across multiple instances.
-5. Set `PUBLIC_WS_BASE_URL` only if your WebSocket endpoint differs from the app origin.
-
-Suggested hardening for smaller VPS instances:
-
-- Keep the default heartbeat and payload limits unless you have a concrete reason to raise them.
-- Put Cloudflare, Caddy, or Nginx in front so repeated static asset requests are cached before they reach Node.
-- Monitor container RSS and CPU after launch; room fan-out is mostly memory + network bound, not database bound.
-
-Health check:
-
-```text
-/health
-```
-
 ## Notes
 
-- The app is still intentionally lightweight: there is no authentication, authorization, or database-backed tenancy layer yet.
-- Room URLs use hash routing, so reverse proxies do not need special SPA rewrite rules.
+- No authentication or authorization layer — anyone with the URL can edit.
+- The filesystem is the source of truth; Yjs is the collaboration layer on top.
+- CollabMD assumes it is the only writer while a file is open — no live `fs.watch` reconciliation.
+- `.obsidian`, `.git`, `.trash`, and `node_modules` directories are ignored.
+- Only `.md`, `.markdown`, and `.mdx` files are indexed.
+
+## License
+
+MIT

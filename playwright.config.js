@@ -16,13 +16,9 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   webServer: {
-    command: 'npm run build && node scripts/start-test-server.mjs',
+    command: 'npm run build && node bin/collabmd.js --no-tunnel --port 4173 --host 127.0.0.1 test-vault',
     env: {
       NODE_ENV: 'test',
-      TEST_SERVER_HOST: '127.0.0.1',
-      TEST_SERVER_PERSISTENCE_DIR: '.tmp/playwright-data',
-      TEST_SERVER_PORT: '4173',
-      TEST_SERVER_ROOM_NAMESPACE: 'collabmd-playwright',
     },
     reuseExistingServer: !process.env.CI,
     timeout: 120000,

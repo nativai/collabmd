@@ -179,9 +179,10 @@ function createMarkdownRenderer() {
 }
 
 export class PreviewRenderer {
-  constructor({ getContent, onRenderComplete, outlineController, previewElement }) {
+  constructor({ getContent, onRenderComplete, onWikiLinkClick, outlineController, previewElement }) {
     this.getContent = getContent;
     this.onRenderComplete = onRenderComplete;
+    this.onWikiLinkClick = onWikiLinkClick;
     this.outlineController = outlineController;
     this.previewElement = previewElement;
     this.markdown = createMarkdownRenderer();
@@ -274,6 +275,7 @@ export class PreviewRenderer {
     this.previewElement.innerHTML = html;
 
     this.wrapTables();
+    this.renderWikiLinks();
 
     try {
       const mermaidNodes = this.previewElement.querySelectorAll('.mermaid');
@@ -334,6 +336,58 @@ export class PreviewRenderer {
       table.parentNode.insertBefore(wrapper, table);
       wrapper.appendChild(table);
     });
+  }
+
+  renderWikiLinks() {
+    const walker = document.createTreeWalker(
+      this.previewElement,
+      NodeFilter.SHOW_TEXT,
+      null,
+    );
+
+    const textNodes = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      if (/\[\[.+?\]\]/.test(node.textContent)) {
+        textNodes.push(node);
+      }
+    }
+
+    for (const textNode of textNodes) {
+      const fragment = document.createDocumentFragment();
+      const text = textNode.textContent;
+      let lastIndex = 0;
+      const regex = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+      let match;
+
+      while ((match = regex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+        }
+
+        const target = match[1].trim();
+        const display = (match[2] || match[1]).trim();
+
+        const link = document.createElement('a');
+        link.className = 'wiki-link';
+        link.href = '#';
+        link.textContent = display;
+        link.dataset.wikiTarget = target;
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          this.onWikiLinkClick?.(target);
+        });
+
+        fragment.appendChild(link);
+        lastIndex = regex.lastIndex;
+      }
+
+      if (lastIndex < text.length) {
+        fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+      }
+
+      textNode.parentNode.replaceChild(fragment, textNode);
+    }
   }
 
   enhanceMermaidDiagrams() {

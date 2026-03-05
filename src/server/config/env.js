@@ -25,8 +25,11 @@ function getDefaultHost(nodeEnv) {
   return nodeEnv === 'production' ? '0.0.0.0' : '127.0.0.1';
 }
 
-export function loadConfig() {
+export function loadConfig(overrides = {}) {
   const nodeEnv = process.env.NODE_ENV || 'development';
+  const vaultDir = overrides.vaultDir
+    || process.env.COLLABMD_VAULT_DIR
+    || resolve(projectRoot, 'data/vault');
 
   return {
     host: process.env.HOST || getDefaultHost(nodeEnv),
@@ -36,9 +39,8 @@ export function loadConfig() {
     port: parsePort(process.env.PORT, 1234),
     nodeEnv,
     publicDir: resolve(projectRoot, 'public'),
-    persistenceDir: resolve(projectRoot, process.env.PERSISTENCE_DIR || 'data/rooms'),
+    vaultDir,
     publicWsBaseUrl: process.env.PUBLIC_WS_BASE_URL || '',
-    roomNamespace: process.env.ROOM_NAMESPACE || 'collabmd',
     wsHeartbeatIntervalMs: parsePositiveInt(process.env.WS_HEARTBEAT_INTERVAL_MS, 30_000),
     wsBasePath: normalizeBasePath(process.env.WS_BASE_PATH || '/ws'),
     wsMaxBufferedAmountBytes: parsePositiveInt(

@@ -28,22 +28,18 @@ function createSocket({ bufferedAmount = 0 } = {}) {
 }
 
 test('CollaborationRoom hydrates once for concurrent joins', async () => {
-  const persistedDoc = new Y.Doc();
-  persistedDoc.getText('codemirror').insert(0, '# persisted');
-
   let readCount = 0;
   const room = new CollaborationRoom({
-    docNamespace: 'test',
     maxBufferedAmountBytes: 1024,
     name: 'hydration-room',
     onEmpty: () => {},
-    persistenceStore: {
-      async read() {
+    vaultFileStore: {
+      async readMarkdownFile() {
         readCount += 1;
         await new Promise((resolve) => setTimeout(resolve, 25));
-        return Y.encodeStateAsUpdate(persistedDoc);
+        return '# persisted';
       },
-      async write() {},
+      async writeMarkdownFile() {},
     },
   });
 
@@ -55,11 +51,10 @@ test('CollaborationRoom hydrates once for concurrent joins', async () => {
 
 test('CollaborationRoom closes slow clients when buffered writes exceed the limit', async () => {
   const room = new CollaborationRoom({
-    docNamespace: 'test',
     maxBufferedAmountBytes: 4,
     name: 'backpressure-room',
     onEmpty: () => {},
-    persistenceStore: null,
+    vaultFileStore: null,
   });
 
   const origin = createSocket();

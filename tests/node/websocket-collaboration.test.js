@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import WebSocket from 'ws';
 import * as Y from 'yjs';
@@ -78,13 +80,14 @@ function encodeSyncUpdateMessage(update) {
   return Buffer.from(encoding.toUint8Array(encoder));
 }
 
-test('WebSocket collaboration broadcasts awareness and persists room content', async (t) => {
-  const app = await startTestServer({ roomNamespace: 'collabmd-ws-test' });
+test('WebSocket collaboration broadcasts awareness and persists vault file', async (t) => {
+  const app = await startTestServer();
   t.after(() => app.close());
 
-  const roomName = 'integration-room';
-  const ws1 = new WebSocket(app.wsUrl(roomName));
-  const ws2 = new WebSocket(app.wsUrl(roomName));
+  // Connect two clients to the seeded test.md file
+  const filePath = 'test.md';
+  const ws1 = new WebSocket(app.wsUrl(filePath));
+  const ws2 = new WebSocket(app.wsUrl(filePath));
   t.after(async () => {
     ws1.close();
     ws2.close();
@@ -97,6 +100,7 @@ test('WebSocket collaboration broadcasts awareness and persists room content', a
     waitForMessage(ws2, (data) => getMessageType(data) === MSG_SYNC),
   ]);
 
+  // Client 1 sends awareness state
   const awareness = new awarenessProtocol.Awareness(new Y.Doc());
   awareness.setLocalStateField('user', {
     color: '#0ea5e9',
@@ -107,6 +111,7 @@ test('WebSocket collaboration broadcasts awareness and persists room content', a
     awarenessProtocol.encodeAwarenessUpdate(awareness, [awareness.clientID]),
   ));
 
+  // Client 2 should receive the awareness broadcast
   const awarenessMessage = await waitForMessage(ws2, (data) => getMessageType(data) === MSG_AWARENESS);
   const awarenessDecoder = decoding.createDecoder(awarenessMessage);
   decoding.readVarUint(awarenessDecoder);
@@ -118,34 +123,38 @@ test('WebSocket collaboration broadcasts awareness and persists room content', a
   );
   assert.equal(remoteAwareness.getStates().get(awareness.clientID)?.user?.name, 'Integration User');
 
+  // Client 1 sends a document update
   const clientDoc = new Y.Doc();
   clientDoc.getText('codemirror').insert(0, '# Persisted from test');
   ws1.send(encodeSyncUpdateMessage(Y.encodeStateAsUpdate(clientDoc)));
 
+  // Client 2 should receive the sync update
   await waitForMessage(ws2, (data) => getMessageType(data) === MSG_SYNC);
 
+  // Close both clients
   ws1.close();
   ws2.close();
   await Promise.all([waitForClose(ws1), waitForClose(ws2)]);
 
+  // Wait for the room to drain
   await waitForCondition(() => app.server.roomRegistry.rooms.size === 0);
 
-  const persistedUpdate = await waitForCondition(async () => (
-    app.server.roomStore.read(`${app.server.config.roomNamespace}-${roomName}`)
-  ));
-  const persistedDoc = new Y.Doc();
-  Y.applyUpdate(persistedDoc, persistedUpdate);
-  assert.equal(persistedDoc.getText('codemirror').toString(), '# Persisted from test');
+  // The vault file store persists plain text to disk — verify it
+  const diskContent = await waitForCondition(async () => {
+    const content = await readFile(join(app.vaultDir, filePath), 'utf-8');
+    return content.includes('Persisted from test') ? content : null;
+  });
+
+  assert.ok(diskContent.includes('# Persisted from test'));
 });
 
 test('WebSocket server rejects oversized payloads', async (t) => {
   const app = await startTestServer({
-    roomNamespace: 'collabmd-ws-size-test',
     wsMaxPayloadBytes: 128,
   });
   t.after(() => app.close());
 
-  const ws = new WebSocket(app.wsUrl('oversized-room'));
+  const ws = new WebSocket(app.wsUrl('test.md'));
   t.after(async () => {
     ws.close();
     await Promise.allSettled([waitForClose(ws)]);

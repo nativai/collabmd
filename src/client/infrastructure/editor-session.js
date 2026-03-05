@@ -21,7 +21,6 @@ import { WebsocketProvider } from 'y-websocket';
 import { yCollab } from 'y-codemirror.next';
 import * as Y from 'yjs';
 
-import { DEFAULT_CONTENT } from '../domain/default-content.js';
 import { createRandomUser, normalizeUserName } from '../domain/room.js';
 import { resolveWsBaseUrl } from './runtime-config.js';
 
@@ -124,14 +123,14 @@ export class EditorSession {
     this.wsBaseUrl = '';
   }
 
-  async initialize(roomId) {
+  async initialize(filePath) {
     this.wsBaseUrl = resolveWsBaseUrl();
     this.ydoc = new Y.Doc();
     this.ytext = this.ydoc.getText('codemirror');
 
     const undoManager = new Y.UndoManager(this.ytext);
     const user = createRandomUser(this.preferredUserName);
-    const provider = new WebsocketProvider(this.wsBaseUrl, roomId, this.ydoc, {
+    const provider = new WebsocketProvider(this.wsBaseUrl, filePath, this.ydoc, {
       disableBc: true,
       maxBackoffTime: 5000,
     });
@@ -145,20 +144,13 @@ export class EditorSession {
 
     this.trackConnectionStatus();
 
-    let initializedDefaultContent = false;
+    let initialSyncDone = false;
     provider.on('sync', (isSynced) => {
-      if (!isSynced || initializedDefaultContent) {
+      if (!isSynced || initialSyncDone) {
         return;
       }
 
-      initializedDefaultContent = true;
-
-      if (this.ytext.toString() === '') {
-        this.ydoc.transact(() => {
-          this.ytext.insert(0, DEFAULT_CONTENT);
-        }, 'default-content');
-      }
-
+      initialSyncDone = true;
       this.onContentChange?.();
     });
 
