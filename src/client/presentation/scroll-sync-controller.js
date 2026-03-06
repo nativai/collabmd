@@ -25,6 +25,32 @@ function isLeafSourceBlock(element) {
   return !element.querySelector('[data-source-line]');
 }
 
+function requestIdleWork(callback) {
+  if (typeof window.requestIdleCallback === 'function') {
+    return window.requestIdleCallback(callback, { timeout: 500 });
+  }
+
+  return window.setTimeout(() => {
+    callback({
+      didTimeout: false,
+      timeRemaining: () => 0,
+    });
+  }, 1);
+}
+
+function cancelIdleWork(id) {
+  if (id === null) {
+    return;
+  }
+
+  if (typeof window.cancelIdleCallback === 'function') {
+    window.cancelIdleCallback(id);
+    return;
+  }
+
+  window.clearTimeout(id);
+}
+
 export class ScrollSyncController {
   constructor({
     getEditorLineNumber,
@@ -41,6 +67,8 @@ export class ScrollSyncController {
     this.pendingSync = null;
     this.frameId = null;
     this.previewBlocks = null;
+    this.previewBlocksWarmId = null;
+    this.largeDocumentMode = false;
     this.suspendedUntil = 0;
 
     this.handleEditorScroll = () => {
@@ -80,6 +108,8 @@ export class ScrollSyncController {
     this.editorScroller = null;
     this.pendingSync = null;
     this.previewBlocks = null;
+    cancelIdleWork(this.previewBlocksWarmId);
+    this.previewBlocksWarmId = null;
     this.lockedElements.clear();
     this.suspendedUntil = 0;
 
@@ -114,6 +144,23 @@ export class ScrollSyncController {
 
   invalidatePreviewBlocks() {
     this.previewBlocks = null;
+    cancelIdleWork(this.previewBlocksWarmId);
+    this.previewBlocksWarmId = null;
+  }
+
+  setLargeDocumentMode(enabled) {
+    this.largeDocumentMode = Boolean(enabled);
+  }
+
+  warmPreviewBlocks() {
+    if (!this.largeDocumentMode || this.previewBlocks || this.previewBlocksWarmId !== null) {
+      return;
+    }
+
+    this.previewBlocksWarmId = requestIdleWork(() => {
+      this.previewBlocksWarmId = null;
+      this.previewBlocks = this.buildPreviewBlocks();
+    });
   }
 
   suspendSync(durationMs = 250) {
@@ -215,6 +262,15 @@ export class ScrollSyncController {
       return [];
     }
 
+    if (this.largeDocumentMode) {
+      return [];
+    }
+
+    this.previewBlocks = this.buildPreviewBlocks();
+    return this.previewBlocks;
+  }
+
+  buildPreviewBlocks() {
     const allBlocks = Array.from(this.previewElement.querySelectorAll('[data-source-line]'))
       .map((element) => {
         const start = Number.parseInt(element.getAttribute('data-source-line') || '', 10);
@@ -241,15 +297,13 @@ export class ScrollSyncController {
     const blocks = allBlocks.filter((block) => isLeafSourceBlock(block.element));
     const resolvedBlocks = blocks.length > 0 ? blocks : allBlocks;
 
-    this.previewBlocks = resolvedBlocks.filter((block, index) => {
+    return resolvedBlocks.filter((block, index) => {
       const previousBlock = resolvedBlocks[index - 1];
       return !previousBlock
         || Math.abs(previousBlock.top - block.top) > 1
         || previousBlock.start !== block.start
         || previousBlock.end !== block.end;
     });
-
-    return this.previewBlocks;
   }
 
   findBlockForLine(blocks, lineNumber) {

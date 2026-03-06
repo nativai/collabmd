@@ -887,6 +887,17 @@
   line-height: 1.7;
   color: var(--color-text);
 }
+.preview-content[data-render-phase="shell"] {
+  color: var(--color-text-muted);
+}
+.preview-shell {
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
 
 /* ===== MARKDOWN PREVIEW STYLES ===== */
 
@@ -1064,7 +1075,7 @@
 }
 
 /* Mermaid diagrams */
-.preview-content .mermaid {
+.preview-content .mermaid-shell {
   margin: var(--space-4) 0;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -1072,6 +1083,40 @@
   padding: var(--space-3);
   display: grid;
   gap: var(--space-3);
+}
+.preview-content .mermaid-placeholder-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-offset);
+}
+.preview-content .mermaid-placeholder-copy {
+  display: grid;
+  gap: 2px;
+}
+.preview-content .mermaid-placeholder-copy strong {
+  font-size: var(--text-sm);
+}
+.preview-content .mermaid-placeholder-copy span {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+.preview-content .mermaid-placeholder-btn {
+  min-width: 64px;
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.preview-content .mermaid-placeholder-btn:hover {
+  background: var(--color-surface-2);
 }
 .preview-content .mermaid-toolbar {
   display: flex;
@@ -1107,9 +1152,8 @@
 }
 .preview-content .mermaid-frame {
   overflow: auto;
-  padding: var(--space-3);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-offset);
+  padding: 0;
+  background: transparent;
   overscroll-behavior: contain;
   max-height: min(70vh, 720px);
 }
@@ -1120,7 +1164,7 @@
   cursor: grabbing;
   user-select: none;
 }
-.preview-content .mermaid svg {
+.preview-content .mermaid-frame svg {
   display: block;
 }
 body.mermaid-maximized-open {
@@ -1134,7 +1178,7 @@ body.mermaid-maximized-open::before {
   backdrop-filter: blur(2px);
   z-index: 170;
 }
-.preview-content .mermaid.is-maximized {
+.preview-content .mermaid-shell.is-maximized {
   position: fixed;
   inset: var(--space-4);
   z-index: 171;
@@ -1146,7 +1190,7 @@ body.mermaid-maximized-open::before {
   box-shadow: var(--shadow-lg);
   grid-template-rows: auto minmax(0, 1fr);
 }
-.preview-content .mermaid.is-maximized .mermaid-frame {
+.preview-content .mermaid-shell.is-maximized .mermaid-frame {
   max-height: none;
   height: 100%;
 }
@@ -1758,13 +1802,15 @@ body.mermaid-maximized-open::before {
 
 /* ── Excalidraw Embeds ───────────────────────────────────────────── */
 
-.excalidraw-embed {
+.excalidraw-embed,
+.excalidraw-embed-placeholder {
   margin: var(--space-4) 0;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   overflow: hidden;
   background: var(--color-surface);
   transition: box-shadow 0.18s ease;
+  display: block;
 }
 
 body.excalidraw-maximized-open {
@@ -1777,6 +1823,45 @@ body.excalidraw-maximized-open {
 
 [data-theme="dark"] .excalidraw-embed:hover {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+}
+
+.excalidraw-embed-placeholder-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-surface);
+}
+
+.excalidraw-embed-placeholder-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.excalidraw-embed-placeholder-copy strong {
+  font-size: var(--text-sm);
+}
+
+.excalidraw-embed-placeholder-copy span {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.excalidraw-embed-placeholder-btn {
+  flex-shrink: 0;
+  appearance: none;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.excalidraw-embed-placeholder-btn:hover {
+  background: var(--color-surface-offset);
 }
 
 .excalidraw-embed-header {

@@ -78,15 +78,24 @@ export class CollabMdApp {
     this.previewRenderer = new PreviewRenderer({
       getContent: () => this.session?.getText() ?? '',
       getFileList: () => this.fileExplorer.flatFiles,
+      onBeforeRenderCommit: () => {
+        this.excalidrawEmbed.detachForCommit();
+      },
+      onAfterRenderCommit: (_previewElement, stats) => {
+        this.excalidrawEmbed.reconcileEmbeds(this.elements.previewContent, {
+          isLargeDocument: stats.isLargeDocument,
+        });
+        this.scrollSyncController.setLargeDocumentMode(stats.isLargeDocument);
+        this.scrollSyncController.invalidatePreviewBlocks();
+        this.scrollSyncController.warmPreviewBlocks();
+      },
       onRenderComplete: () => {
         requestAnimationFrame(() => {
-          this.scrollSyncController.invalidatePreviewBlocks();
           this.scrollSyncController.syncPreviewToEditor();
-          this.excalidrawEmbed.processEmbeds(this.elements.previewContent);
         });
       },
-      onWikiLinkClick: (target) => this.handleWikiLinkClick(target),
       outlineController: this.outlineController,
+      previewContainer: this.elements.previewContainer,
       previewElement: this.elements.previewContent,
     });
     this.themeController = new ThemeController({
@@ -108,6 +117,8 @@ export class CollabMdApp {
     this.excalidrawEmbed = new ExcalidrawEmbedController({
       getTheme: () => this.themeController.getTheme(),
       getLocalUser: () => this.lobby.getLocalUser(),
+      previewContainer: this.elements.previewContainer,
+      previewElement: this.elements.previewContent,
       toastController: this.toastController,
     });
     this._backlinkRefreshTimer = null;
@@ -156,6 +167,16 @@ export class CollabMdApp {
 
     this.elements.toggleWrapButton?.addEventListener('click', () => {
       this.toggleLineWrapping();
+    });
+
+    this.elements.previewContent?.addEventListener('click', (event) => {
+      const wikiLink = event.target.closest('a.wiki-link[data-wiki-target]');
+      if (!wikiLink) {
+        return;
+      }
+
+      event.preventDefault();
+      this.handleWikiLinkClick(wikiLink.dataset.wikiTarget);
     });
 
     this.elements.sidebarToggle?.addEventListener('click', () => {
@@ -207,6 +228,8 @@ export class CollabMdApp {
     this.elements.emptyState?.classList.remove('hidden');
     this.elements.editorPage?.classList.add('hidden');
     this.elements.previewContent.innerHTML = '';
+    this.elements.previewContent.dataset.renderPhase = 'ready';
+    this.scrollSyncController.setLargeDocumentMode(false);
 
     // Re-render global presence (users are still visible on the empty state)
     this.renderAvatars();
@@ -240,6 +263,7 @@ export class CollabMdApp {
     }
 
     this.showEditorLoading();
+    this.previewRenderer.beginDocumentLoad();
     this.renderPresence();
 
     const session = new EditorSession({
@@ -271,7 +295,6 @@ export class CollabMdApp {
       this.scrollSyncController.attachEditorScroller(session.getScrollContainer());
       session.applyTheme(this.themeController.getTheme());
       this.syncWrapToggle();
-      this.previewRenderer.queueRender();
       this.backlinksPanel.load(filePath);
     } catch (error) {
       console.error('[app] Failed to initialize editor:', error);
@@ -293,6 +316,7 @@ export class CollabMdApp {
     this.session?.destroy();
     this.session = null;
     this.scrollSyncController.attachEditorScroller(null);
+    this.scrollSyncController.setLargeDocumentMode(false);
     this.outlineController.cleanup();
     // Keep followedUserClientId — follow persists across file switches
     this.followedCursorSignature = '';

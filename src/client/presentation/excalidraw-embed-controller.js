@@ -1,99 +1,318 @@
-/**
- * Manages Excalidraw diagram embeds within the preview panel.
- *
- * Detects `![[*.excalidraw]]` patterns in rendered wiki-links,
- * replaces them with interactive iframe editors, and handles
- * save messages from the embedded Excalidraw instances.
- */
+import { reconcileEmbedEntries } from './excalidraw-embed-reconciler.js';
 
-const EXCALIDRAW_REGEX = /\.excalidraw$/i;
 const DEFAULT_HEIGHT = 420;
-const MIN_HEIGHT = 200;
+const HYDRATE_TIMEOUT_MS = 500;
 const MAX_HEIGHT = 800;
-const RESIZE_HANDLE_SIZE = 8;
+const MIN_HEIGHT = 200;
+
+function requestIdleRender(callback, timeout) {
+  if (typeof window.requestIdleCallback === 'function') {
+    return window.requestIdleCallback(callback, { timeout });
+  }
+
+  return window.setTimeout(() => {
+    callback({
+      didTimeout: false,
+      timeRemaining: () => 0,
+    });
+  }, 1);
+}
+
+function cancelIdleRender(id) {
+  if (id === null) {
+    return;
+  }
+
+  if (typeof window.cancelIdleCallback === 'function') {
+    window.cancelIdleCallback(id);
+    return;
+  }
+
+  window.clearTimeout(id);
+}
+
+function isNearViewport(element, root, marginPx) {
+  if (!element || !root) {
+    return false;
+  }
+
+  const rootRect = root.getBoundingClientRect();
+  const elementRect = element.getBoundingClientRect();
+
+  return (
+    elementRect.bottom >= (rootRect.top - marginPx)
+    && elementRect.top <= (rootRect.bottom + marginPx)
+  );
+}
 
 export class ExcalidrawEmbedController {
-  constructor({ getTheme, getLocalUser, toastController }) {
+  constructor({ getTheme, getLocalUser, previewContainer, previewElement, toastController }) {
     this.getTheme = getTheme;
     this.getLocalUser = getLocalUser;
+    this.previewContainer = previewContainer;
+    this.previewElement = previewElement;
     this.toastController = toastController;
-    this.activeEmbeds = new Map(); // filePath → { iframe, container }
-    this.maximizedEmbed = null; // { wrapper, exit }
+    this.embedEntries = new Map();
+    this.hydrationQueue = [];
+    this.hydrationIdleId = null;
+    this.hydrationInProgress = false;
+    this.instanceCounter = 0;
+    this.isLargeDocument = false;
+    this.maximizedEmbed = null;
+    this.placeholderObserver = null;
 
     this._onMessage = this._onMessage.bind(this);
     this._onKeyDown = this._onKeyDown.bind(this);
+    this._onPreviewClick = this._onPreviewClick.bind(this);
+
     window.addEventListener('message', this._onMessage);
     window.addEventListener('keydown', this._onKeyDown);
+    this.previewElement?.addEventListener('click', this._onPreviewClick);
   }
 
   destroy() {
     window.removeEventListener('message', this._onMessage);
     window.removeEventListener('keydown', this._onKeyDown);
+    this.previewElement?.removeEventListener('click', this._onPreviewClick);
+    this._disconnectPlaceholderObserver();
+    cancelIdleRender(this.hydrationIdleId);
+    this.hydrationIdleId = null;
+    this.hydrationQueue = [];
     this._exitMaximizedEmbed();
     document.body.classList.remove('excalidraw-maximized-open');
-    this.activeEmbeds.clear();
+
+    this.embedEntries.forEach((entry) => {
+      entry.wrapper?.remove();
+      entry.placeholder = null;
+    });
+    this.embedEntries.clear();
   }
 
-  /**
-   * After the preview is rendered, scan for excalidraw wiki-link embeds
-   * and replace them with interactive iframe editors.
-   *
-   * Embed syntax:  ![[diagram.excalidraw]]
-   *
-   * The `!` prefix distinguishes embeds from regular wiki-links.
-   * We detect this by looking at the text node before the rendered wiki-link.
-   */
-  processEmbeds(previewElement) {
-    // Clean up previous embeds
-    this._exitMaximizedEmbed();
-    this.activeEmbeds.clear();
+  detachForCommit() {
+    this._disconnectPlaceholderObserver();
+    cancelIdleRender(this.hydrationIdleId);
+    this.hydrationIdleId = null;
+    this.hydrationQueue = [];
+    this.hydrationInProgress = false;
 
-    const wikiLinks = previewElement.querySelectorAll('a.wiki-link');
-    for (const link of wikiLinks) {
-      const target = link.dataset.wikiTarget;
-      if (!target || !EXCALIDRAW_REGEX.test(target)) continue;
-
-      // Check if this is an embed (preceded by `!`)
-      const prevNode = link.previousSibling;
-      const isEmbed = prevNode
-        && prevNode.nodeType === Node.TEXT_NODE
-        && prevNode.textContent.endsWith('!');
-
-      if (!isEmbed) continue;
-
-      // Remove the `!` prefix from text
-      prevNode.textContent = prevNode.textContent.slice(0, -1);
-
-      // Resolve the file path — the target may or may not have .excalidraw extension
-      const filePath = target.endsWith('.excalidraw') ? target : `${target}.excalidraw`;
-
-      // Replace the link with an embed container
-      const container = this._createEmbedContainer(filePath);
-      link.parentNode.replaceChild(container, link);
-    }
+    this.embedEntries.forEach((entry) => {
+      entry.queued = false;
+      entry.placeholder = null;
+      if (entry.wrapper?.isConnected) {
+        entry.wrapper.remove();
+      }
+    });
   }
 
-  /**
-   * Update theme on all active embeds.
-   */
+  reconcileEmbeds(previewElement, { isLargeDocument = false } = {}) {
+    this.isLargeDocument = Boolean(isLargeDocument);
+    this._disconnectPlaceholderObserver();
+    cancelIdleRender(this.hydrationIdleId);
+    this.hydrationIdleId = null;
+    this.hydrationQueue = [];
+    this.hydrationInProgress = false;
+
+    const descriptors = Array.from(previewElement.querySelectorAll('.excalidraw-embed-placeholder[data-embed-key]')).map((placeholder) => ({
+      filePath: placeholder.dataset.embedTarget,
+      key: placeholder.dataset.embedKey,
+      label: placeholder.dataset.embedLabel || placeholder.dataset.embedTarget,
+      placeholder,
+    }));
+
+    const { nextEntries, removedEntries } = reconcileEmbedEntries(this.embedEntries, descriptors);
+    removedEntries.forEach((entry) => this._destroyEntry(entry));
+    this.embedEntries = nextEntries;
+
+    this._ensurePlaceholderObserver();
+
+    this.embedEntries.forEach((entry) => {
+      entry.queued = false;
+      if (entry.wrapper) {
+        this._updateEmbedLabel(entry);
+        this._attachWrapper(entry);
+        return;
+      }
+
+      if (!entry.placeholder) {
+        return;
+      }
+
+      this.placeholderObserver?.observe(entry.placeholder);
+    });
+
+    this.hydrateVisibleEmbeds();
+  }
+
+  hydrateVisibleEmbeds() {
+    const margin = this.isLargeDocument ? 180 : 420;
+    this.embedEntries.forEach((entry) => {
+      if (entry.wrapper || !entry.placeholder?.isConnected) {
+        return;
+      }
+
+      if (isNearViewport(entry.placeholder, this.previewContainer, margin)) {
+        this._enqueueHydration(entry, { prioritize: true });
+      }
+    });
+  }
+
   updateTheme(theme) {
-    for (const { iframe } of this.activeEmbeds.values()) {
-      iframe.contentWindow?.postMessage({
+    this.embedEntries.forEach((entry) => {
+      entry.iframe?.contentWindow?.postMessage({
         source: 'collabmd-host',
         type: 'set-theme',
         theme,
       }, window.location.origin);
+    });
+  }
+
+  _ensurePlaceholderObserver() {
+    if (!this.previewContainer) {
+      return;
+    }
+
+    this.placeholderObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) {
+          return;
+        }
+
+        const embedEntry = this.embedEntries.get(entry.target.dataset.embedKey);
+        if (embedEntry) {
+          this._enqueueHydration(embedEntry);
+        }
+      });
+    }, {
+      root: this.previewContainer,
+      rootMargin: this.isLargeDocument ? '180px 0px' : '420px 0px',
+    });
+  }
+
+  _disconnectPlaceholderObserver() {
+    if (!this.placeholderObserver) {
+      return;
+    }
+
+    this.placeholderObserver.disconnect();
+    this.placeholderObserver = null;
+  }
+
+  _enqueueHydration(entry, { prioritize = false } = {}) {
+    if (!entry || entry.wrapper || entry.queued) {
+      return;
+    }
+
+    entry.queued = true;
+    if (prioritize) {
+      this.hydrationQueue.unshift(entry.key);
+    } else {
+      this.hydrationQueue.push(entry.key);
+    }
+
+    this._scheduleHydration();
+  }
+
+  _scheduleHydration() {
+    if (this.hydrationInProgress || this.hydrationIdleId !== null) {
+      return;
+    }
+
+    this.hydrationIdleId = requestIdleRender(() => {
+      this.hydrationIdleId = null;
+      void this._flushHydrationQueue();
+    }, HYDRATE_TIMEOUT_MS);
+  }
+
+  async _flushHydrationQueue() {
+    if (this.hydrationInProgress) {
+      return;
+    }
+
+    let nextEntry = null;
+    while (this.hydrationQueue.length > 0 && !nextEntry) {
+      const key = this.hydrationQueue.shift();
+      const entry = this.embedEntries.get(key);
+      if (!entry || entry.wrapper || !entry.placeholder?.isConnected) {
+        if (entry) {
+          entry.queued = false;
+        }
+        continue;
+      }
+
+      nextEntry = entry;
+    }
+
+    if (!nextEntry) {
+      return;
+    }
+
+    this.hydrationInProgress = true;
+    nextEntry.queued = false;
+
+    await this._hydrateEntry(nextEntry);
+
+    this.hydrationInProgress = false;
+    if (this.hydrationQueue.length > 0) {
+      this._scheduleHydration();
     }
   }
 
-  // ── Private ──────────────────────────────────────────────────────
+  async _hydrateEntry(entry) {
+    if (!entry.placeholder?.isConnected && !entry.wrapper) {
+      return;
+    }
 
-  _createEmbedContainer(filePath) {
+    if (!entry.wrapper) {
+      const mount = this._createEmbedContainer(entry);
+      entry.wrapper = mount.wrapper;
+      entry.iframe = mount.iframe;
+      entry.labelElement = mount.labelElement;
+      entry.instanceId = mount.instanceId;
+    }
+
+    this._updateEmbedLabel(entry);
+    this._attachWrapper(entry);
+  }
+
+  _attachWrapper(entry) {
+    if (entry.wrapper?.isConnected) {
+      return;
+    }
+
+    const placeholder = entry.placeholder?.isConnected
+      ? entry.placeholder
+      : this.previewElement?.querySelector(`.excalidraw-embed-placeholder[data-embed-key="${entry.key}"]`);
+
+    if (!placeholder) {
+      return;
+    }
+
+    entry.placeholder = placeholder;
+    placeholder.replaceWith(entry.wrapper);
+    entry.placeholder = null;
+  }
+
+  _destroyEntry(entry) {
+    if (this.maximizedEmbed?.wrapper === entry.wrapper) {
+      this._exitMaximizedEmbed();
+    }
+
+    entry.wrapper?.remove();
+    entry.placeholder = null;
+  }
+
+  _updateEmbedLabel(entry) {
+    if (entry.labelElement) {
+      entry.labelElement.textContent = entry.label.replace(/\.excalidraw$/i, '');
+    }
+  }
+
+  _createEmbedContainer(entry) {
     const wrapper = document.createElement('div');
     wrapper.className = 'excalidraw-embed';
-    wrapper.dataset.file = filePath;
+    wrapper.dataset.embedKey = entry.key;
+    wrapper.dataset.file = entry.filePath;
 
-    // Header
     const header = document.createElement('div');
     header.className = 'excalidraw-embed-header';
 
@@ -103,7 +322,7 @@ export class ExcalidrawEmbedController {
 
     const label = document.createElement('span');
     label.className = 'excalidraw-embed-label';
-    label.textContent = filePath.replace(/\.excalidraw$/i, '');
+    label.textContent = entry.label.replace(/\.excalidraw$/i, '');
 
     const expandBtn = document.createElement('button');
     expandBtn.type = 'button';
@@ -121,12 +340,12 @@ export class ExcalidrawEmbedController {
 
     header.append(icon, label, expandBtn, maxBtn);
 
-    // Iframe
     const theme = this.getTheme?.() || 'dark';
     const iframe = document.createElement('iframe');
     iframe.className = 'excalidraw-embed-iframe';
+    iframe.dataset.instanceId = String(++this.instanceCounter);
     const iframeUrl = new URL('/excalidraw-editor.html', window.location.origin);
-    iframeUrl.searchParams.set('file', filePath);
+    iframeUrl.searchParams.set('file', entry.filePath);
     iframeUrl.searchParams.set('theme', theme);
     const localUser = this.getLocalUser?.();
     if (localUser?.name) {
@@ -148,10 +367,9 @@ export class ExcalidrawEmbedController {
     iframe.src = iframeUrl.toString();
     iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
     iframe.setAttribute('loading', 'lazy');
-    iframe.title = `Excalidraw: ${filePath}`;
+    iframe.title = `Excalidraw: ${entry.filePath}`;
     iframe.style.height = `${DEFAULT_HEIGHT}px`;
 
-    // Resize handle
     const resizer = document.createElement('div');
     resizer.className = 'excalidraw-embed-resizer';
     resizer.title = 'Drag to resize';
@@ -159,7 +377,6 @@ export class ExcalidrawEmbedController {
 
     wrapper.append(header, iframe, resizer);
 
-    // Expand/collapse toggle
     let isExpanded = false;
     let isMaximized = false;
     let restoreHeight = `${DEFAULT_HEIGHT}px`;
@@ -212,16 +429,20 @@ export class ExcalidrawEmbedController {
       }
     });
 
-    this.activeEmbeds.set(filePath, { iframe, container: wrapper });
-    return wrapper;
+    return {
+      iframe,
+      instanceId: iframe.dataset.instanceId,
+      labelElement: label,
+      wrapper,
+    };
   }
 
   _setupResizer(resizer, iframe) {
     let startY = 0;
     let startHeight = 0;
 
-    const onPointerMove = (e) => {
-      const delta = e.clientY - startY;
+    const onPointerMove = (event) => {
+      const delta = event.clientY - startY;
       const newHeight = Math.min(Math.max(startHeight + delta, MIN_HEIGHT), MAX_HEIGHT);
       iframe.style.height = `${newHeight}px`;
       iframe.style.pointerEvents = 'none';
@@ -233,13 +454,26 @@ export class ExcalidrawEmbedController {
       document.removeEventListener('pointerup', onPointerUp);
     };
 
-    resizer.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      startY = e.clientY;
+    resizer.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      startY = event.clientY;
       startHeight = iframe.offsetHeight;
       document.addEventListener('pointermove', onPointerMove);
       document.addEventListener('pointerup', onPointerUp);
     });
+  }
+
+  _onPreviewClick(event) {
+    const loadButton = event.target.closest('.excalidraw-embed-placeholder-btn');
+    if (!loadButton) {
+      return;
+    }
+
+    event.preventDefault();
+    const entry = this.embedEntries.get(loadButton.dataset.embedKey);
+    if (entry) {
+      void this._hydrateEntry(entry);
+    }
   }
 
   _onMessage(event) {
@@ -248,7 +482,7 @@ export class ExcalidrawEmbedController {
     if (!msg || msg.source !== 'excalidraw-editor') return;
 
     if (msg.type === 'ready') {
-      // Could notify parent that editor is ready
+      // Embed stays silent until the user interacts with the iframe.
     }
   }
 

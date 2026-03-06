@@ -148,5 +148,5 @@ test('HTTP server enforces markdown-only /api/file mutations', async (t) => {
     }),
   });
   assert.equal(renameResponse.statusCode, 400);
-  assert.match(renameResponse.body, /Old path must end in \.md/i);
+  assert.match(renameResponse.body, /Old path must be a vault file \(\.md or \.excalidraw\)/i);
 });

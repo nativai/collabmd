@@ -30,6 +30,28 @@ async function replaceEditorContent(page, content) {
   await page.keyboard.insertText(content);
 }
 
+async function waitForHeavyPreviewContent(page) {
+  await page.waitForFunction(() => {
+    const preview = document.getElementById('previewContent');
+    return preview && (
+      preview.querySelector('.mermaid-shell')
+      || preview.querySelector('.mermaid svg')
+      || preview.querySelector('.excalidraw-embed-placeholder')
+      || preview.querySelector('.excalidraw-embed iframe')
+    );
+  }, { timeout: 60000 });
+}
+
+async function getHeavyPreviewCounts(page) {
+  return page.evaluate(() => ({
+    excalidrawIframes: document.querySelectorAll('#previewContent .excalidraw-embed iframe').length,
+    excalidrawPlaceholders: document.querySelectorAll('#previewContent .excalidraw-embed-placeholder').length,
+    mermaidShells: document.querySelectorAll('#previewContent .mermaid-shell').length,
+    mermaidSvgs: document.querySelectorAll('#previewContent .mermaid svg').length,
+    renderPhase: document.getElementById('previewContent')?.dataset.renderPhase || '',
+  }));
+}
+
 function createLongMarkdownDocument(lineCount = 80) {
   const lines = ['# Follow Target', ''];
 
@@ -223,6 +245,84 @@ test('keeps the outline open on desktop after selecting a section', async ({ pag
   await page.locator('#outlineNav .outline-item', { hasText: 'Links' }).click();
 
   await expect(page.locator('#outlinePanel')).toBeVisible();
+});
+
+test('keeps the editor interactive before heavy preview reaches ready', async ({ page }) => {
+  test.slow();
+
+  await page.goto(`/#file=${encodeURIComponent('full-markdown.md')}`);
+  await waitForEditor(page);
+
+  const phase = await page.locator('#previewContent').getAttribute('data-render-phase');
+  expect(phase).not.toBe('ready');
+
+  const editor = page.locator('.cm-content').first();
+  await editor.click();
+  await page.keyboard.insertText(' ');
+  await page.keyboard.press('Backspace');
+});
+
+test('progressively hydrates heavy preview instead of rendering all embeds at once', async ({ page }) => {
+  test.slow();
+
+  await openFile(page, 'full-markdown.md');
+  await waitForHeavyPreviewContent(page);
+
+  const counts = await getHeavyPreviewCounts(page);
+  expect(counts.mermaidShells + counts.mermaidSvgs).toBeGreaterThan(0);
+  expect(counts.excalidrawPlaceholders + counts.excalidrawIframes).toBeGreaterThan(0);
+  expect(counts.mermaidSvgs).toBeLessThan(1431);
+  expect(counts.excalidrawIframes).toBeLessThan(159);
+});
+
+test('preserves excalidraw iframe instances across unrelated preview rerenders', async ({ page }) => {
+  test.slow();
+
+  await openFile(page, 'full-markdown.md');
+  const firstPlaceholder = page.locator('#previewContent .excalidraw-embed-placeholder').first();
+  await firstPlaceholder.scrollIntoViewIfNeeded();
+  await firstPlaceholder.locator('.excalidraw-embed-placeholder-btn').click();
+
+  await expect.poll(async () => (
+    page.locator('#previewContent .excalidraw-embed iframe').count()
+  ), { timeout: 60000 }).toBeGreaterThan(0);
+
+  const firstInstanceId = await page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('data-instance-id');
+  const editor = page.locator('.cm-content').first();
+  await editor.click();
+  await page.keyboard.insertText(' ');
+  await page.keyboard.press('Backspace');
+
+  await expect.poll(async () => (
+    page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('data-instance-id')
+  ), { timeout: 60000 }).toBe(firstInstanceId);
+});
+
+test('hydrates more mermaid and excalidraw content as the heavy preview scrolls', async ({ page }) => {
+  test.slow();
+
+  await openFile(page, 'full-markdown.md');
+  await waitForHeavyPreviewContent(page);
+
+  const before = await getHeavyPreviewCounts(page);
+
+  await page.locator('#previewContainer').evaluate((element) => {
+    element.scrollTop = element.scrollHeight * 0.5;
+  });
+  await page.waitForTimeout(3000);
+
+  const middle = await getHeavyPreviewCounts(page);
+
+  await page.locator('#previewContainer').evaluate((element) => {
+    element.scrollTop = element.scrollHeight * 0.85;
+  });
+  await page.waitForTimeout(3000);
+
+  const after = await getHeavyPreviewCounts(page);
+  const mermaidIncreased = middle.mermaidSvgs > before.mermaidSvgs || after.mermaidSvgs > middle.mermaidSvgs;
+  const excalidrawIncreased = middle.excalidrawIframes > before.excalidrawIframes || after.excalidrawIframes > middle.excalidrawIframes;
+
+  expect(mermaidIncreased || excalidrawIncreased).toBeTruthy();
 });
 
 test.describe('mobile outline', () => {

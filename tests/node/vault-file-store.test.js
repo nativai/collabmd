@@ -83,7 +83,7 @@ test('VaultFileStore rejects non-markdown delete and rename source paths', async
 
   const renameResult = await store.renameFile('secret.txt', 'secret.md');
   assert.equal(renameResult.ok, false);
-  assert.match(renameResult.error, /Old path must end in \.md/i);
+  assert.match(renameResult.error, /Old path must be a vault file \(\.md or \.excalidraw\)/i);
 });
 
 test('VaultFileStore rejects path traversal', async (t) => {
