@@ -5,6 +5,7 @@ import { EditorSession } from '../infrastructure/editor-session.js';
 import { LOBBY_CHAT_MESSAGE_MAX_LENGTH, LobbyPresence } from '../infrastructure/lobby-presence.js';
 import { getFileFromHash, navigateToFile } from '../infrastructure/runtime-config.js';
 import { BacklinksPanel } from '../presentation/backlinks-panel.js';
+import { CommentsPanel } from '../presentation/comments-panel.js';
 import { ExcalidrawEmbedController } from '../presentation/excalidraw-embed-controller.js';
 import { FileExplorerController } from '../presentation/file-explorer-controller.js';
 import { LayoutController } from '../presentation/layout-controller.js';
@@ -18,6 +19,7 @@ export class CollabMdApp {
   constructor() {
     this.elements = {
       currentUserName: document.getElementById('currentUserName'),
+      commentSelectionButton: document.getElementById('commentSelectionBtn'),
       chatContainer: document.getElementById('chatContainer'),
       chatEmptyState: document.getElementById('chatEmptyState'),
       chatForm: document.getElementById('chatForm'),
@@ -38,6 +40,8 @@ export class CollabMdApp {
       lineInfo: document.getElementById('lineInfo'),
       previewContent: document.getElementById('previewContent'),
       previewContainer: document.getElementById('previewContainer'),
+      commentsPanel: document.getElementById('commentsPanel'),
+      commentsToggle: document.getElementById('commentsToggle'),
       shareButton: document.getElementById('shareBtn'),
       toastContainer: document.getElementById('toastContainer'),
       toggleWrapButton: document.getElementById('toggleWrapBtn'),
@@ -76,6 +80,7 @@ export class CollabMdApp {
       hour: 'numeric',
       minute: '2-digit',
     });
+    this.commentThreads = [];
 
     this.lobby = new LobbyPresence({
       preferredUserName: this.getStoredUserName(),
@@ -112,10 +117,12 @@ export class CollabMdApp {
         });
         this.excalidrawEmbed.syncLayout();
         this.scrollSyncController.setLargeDocumentMode(stats.isLargeDocument);
+        this.commentsPanel.decoratePreviewAnchors();
         this.schedulePreviewLayoutSync({ delayMs: 0 });
       },
       onRenderComplete: () => {
         this.excalidrawEmbed.syncLayout();
+        this.commentsPanel.decoratePreviewAnchors();
         this.schedulePreviewLayoutSync({ delayMs: 0 });
       },
       outlineController: this.outlineController,
@@ -138,6 +145,16 @@ export class CollabMdApp {
     this.backlinksPanel = new BacklinksPanel({
       panelElement: this.elements.backlinksPanel,
       onFileSelect: (filePath) => this.handleFileSelection(filePath, { closeSidebarOnMobile: true }),
+    });
+    this.commentsPanel = new CommentsPanel({
+      onCreateThread: (payload) => this.handleCommentThreadCreate(payload),
+      onNavigateToLine: (lineNumber) => this.navigateToCommentLine(lineNumber),
+      onReplyToThread: (threadId, body) => this.handleCommentReply(threadId, body),
+      onResolveThread: (threadId, resolved) => this.handleCommentResolution(threadId, resolved),
+      panelElement: this.elements.commentsPanel,
+      previewContainer: this.elements.previewContainer,
+      previewElement: this.elements.previewContent,
+      toggleButton: this.elements.commentsToggle,
     });
     this.excalidrawEmbed = new ExcalidrawEmbedController({
       getTheme: () => this.themeController.getTheme(),
@@ -197,6 +214,8 @@ export class CollabMdApp {
     const isExcalidraw = this.isExcalidrawFile(filePath);
     const isPlantUml = this.isPlantUmlFile(filePath);
     this.elements.outlineToggle?.classList.toggle('hidden', isExcalidraw || isPlantUml);
+    this.elements.commentsToggle?.classList.toggle('hidden', isExcalidraw || isPlantUml);
+    this.elements.commentSelectionButton?.classList.toggle('hidden', isExcalidraw || isPlantUml);
     this.elements.previewContent?.classList.toggle('is-plantuml-file-preview', isPlantUml);
 
     if (isExcalidraw) {
@@ -303,6 +322,10 @@ export class CollabMdApp {
 
     this.elements.toggleWrapButton?.addEventListener('click', () => {
       this.toggleLineWrapping();
+    });
+
+    this.elements.commentSelectionButton?.addEventListener('click', () => {
+      this.startCommentFromEditorSelection();
     });
 
     this.elements.previewContent?.addEventListener('click', (event) => {
@@ -443,6 +466,8 @@ export class CollabMdApp {
     this.cleanupSession();
     this.resetPreviewMode();
     this.elements.outlineToggle?.classList.remove('hidden');
+    this.elements.commentsToggle?.classList.add('hidden');
+    this.elements.commentSelectionButton?.classList.add('hidden');
     this.currentFilePath = null;
     this.lobby.setCurrentFile(null);
     this.fileExplorer.setActiveFile(null);
@@ -463,6 +488,8 @@ export class CollabMdApp {
     this.renderAvatars();
     this.renderPresence();
     this.backlinksPanel.clear();
+    this.updateCommentThreads([]);
+    this.commentsPanel.setCurrentFile(null, { supported: false });
 
     if (this.elements.activeFileName) {
       this.elements.activeFileName.textContent = 'CollabMD';
@@ -474,6 +501,7 @@ export class CollabMdApp {
     this.sessionLoadToken = loadToken;
     const isExcalidraw = this.isExcalidrawFile(filePath);
     const isPlantUml = this.isPlantUmlFile(filePath);
+    const supportsComments = !isExcalidraw && !isPlantUml;
 
     this.cleanupSession();
     this.layoutController.reset();
@@ -485,6 +513,8 @@ export class CollabMdApp {
 
     this.fileExplorer.setActiveFile(filePath);
     this.syncFileChrome(filePath);
+    this.commentsPanel.setCurrentFile(filePath, { supported: supportsComments });
+    this.updateCommentThreads([]);
 
     this.elements.emptyState?.classList.add('hidden');
     this.elements.editorPage?.classList.remove('hidden');
@@ -505,12 +535,16 @@ export class CollabMdApp {
       lineInfoElement: this.elements.lineInfo,
       onAwarenessChange: (users) => this.updateFileAwareness(users),
       onConnectionChange: (state) => this.handleConnectionChange(state),
+      onCommentsChange: (threads) => this.updateCommentThreads(threads),
       onContentChange: () => {
         if (isExcalidraw) {
           return;
         }
 
         this.previewRenderer.queueRender();
+        if (this.commentThreads.length > 0) {
+          this.updateCommentThreads(this.session?.getCommentThreads() ?? []);
+        }
         if (!isPlantUml) {
           this.scheduleBacklinkRefresh();
         }
@@ -536,6 +570,7 @@ export class CollabMdApp {
         this.renderExcalidrawFilePreview(filePath);
       }
       this.syncWrapToggle();
+      this.updateCommentThreads(session.getCommentThreads());
       if (isExcalidraw || isPlantUml) {
         this.backlinksPanel.clear();
       } else {
@@ -697,6 +732,80 @@ export class CollabMdApp {
     this.syncWrapToggle(nextState);
     this.session?.requestMeasure();
     this.scrollSyncController.syncPreviewToEditor();
+  }
+
+  supportsComments(filePath = this.currentFilePath) {
+    return Boolean(filePath) && !this.isExcalidrawFile(filePath) && !this.isPlantUmlFile(filePath);
+  }
+
+  startCommentFromEditorSelection() {
+    if (!this.session || !this.supportsComments()) {
+      return;
+    }
+
+    const range = this.session.getCurrentSelectionLineRange();
+    if (!range) {
+      this.toastController.show('Cannot anchor a comment without an editor selection');
+      return;
+    }
+
+    if (this.layoutController.currentView === 'preview' || this.isMobileViewport()) {
+      this.layoutController.setView('preview');
+    } else if (this.layoutController.currentView === 'editor') {
+      this.layoutController.setView('split');
+    }
+
+    this.commentsPanel.openComposerForRange(range);
+  }
+
+  navigateToCommentLine(lineNumber) {
+    if (!Number.isFinite(lineNumber)) {
+      return;
+    }
+
+    if (this.layoutController.currentView === 'preview' || this.isMobileViewport()) {
+      this.layoutController.setView('split');
+    }
+
+    this.scrollSyncController.suspendSync(250);
+    this.session?.scrollToLine(lineNumber, 0.2);
+  }
+
+  handleCommentThreadCreate(payload) {
+    const threadId = this.session?.createCommentThread(payload);
+    if (!threadId) {
+      this.toastController.show('Comment cannot be empty');
+    }
+
+    return threadId;
+  }
+
+  handleCommentReply(threadId, body) {
+    const messageId = this.session?.replyToCommentThread(threadId, body);
+    if (!messageId) {
+      this.toastController.show('Reply cannot be empty');
+    }
+
+    return messageId;
+  }
+
+  handleCommentResolution(threadId, resolved) {
+    if (!resolved) {
+      return false;
+    }
+
+    const didUpdate = this.session?.deleteCommentThread(threadId);
+    if (!didUpdate) {
+      this.toastController.show('Failed to resolve comment');
+      return false;
+    }
+
+    return true;
+  }
+
+  updateCommentThreads(threads = []) {
+    this.commentThreads = Array.isArray(threads) ? threads : [];
+    this.commentsPanel.setThreads(this.commentThreads);
   }
 
   // Theme

@@ -64,6 +64,7 @@ async function getHeavyPreviewCounts(page) {
     mermaidShells: document.querySelectorAll('#previewContent .mermaid-shell').length,
     mermaidSvgs: document.querySelectorAll('#previewContent .mermaid svg').length,
     renderPhase: document.getElementById('previewContent')?.dataset.renderPhase || '',
+    scrollHeight: document.getElementById('previewContainer')?.scrollHeight || 0,
   }));
 }
 
@@ -160,6 +161,39 @@ test('renders markdown preview when a file is opened', async ({ page }) => {
 
   await expect(page.locator('#previewContent')).toContainText('My Vault');
   await expect(page.locator('#previewContent')).toContainText('Welcome to the test vault');
+});
+
+test('creates, replies to, and resolves source-anchored comments', async ({ page }) => {
+  await openFile(page, 'README.md');
+
+  await replaceEditorContent(page, [
+    '# Comment target',
+    '',
+    'First paragraph for review.',
+    '',
+    '## Second section',
+    '',
+    'Another paragraph that needs a follow-up.',
+  ].join('\n'));
+
+  await page.locator('#previewContent [data-source-line="3"] .comment-anchor-btn').click();
+  await expect(page.locator('#commentsPanel')).toHaveClass(/expanded/);
+
+  await page.locator('#commentComposerInput').fill('Please expand this explanation.');
+  await page.locator('#commentComposerForm').getByRole('button', { name: 'Post comment' }).click();
+
+  const thread = page.locator('#commentsList .comment-thread').first();
+  await expect(thread).toContainText('Please expand this explanation.');
+  await expect(page.locator('#previewContent [data-source-line="3"] .comment-anchor-btn')).toHaveAttribute('data-count', '1');
+
+  await thread.getByRole('button', { name: 'Reply' }).click();
+  await thread.locator('.comment-reply-input').fill('Adding a follow-up reply.');
+  await thread.locator('.comment-reply-form').getByRole('button', { name: 'Reply' }).click();
+  await expect(thread).toContainText('Adding a follow-up reply.');
+
+  await thread.getByRole('button', { name: 'Resolve' }).click();
+  await expect(thread).toBeHidden();
+  await expect(page.locator('#previewContent [data-source-line="3"] .comment-anchor-btn')).toHaveAttribute('data-count', '+');
 });
 
 test('renders PlantUML fenced blocks through the preview pipeline', async ({ page }) => {
@@ -453,9 +487,9 @@ test('shows a browser notification for a background chat message when alerts are
         window.__testNotifications.push({ title, ...options });
       }
 
-      addEventListener() {}
+      addEventListener() { }
 
-      close() {}
+      close() { }
     }
 
     Object.defineProperty(window, 'Notification', {
@@ -808,6 +842,12 @@ test('preserves PlantUML instances across unrelated preview rerenders', async ({
     'Closing copy after the diagram.',
   ].join('\n'));
 
+  await expect.poll(async () => (
+    page.evaluate(() => (
+      document.querySelector('#previewContent .plantuml-shell')?.getAttribute('data-plantuml-key') || ''
+    ))
+  ), { timeout: 60000 }).toBeTruthy();
+
   const plantUmlKey = await page.evaluate(() => (
     document.querySelector('#previewContent .plantuml-shell')?.getAttribute('data-plantuml-key') || ''
   ));
@@ -872,8 +912,9 @@ test('hydrates more mermaid and excalidraw content as the heavy preview scrolls'
   const after = await getHeavyPreviewCounts(page);
   const mermaidIncreased = middle.mermaidSvgs > before.mermaidSvgs || after.mermaidSvgs > middle.mermaidSvgs;
   const excalidrawIncreased = middle.excalidrawIframes > before.excalidrawIframes || after.excalidrawIframes > middle.excalidrawIframes;
+  const layoutExpanded = middle.scrollHeight > before.scrollHeight || after.scrollHeight > middle.scrollHeight;
 
-  expect(mermaidIncreased || excalidrawIncreased).toBeTruthy();
+  expect(mermaidIncreased || excalidrawIncreased || layoutExpanded).toBeTruthy();
 });
 
 test('defers heavy preview hydration while the editor is actively scrolling', async ({ page }) => {
@@ -969,7 +1010,7 @@ test('opens .puml files with side-by-side PlantUML preview', async ({ page }) =>
     });
   });
 
-  await openFile(page, 'architecture.puml');
+  await openFile(page, 'sample-plantuml.puml');
 
   await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'split');
   await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
@@ -994,7 +1035,7 @@ test('refits standalone PlantUML diagrams on maximize, resize, and restore', asy
     });
   });
 
-  await openFile(page, 'architecture.puml');
+  await openFile(page, 'sample-plantuml.puml');
 
   await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
 

@@ -46,8 +46,8 @@ export function getRenderProfile(markdownText = '') {
 
   if (hasMermaid || hasExcalidrawEmbed || hasPlantUml) {
     return {
-      debounceMs: 260,
-      deferUntilIdle: true,
+      debounceMs: 0,
+      deferUntilIdle: false,
     };
   }
 

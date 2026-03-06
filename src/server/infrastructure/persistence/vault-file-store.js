@@ -6,6 +6,7 @@ const EXCALIDRAW_EXTENSION = '.excalidraw';
 const PLANTUML_EXTENSION = '.puml';
 const VAULT_FILE_EXTENSIONS = new Set([...MARKDOWN_EXTENSIONS, EXCALIDRAW_EXTENSION, PLANTUML_EXTENSION]);
 const IGNORED_DIRECTORIES = new Set(['.git', '.obsidian', '.trash', 'node_modules', '.DS_Store']);
+const COMMENT_STORAGE_ROOT = '.collabmd/comments';
 
 function isMarkdownFile(filePath) {
   return MARKDOWN_EXTENSIONS.has(extname(filePath).toLowerCase());
@@ -37,6 +38,16 @@ function sanitizePath(vaultDir, requestedPath) {
   }
 
   return absolute;
+}
+
+function getCommentThreadPath(vaultDir, filePath) {
+  const absoluteVaultPath = sanitizePath(vaultDir, filePath);
+  if (!absoluteVaultPath || !isVaultFile(absoluteVaultPath)) {
+    return null;
+  }
+
+  const relativeVaultPath = relative(vaultDir, absoluteVaultPath);
+  return resolve(vaultDir, COMMENT_STORAGE_ROOT, `${relativeVaultPath}.json`);
 }
 
 export class VaultFileStore {
@@ -106,6 +117,54 @@ export class VaultFileStore {
     } catch (error) {
       if (error.code === 'ENOENT') return null;
       throw error;
+    }
+  }
+
+  async readCommentThreads(filePath) {
+    const absolute = getCommentThreadPath(this.vaultDir, filePath);
+    if (!absolute) {
+      return [];
+    }
+
+    try {
+      const raw = await readFile(absolute, 'utf-8');
+      const parsed = JSON.parse(raw);
+
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+
+      return Array.isArray(parsed?.threads) ? parsed.threads : [];
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return [];
+      }
+
+      throw error;
+    }
+  }
+
+  async writeCommentThreads(filePath, threads = []) {
+    const absolute = getCommentThreadPath(this.vaultDir, filePath);
+    if (!absolute) {
+      return { ok: false, error: 'Invalid file path' };
+    }
+
+    try {
+      if (!Array.isArray(threads) || threads.length === 0) {
+        await rm(absolute, { force: true });
+        return { ok: true };
+      }
+
+      const dir = dirname(absolute);
+      await mkdir(dir, { recursive: true });
+      await writeFile(absolute, `${JSON.stringify({
+        threads,
+        version: 1,
+      }, null, 2)}\n`, 'utf-8');
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error.message };
     }
   }
 
@@ -214,6 +273,10 @@ export class VaultFileStore {
 
     try {
       await rm(absolute, { force: true });
+      const commentPath = getCommentThreadPath(this.vaultDir, filePath);
+      if (commentPath) {
+        await rm(commentPath, { force: true });
+      }
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error.message };
@@ -240,6 +303,21 @@ export class VaultFileStore {
       const dir = dirname(absoluteNew);
       await mkdir(dir, { recursive: true });
       await rename(absoluteOld, absoluteNew);
+
+      const oldCommentPath = getCommentThreadPath(this.vaultDir, oldPath);
+      const newCommentPath = getCommentThreadPath(this.vaultDir, newPath);
+      if (oldCommentPath && newCommentPath) {
+        try {
+          await stat(oldCommentPath);
+          await mkdir(dirname(newCommentPath), { recursive: true });
+          await rename(oldCommentPath, newCommentPath);
+        } catch (error) {
+          if (error.code !== 'ENOENT') {
+            throw error;
+          }
+        }
+      }
+
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error.message };

@@ -31,7 +31,7 @@ graph LR
 
 ### Detailed Component Diagram
 
-![[system-architecture.excalidraw]]
+![[sample-excalidraw.excalidraw]]
 
 The diagram above is fully editable — try drawing on it directly in the preview panel.
 

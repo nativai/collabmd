@@ -5,6 +5,7 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 
 import { MSG_AWARENESS, MSG_SYNC } from './protocol.js';
+import { populateCommentThreads, serializeCommentThreads } from '../../../domain/comment-threads.js';
 
 function isExcalidrawRoom(name) {
   return typeof name === 'string' && name.toLowerCase().endsWith('.excalidraw');
@@ -105,11 +106,16 @@ export class CollaborationRoom {
       this.hydratePromise = (async () => {
         try {
           if (this.vaultFileStore) {
-            const content = await this.readPersistedContent();
+            const [content, commentThreads] = await Promise.all([
+              this.readPersistedContent(),
+              this.readPersistedCommentThreads(),
+            ]);
             if (content !== null) {
               const ytext = this.doc.getText('codemirror');
+              const comments = this.doc.getArray('comments');
               this.doc.transact(() => {
                 ytext.insert(0, content);
+                populateCommentThreads(comments, commentThreads);
               }, 'hydrate');
             }
           }
@@ -190,7 +196,9 @@ export class CollaborationRoom {
     }
 
     const content = this.doc.getText('codemirror').toString();
+    const commentThreads = serializeCommentThreads(this.doc.getArray('comments'));
     await this.writePersistedContent(content);
+    await this.writePersistedCommentThreads(commentThreads);
 
     // Keep the backlink index in sync with every save
     if (this.backlinkIndex && !isExcalidrawRoom(this.name) && !isPlantUmlRoom(this.name)) {
@@ -230,6 +238,22 @@ export class CollaborationRoom {
     }
 
     await this.vaultFileStore.writeMarkdownFile(this.name, content);
+  }
+
+  async readPersistedCommentThreads() {
+    if (!this.vaultFileStore || typeof this.vaultFileStore.readCommentThreads !== 'function') {
+      return [];
+    }
+
+    return this.vaultFileStore.readCommentThreads(this.name);
+  }
+
+  async writePersistedCommentThreads(threads) {
+    if (!this.vaultFileStore || typeof this.vaultFileStore.writeCommentThreads !== 'function') {
+      return;
+    }
+
+    await this.vaultFileStore.writeCommentThreads(this.name, threads);
   }
 
   rename(nextName) {

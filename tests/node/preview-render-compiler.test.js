@@ -12,9 +12,9 @@ test('compilePreviewDocument emits stable excalidraw placeholder keys and wiki-l
   const markdown = [
     '# Preview',
     '',
-    '![[system-architecture.excalidraw]]',
+    '![[sample-excalidraw.excalidraw]]',
     '',
-    '![[system-architecture.excalidraw|System Architecture]]',
+    '![[sample-excalidraw.excalidraw|Sample Excalidraw]]',
     '',
     'See [[README]].',
     '',

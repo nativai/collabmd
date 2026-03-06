@@ -182,14 +182,22 @@
                 <span class="pane-label">Editor</span>
                 <span class="pane-label-meta" id="lineInfo">Ln 1, Col 1</span>
               </div>
-              <button class="btn btn-ghost pane-header-btn" id="toggleWrapBtn" aria-label="Disable line wrap" title="Disable line wrap">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M3 6h14a4 4 0 1 1 0 8H9"/>
-                  <path d="m9 10-4 4 4 4"/>
-                  <path d="M3 18h7"/>
-                </svg>
-                <span id="wrapToggleLabel">Wrap on</span>
-              </button>
+              <div class="pane-header-actions">
+                <button class="btn btn-ghost pane-header-btn" id="commentSelectionBtn" aria-label="Comment current selection" title="Comment current selection">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                  </svg>
+                  <span>Comment</span>
+                </button>
+                <button class="btn btn-ghost pane-header-btn" id="toggleWrapBtn" aria-label="Disable line wrap" title="Disable line wrap">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 6h14a4 4 0 1 1 0 8H9"/>
+                    <path d="m9 10-4 4 4 4"/>
+                    <path d="M3 18h7"/>
+                  </svg>
+                  <span id="wrapToggleLabel">Wrap on</span>
+                </button>
+              </div>
             </div>
             <div id="editorContainer" class="editor-container">
               <div class="editor-loading" id="editorLoading">
@@ -204,9 +212,12 @@
           <div class="preview-pane" id="previewPane">
             <div class="pane-header">
               <span class="pane-label">Preview</span>
-              <button class="btn btn-ghost pane-header-btn" id="outlineToggle" aria-label="Toggle outline" title="Toggle outline">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
-              </button>
+              <div class="pane-header-actions">
+                <button class="btn btn-ghost pane-header-btn" id="commentsToggle" aria-label="Toggle comments" title="Toggle comments">Comments</button>
+                <button class="btn btn-ghost pane-header-btn" id="outlineToggle" aria-label="Toggle outline" title="Toggle outline">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
+                </button>
+              </div>
             </div>
             <div class="preview-body">
               <div id="previewContainer" class="preview-container">
@@ -223,6 +234,32 @@
                     <div class="backlinks-list" id="backlinksList"></div>
                   </div>
                 </div>
+
+                <section id="commentsPanel" class="comments-panel hidden" aria-label="Comments">
+                  <div class="comments-header" role="button" tabindex="0" aria-expanded="false">
+                    <svg class="comments-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                    <span class="comments-toggle">Comments</span>
+                    <span class="comments-count"></span>
+                  </div>
+                  <div class="comments-body" aria-hidden="true">
+                    <div class="comments-empty-state">
+                      Add a block comment from the editor or preview.
+                    </div>
+
+                    <section class="comment-composer hidden" aria-label="New comment">
+                      <div class="comment-composer-label" id="commentComposerLabel"></div>
+                      <form id="commentComposerForm" class="comment-composer-form">
+                        <textarea id="commentComposerInput" class="input comment-composer-input" rows="3" placeholder="Add context, feedback, or a question..."></textarea>
+                        <div class="comment-composer-actions">
+                          <button type="button" class="btn btn-secondary" id="commentComposerCancel">Cancel</button>
+                          <button type="submit" class="btn btn-primary">Post comment</button>
+                        </div>
+                      </form>
+                    </section>
+
+                    <div id="commentsList" class="comments-list"></div>
+                  </div>
+                </section>
               </div>
               <aside id="outlinePanel" class="outline-panel hidden" aria-label="Document outline">
                 <div class="outline-header">

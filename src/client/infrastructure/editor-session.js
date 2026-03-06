@@ -31,6 +31,13 @@ import * as Y from 'yjs';
 import { plantUmlLanguage, plantUmlLanguageDescription } from '../domain/plantuml-language.js';
 import { createRandomUser, normalizeUserName } from '../domain/room.js';
 import { wikiLinkCompletions } from '../domain/wiki-link-completions.js';
+import {
+  createCommentId,
+  createCommentThreadSharedType,
+  normalizeCommentBody,
+  serializeCommentThreads,
+  summarizeCommentExcerpt,
+} from '../../domain/comment-threads.js';
 import { resolveWsBaseUrl } from './runtime-config.js';
 
 const markdownCodeLanguages = [...languages, plantUmlLanguageDescription];
@@ -114,6 +121,17 @@ function createLanguageExtension(filePath) {
   return markdown({ base: markdownLanguage, codeLanguages: markdownCodeLanguages });
 }
 
+function createCommentMessage({ body, user }) {
+  return {
+    body,
+    createdAt: Date.now(),
+    id: createCommentId('comment'),
+    peerId: user?.peerId ?? '',
+    userColor: user?.color ?? '',
+    userName: user?.name ?? 'Anonymous',
+  };
+}
+
 export class EditorSession {
   constructor({
     editorContainer,
@@ -122,6 +140,7 @@ export class EditorSession {
     lineInfoElement,
     onAwarenessChange,
     onConnectionChange,
+    onCommentsChange,
     onContentChange,
     preferredUserName,
     localUser,
@@ -133,6 +152,7 @@ export class EditorSession {
     this.lineInfoElement = lineInfoElement;
     this.onAwarenessChange = onAwarenessChange;
     this.onConnectionChange = onConnectionChange;
+    this.onCommentsChange = onCommentsChange;
     this.onContentChange = onContentChange;
     this.preferredUserName = preferredUserName;
     this._providedLocalUser = localUser || null;
@@ -146,6 +166,8 @@ export class EditorSession {
     this.lineWrappingCompartment = new Compartment();
     this.ydoc = null;
     this.ytext = null;
+    this.commentThreads = null;
+    this.handleCommentThreadsChange = null;
     this.wsBaseUrl = '';
   }
 
@@ -153,6 +175,7 @@ export class EditorSession {
     this.wsBaseUrl = resolveWsBaseUrl();
     this.ydoc = new Y.Doc();
     this.ytext = this.ydoc.getText('codemirror');
+    this.commentThreads = this.ydoc.getArray('comments');
 
     const undoManager = new Y.UndoManager(this.ytext);
     const user = this._providedLocalUser ?? createRandomUser(this.preferredUserName);
@@ -183,6 +206,11 @@ export class EditorSession {
     awareness.on('change', () => {
       this.onAwarenessChange?.(this.collectUsers(awareness));
     });
+
+    this.handleCommentThreadsChange = () => {
+      this.onCommentsChange?.(this.getCommentThreads());
+    };
+    this.commentThreads.observeDeep(this.handleCommentThreadsChange);
 
     const updateListener = EditorView.updateListener.of((update) => {
       if (update.docChanged) {
@@ -238,6 +266,7 @@ export class EditorSession {
 
     this.updateCursorInfo(this.editorView.state);
     this.onAwarenessChange?.(this.collectUsers(awareness));
+    this.onCommentsChange?.(this.getCommentThreads());
     this.onContentChange?.();
   }
 
@@ -290,6 +319,120 @@ export class EditorSession {
 
   getLocalUser() {
     return this.localUser;
+  }
+
+  getCurrentSelectionLineRange() {
+    if (!this.editorView) {
+      return null;
+    }
+
+    const { doc, selection } = this.editorView.state;
+    const from = Math.min(...selection.ranges.map((range) => Math.min(range.from, range.to)));
+    const to = Math.max(...selection.ranges.map((range) => Math.max(range.from, range.to)));
+    const startLine = doc.lineAt(from).number;
+    let safeTo = Math.min(Math.max(to, from), doc.length);
+    if (safeTo > from && doc.lineAt(safeTo).from === safeTo) {
+      safeTo -= 1;
+    }
+    const endLine = doc.lineAt(safeTo).number;
+
+    return {
+      endLine,
+      startLine,
+    };
+  }
+
+  getCommentThreads() {
+    if (!this.commentThreads) {
+      return [];
+    }
+
+    return serializeCommentThreads(this.commentThreads)
+      .map((thread) => this.resolveCommentThread(thread))
+      .filter(Boolean);
+  }
+
+  createCommentThread({ body, endLine, startLine }) {
+    if (!this.editorView || !this.commentThreads || !this.ytext) {
+      return null;
+    }
+
+    const normalizedBody = normalizeCommentBody(body);
+    if (!normalizedBody) {
+      return null;
+    }
+
+    const range = this.normalizeLineRange({ endLine, startLine });
+    const start = this.editorView.state.doc.line(range.startLine);
+    const end = this.editorView.state.doc.line(range.endLine);
+    const excerpt = summarizeCommentExcerpt(this.editorView.state.doc.sliceString(start.from, end.to));
+    const thread = createCommentThreadSharedType({
+      anchorEnd: Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(this.ytext, end.to)),
+      anchorEndLine: range.endLine,
+      anchorExcerpt: excerpt,
+      anchorStart: Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(this.ytext, start.from)),
+      anchorStartLine: range.startLine,
+      createdAt: Date.now(),
+      createdByColor: this.localUser?.color ?? '',
+      createdByName: this.localUser?.name ?? 'Anonymous',
+      createdByPeerId: this.localUser?.peerId ?? '',
+      id: createCommentId('thread'),
+      messages: [createCommentMessage({
+        body: normalizedBody,
+        user: this.localUser,
+      })],
+    });
+
+    if (!thread) {
+      return null;
+    }
+
+    this.ydoc.transact(() => {
+      this.commentThreads.push([thread]);
+    }, 'comment-thread-create');
+
+    return thread.get('id');
+  }
+
+  replyToCommentThread(threadId, body) {
+    const normalizedBody = normalizeCommentBody(body);
+    if (!normalizedBody) {
+      return null;
+    }
+
+    const thread = this.findSharedCommentThread(threadId);
+    const messages = thread?.get('messages');
+    if (!(messages instanceof Y.Array)) {
+      return null;
+    }
+
+    const message = createCommentMessage({
+      body: normalizedBody,
+      user: this.localUser,
+    });
+
+    this.ydoc.transact(() => {
+      messages.push([message]);
+    }, 'comment-thread-reply');
+
+    return message.id;
+  }
+
+  deleteCommentThread(threadId) {
+    if (!this.commentThreads) {
+      return false;
+    }
+
+    const threadIndex = this.findSharedCommentThreadIndex(threadId);
+    if (threadIndex < 0) {
+      return false;
+    }
+
+    this.ydoc.transact(() => {
+      this.commentThreads.delete(threadIndex, 1);
+    }, 'comment-thread-resolve');
+
+    return true;
   }
 
   isLineWrappingEnabled() {
@@ -402,6 +545,12 @@ export class EditorSession {
   }
 
   destroy() {
+    if (this.commentThreads && this.handleCommentThreadsChange) {
+      this.commentThreads.unobserveDeep(this.handleCommentThreadsChange);
+    }
+    this.commentThreads = null;
+    this.handleCommentThreadsChange = null;
+
     this.provider?.disconnect();
     this.provider?.destroy();
     this.provider = null;
@@ -490,6 +639,90 @@ export class EditorSession {
       cursorHead: head.index,
       cursorLine: line.number,
     };
+  }
+
+  findSharedCommentThread(threadId) {
+    if (!this.commentThreads) {
+      return null;
+    }
+
+    return this.commentThreads.toArray().find((thread) => (
+      thread instanceof Y.Map && thread.get('id') === threadId
+    )) ?? null;
+  }
+
+  findSharedCommentThreadIndex(threadId) {
+    if (!this.commentThreads) {
+      return -1;
+    }
+
+    return this.commentThreads.toArray().findIndex((thread) => (
+      thread instanceof Y.Map && thread.get('id') === threadId
+    ));
+  }
+
+  normalizeLineRange({ endLine, startLine }) {
+    if (!this.editorView) {
+      return { endLine: 1, startLine: 1 };
+    }
+
+    const lineCount = this.editorView.state.doc.lines;
+    const normalizedStart = Math.min(Math.max(Math.round(startLine ?? 1), 1), lineCount);
+    const normalizedEnd = Math.min(Math.max(Math.round(endLine ?? normalizedStart), normalizedStart), lineCount);
+
+    return {
+      endLine: normalizedEnd,
+      startLine: normalizedStart,
+    };
+  }
+
+  resolveCommentThread(thread) {
+    if (!thread || !this.editorView || !this.ydoc) {
+      return null;
+    }
+
+    const anchorStart = this.resolveCommentPosition(thread.anchorStart);
+    const anchorEnd = this.resolveCommentPosition(thread.anchorEnd);
+    const startIndex = anchorStart?.index ?? this.editorView.state.doc.line(
+      Math.min(Math.max(thread.anchorStartLine ?? 1, 1), this.editorView.state.doc.lines),
+    ).from;
+    const endIndex = anchorEnd?.index ?? this.editorView.state.doc.line(
+      Math.min(Math.max(thread.anchorEndLine ?? thread.anchorStartLine ?? 1, 1), this.editorView.state.doc.lines),
+    ).to;
+    const startLine = this.editorView.state.doc.lineAt(startIndex).number;
+    const endLine = this.editorView.state.doc.lineAt(Math.min(Math.max(endIndex, startIndex), this.editorView.state.doc.length)).number;
+    const excerpt = summarizeCommentExcerpt(
+      this.editorView.state.doc.sliceString(startIndex, Math.max(endIndex, startIndex)),
+    ) || thread.anchorExcerpt;
+
+    return {
+      ...thread,
+      anchor: {
+        endIndex,
+        endLine,
+        excerpt: excerpt || thread.anchorExcerpt || '',
+        startIndex,
+        startLine,
+      },
+    };
+  }
+
+  resolveCommentPosition(positionJson) {
+    if (!positionJson || !this.ydoc || !this.ytext) {
+      return null;
+    }
+
+    try {
+      const position = Y.createRelativePositionFromJSON(positionJson);
+      const absolute = Y.createAbsolutePositionFromRelativePosition(position, this.ydoc);
+      if (!absolute || absolute.type !== this.ytext) {
+        return null;
+      }
+
+      return absolute;
+    } catch {
+      return null;
+    }
   }
 
   updateCursorInfo(state) {

@@ -6,15 +6,15 @@ import { reconcileEmbedEntries } from '../../src/client/presentation/excalidraw-
 test('reconcileEmbedEntries preserves existing iframe entries for unchanged keys', () => {
   const cachedEntry = {
     iframe: { id: 'iframe-1' },
-    key: 'system-architecture.excalidraw#0',
+    key: 'sample-excalidraw.excalidraw#0',
     wrapper: { id: 'wrapper-1' },
   };
   const currentEntries = new Map([[cachedEntry.key, cachedEntry]]);
 
   const { nextEntries, removedEntries } = reconcileEmbedEntries(currentEntries, [
     {
-      filePath: 'system-architecture.excalidraw',
-      key: 'system-architecture.excalidraw#0',
+      filePath: 'sample-excalidraw.excalidraw',
+      key: 'sample-excalidraw.excalidraw#0',
       label: 'System Architecture',
       placeholder: { id: 'placeholder-1' },
     },

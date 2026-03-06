@@ -50,6 +50,52 @@ test('VaultFileStore reads and writes markdown files', async (t) => {
   assert.equal(updated, '# Updated\n');
 });
 
+test('VaultFileStore persists hidden comment sidecars alongside vault files', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  const threads = [{
+    anchorEnd: { assoc: 0, type: null },
+    anchorEndLine: 3,
+    anchorExcerpt: 'Hello from test vault.',
+    anchorStart: { assoc: 0, type: null },
+    anchorStartLine: 3,
+    createdAt: 1,
+    createdByColor: '#4f46e5',
+    createdByName: 'Andes',
+    createdByPeerId: 'peer-1',
+    id: 'thread-1',
+    messages: [{
+      body: 'Please clarify this line.',
+      createdAt: 1,
+      id: 'comment-1',
+      peerId: 'peer-1',
+      userColor: '#4f46e5',
+      userName: 'Andes',
+    }],
+    resolvedAt: null,
+    resolvedByColor: '',
+    resolvedByName: '',
+    resolvedByPeerId: '',
+  }];
+
+  const writeResult = await store.writeCommentThreads('README.md', threads);
+  assert.equal(writeResult.ok, true);
+  assert.deepEqual(await store.readCommentThreads('README.md'), threads);
+
+  const tree = await store.tree();
+  assert.equal(tree.some((node) => node.name === '.collabmd'), false);
+
+  const renameResult = await store.renameFile('README.md', 'renamed.md');
+  assert.equal(renameResult.ok, true);
+  assert.deepEqual(await store.readCommentThreads('README.md'), []);
+  assert.deepEqual(await store.readCommentThreads('renamed.md'), threads);
+
+  const deleteResult = await store.deleteFile('renamed.md');
+  assert.equal(deleteResult.ok, true);
+  assert.deepEqual(await store.readCommentThreads('renamed.md'), []);
+});
+
 test('VaultFileStore reads and writes PlantUML files', async (t) => {
   const { store, cleanup } = await createVaultStore();
   t.after(cleanup);

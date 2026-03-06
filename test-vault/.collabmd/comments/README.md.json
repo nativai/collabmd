@@ -1,0 +1,93 @@
+{
+  "threads": [
+    {
+      "anchorEnd": {
+        "tname": "codemirror",
+        "item": {
+          "client": 601653391,
+          "clock": 52
+        },
+        "assoc": 0
+      },
+      "anchorEndLine": 3,
+      "anchorExcerpt": "## Inline plantuml docs",
+      "anchorStart": {
+        "tname": "codemirror",
+        "item": {
+          "client": 601653391,
+          "clock": 29
+        },
+        "assoc": 0
+      },
+      "anchorStartLine": 3,
+      "createdAt": 1772805528434,
+      "createdByColor": "#3b82f6",
+      "createdByName": "Tara",
+      "createdByPeerId": "2d36c1f041115730",
+      "id": "thread-4c6347cf-3a56-4c10-9c04-6d3e25a08ed2",
+      "messages": [
+        {
+          "body": "Testing comment",
+          "createdAt": 1772805528434,
+          "id": "comment-d0ffee09-c805-4eb6-9e0a-62c31dbc6dcf",
+          "peerId": "2d36c1f041115730",
+          "userColor": "#3b82f6",
+          "userName": "Tara"
+        },
+        {
+          "body": "Yo",
+          "createdAt": 1772805543966,
+          "id": "comment-adee12a2-1c06-4487-9095-c6845217dc08",
+          "peerId": "2d36c1f041115730",
+          "userColor": "#3b82f6",
+          "userName": "Tara"
+        }
+      ],
+      "resolvedAt": 1772806231847,
+      "resolvedByColor": "#22c55e",
+      "resolvedByName": "Leo",
+      "resolvedByPeerId": "4998bbce05bbace3"
+    },
+    {
+      "anchorEnd": {
+        "tname": "codemirror",
+        "item": {
+          "client": 601653391,
+          "clock": 609
+        },
+        "assoc": 0
+      },
+      "anchorEndLine": 22,
+      "anchorExcerpt": "== Break Term Deposit == partner -> ms_partner: Request break TD ms_partner -> ms_partner: Validate access token ms_partner -> ms_partner: Validate request inf…",
+      "anchorStart": {
+        "tname": "codemirror",
+        "item": {
+          "client": 601653391,
+          "clock": 346
+        },
+        "assoc": 0
+      },
+      "anchorStartLine": 17,
+      "createdAt": 1772805554815,
+      "createdByColor": "#3b82f6",
+      "createdByName": "Tara",
+      "createdByPeerId": "2d36c1f041115730",
+      "id": "thread-68a5f488-6da1-4f5c-8a1c-215b10b88d5c",
+      "messages": [
+        {
+          "body": "Why",
+          "createdAt": 1772805554816,
+          "id": "comment-9c01baaf-28fa-4024-b52a-1a5cbffc2b7a",
+          "peerId": "2d36c1f041115730",
+          "userColor": "#3b82f6",
+          "userName": "Tara"
+        }
+      ],
+      "resolvedAt": 1772805561757,
+      "resolvedByColor": "#3b82f6",
+      "resolvedByName": "Tara",
+      "resolvedByPeerId": "2d36c1f041115730"
+    }
+  ],
+  "version": 1
+}

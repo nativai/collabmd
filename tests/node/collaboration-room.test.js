@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 
 import { CollaborationRoom } from '../../src/server/domain/collaboration/collaboration-room.js';
+import { createCommentThreadSharedType } from '../../src/domain/comment-threads.js';
 
 function createSocket({ bufferedAmount = 0 } = {}) {
   return {
@@ -102,6 +103,106 @@ test('CollaborationRoom allows a single oversized initial sync frame from an emp
 
   assert.equal(client.sent.length, 1);
   assert.equal(client.closeCalls.length, 0);
+});
+
+test('CollaborationRoom hydrates and persists markdown comment threads', async () => {
+  const writes = [];
+  const commentWrites = [];
+  const persistedThreads = [{
+    anchorEnd: { assoc: 0, type: null },
+    anchorEndLine: 3,
+    anchorExcerpt: 'Hello from room.',
+    anchorStart: { assoc: 0, type: null },
+    anchorStartLine: 3,
+    createdAt: 1,
+    createdByColor: '#818cf8',
+    createdByName: 'Andes',
+    createdByPeerId: 'peer-1',
+    id: 'thread-1',
+    messages: [{
+      body: 'Initial thread',
+      createdAt: 1,
+      id: 'comment-1',
+      peerId: 'peer-1',
+      userColor: '#818cf8',
+      userName: 'Andes',
+    }],
+    resolvedAt: null,
+    resolvedByColor: '',
+    resolvedByName: '',
+    resolvedByPeerId: '',
+  }];
+
+  const room = new CollaborationRoom({
+    maxBufferedAmountBytes: 1024,
+    name: 'notes.md',
+    onEmpty: () => {},
+    vaultFileStore: {
+      async readMarkdownFile() {
+        return '# Notes\n\nHello from room.\n';
+      },
+      async readCommentThreads(path) {
+        assert.equal(path, 'notes.md');
+        return persistedThreads;
+      },
+      async writeCommentThreads(path, threads) {
+        commentWrites.push({ path, threads });
+        return { ok: true };
+      },
+      async writeMarkdownFile(path, content) {
+        writes.push({ content, path });
+        return { ok: true };
+      },
+    },
+  });
+
+  await room.hydrate();
+  const hydratedThreads = room.doc.getArray('comments').toArray();
+  assert.equal(hydratedThreads.length, 1);
+  assert.equal(hydratedThreads[0].get('id'), 'thread-1');
+
+  room.doc.transact(() => {
+    const comments = room.doc.getArray('comments');
+    const hydratedThread = comments.toArray()[0];
+    hydratedThread.get('messages').push([{
+      body: 'Follow-up',
+      createdAt: 2,
+      id: 'comment-2',
+      peerId: 'peer-2',
+      userColor: '#22c55e',
+      userName: 'Collaborator',
+    }]);
+    comments.push([createCommentThreadSharedType({
+      anchorEnd: { assoc: 0, type: null },
+      anchorEndLine: 2,
+      anchorExcerpt: 'Notes',
+      anchorStart: { assoc: 0, type: null },
+      anchorStartLine: 1,
+      createdAt: 3,
+      createdByColor: '#f97316',
+      createdByName: 'Reviewer',
+      createdByPeerId: 'peer-3',
+      id: 'thread-2',
+      messages: [{
+        body: 'Second thread',
+        createdAt: 3,
+        id: 'comment-3',
+        peerId: 'peer-3',
+        userColor: '#f97316',
+        userName: 'Reviewer',
+      }],
+    })]);
+  }, 'test');
+
+  await room.persist();
+
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].path, 'notes.md');
+  assert.equal(commentWrites.length, 1);
+  assert.equal(commentWrites[0].path, 'notes.md');
+  assert.equal(commentWrites[0].threads.length, 2);
+  assert.equal(commentWrites[0].threads[0].messages.length, 2);
+  assert.equal(commentWrites[0].threads[1].id, 'thread-2');
 });
 
 test('CollaborationRoom hydrates and persists excalidraw rooms via excalidraw file APIs', async () => {
