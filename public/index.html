@@ -119,6 +119,33 @@
             <span class="toolbar-btn-label toolbar-user-name" id="currentUserName">Set name</span>
           </button>
           <div class="user-avatars" id="userAvatars"></div>
+          <div class="chat-container" id="chatContainer">
+            <button class="btn btn-ghost toolbar-btn chat-toggle-btn" id="chatToggleBtn" aria-label="Open team chat" aria-expanded="false" title="Team chat">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span class="toolbar-btn-label">Chat</span>
+              <span class="chat-toggle-badge hidden" id="chatToggleBadge">0</span>
+            </button>
+
+            <section class="chat-panel hidden" id="chatPanel" aria-label="Team chat">
+              <div class="chat-panel-header">
+                <div>
+                  <h2 class="chat-panel-title">Team chat</h2>
+                  <p class="chat-panel-status" id="chatStatus">Syncing...</p>
+                </div>
+                <button class="btn btn-secondary chat-alert-btn" id="chatNotificationBtn" type="button">Enable alerts</button>
+              </div>
+
+              <div class="chat-empty-state" id="chatEmptyState">
+                Temporary room chat for whoever is online right now.
+              </div>
+              <div class="chat-messages hidden" id="chatMessages" role="log" aria-live="polite" aria-relevant="additions text"></div>
+
+              <form class="chat-form" id="chatForm">
+                <input type="text" class="input chat-input" id="chatInput" placeholder="Send a quick update..." autocomplete="off" spellcheck="true" maxlength="280">
+                <button type="submit" class="btn btn-primary chat-send-btn">Send</button>
+              </form>
+            </section>
+          </div>
           <button class="btn btn-ghost toolbar-btn" id="shareBtn" aria-label="Copy link" title="Share link">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
             <span class="toolbar-btn-label">Share</span>

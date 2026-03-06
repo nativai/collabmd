@@ -5,6 +5,25 @@ import { createRandomUser } from '../domain/room.js';
 import { resolveWsBaseUrl } from './runtime-config.js';
 
 const LOBBY_ROOM_NAME = '__lobby__';
+export const LOBBY_CHAT_MESSAGE_MAX_LENGTH = 280;
+export const LOBBY_CHAT_MAX_MESSAGES = 40;
+
+function normalizeChatMessage(value) {
+  const normalized = String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, LOBBY_CHAT_MESSAGE_MAX_LENGTH);
+
+  return normalized || null;
+}
+
+function createLobbyMessageId(peerId) {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `${peerId || 'user'}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 /**
  * Global presence layer.
@@ -15,15 +34,18 @@ const LOBBY_ROOM_NAME = '__lobby__';
  * and which file they are editing.
  */
 export class LobbyPresence {
-  constructor({ preferredUserName, onChange }) {
+  constructor({ preferredUserName, onChange, onChatChange }) {
     this.onChange = onChange;
+    this.onChatChange = onChatChange;
     this.wsBaseUrl = resolveWsBaseUrl();
     this.ydoc = new Y.Doc();
+    this.chatMessages = this.ydoc.getArray('chat-messages');
     this.provider = null;
     this.awareness = null;
     this.localUser = createRandomUser(preferredUserName);
     this.currentFile = null;
     this._connected = false;
+    this._didInitialSync = false;
   }
 
   connect() {
@@ -44,8 +66,22 @@ export class LobbyPresence {
       this._emitChange();
     });
 
+    this.chatMessages.observe(() => {
+      this._emitChatChange();
+    });
+
     this.provider.on('status', ({ status }) => {
       this._connected = status === 'connected';
+    });
+
+    this.provider.on('sync', (isSynced) => {
+      if (!isSynced || this._didInitialSync) {
+        return;
+      }
+
+      this._didInitialSync = true;
+      this._emitChange();
+      this._emitChatChange({ initial: true });
     });
   }
 
@@ -69,6 +105,44 @@ export class LobbyPresence {
   /** Return the local user object (name + color). */
   getLocalUser() {
     return this.localUser;
+  }
+
+  sendChatMessage(text) {
+    const normalizedText = normalizeChatMessage(text);
+    if (!normalizedText) {
+      return null;
+    }
+
+    const message = {
+      createdAt: Date.now(),
+      filePath: this.currentFile ?? null,
+      id: createLobbyMessageId(this.localUser.peerId),
+      peerId: this.localUser.peerId,
+      text: normalizedText,
+      userColor: this.localUser.color,
+      userName: this.localUser.name,
+    };
+
+    this.ydoc.transact(() => {
+      this.chatMessages.push([message]);
+
+      const overflow = this.chatMessages.length - LOBBY_CHAT_MAX_MESSAGES;
+      if (overflow > 0) {
+        this.chatMessages.delete(0, overflow);
+      }
+    }, 'lobby-chat-message');
+
+    return message;
+  }
+
+  getMessages() {
+    return this.chatMessages.toArray().filter((message) => (
+      message
+      && typeof message.id === 'string'
+      && typeof message.peerId === 'string'
+      && typeof message.text === 'string'
+      && typeof message.userName === 'string'
+    ));
   }
 
   /**
@@ -102,5 +176,9 @@ export class LobbyPresence {
 
   _emitChange() {
     this.onChange?.(this.getUsers());
+  }
+
+  _emitChatChange(meta = {}) {
+    this.onChatChange?.(this.getMessages(), meta);
   }
 }

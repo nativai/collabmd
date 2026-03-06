@@ -30,6 +30,17 @@ async function replaceEditorContent(page, content) {
   await page.keyboard.insertText(content);
 }
 
+async function openChat(page) {
+  await page.locator('#chatToggleBtn').click();
+  await expect(page.locator('#chatPanel')).toBeVisible();
+}
+
+async function sendChatMessage(page, message) {
+  await openChat(page);
+  await page.locator('#chatInput').fill(message);
+  await page.locator('#chatForm').getByRole('button', { name: 'Send' }).click();
+}
+
 async function waitForHeavyPreviewContent(page) {
   await page.waitForFunction(() => {
     const preview = document.getElementById('previewContent');
@@ -224,6 +235,90 @@ test('syncs collaborative edits across two users on the same file', async ({ bro
   await pageB.close();
 });
 
+test('syncs disposable lobby chat and tracks unread messages', async ({ browser }) => {
+  const pageA = await browser.newPage();
+  const pageB = await browser.newPage();
+
+  await openFile(pageA, 'README.md');
+  await openFile(pageB, 'README.md');
+
+  await sendChatMessage(pageA, 'Quick sync: reviewing README right now.');
+
+  await expect(pageB.locator('#chatToggleBadge')).toHaveText('1');
+
+  await openChat(pageB);
+  await expect(pageB.locator('#chatMessages')).toContainText('Quick sync: reviewing README right now.');
+  await expect(pageB.locator('#chatToggleBadge')).toBeHidden();
+
+  await pageA.close();
+  await pageB.close();
+});
+
+test('shows a browser notification for a background chat message when alerts are enabled', async ({ browser }) => {
+  const pageA = await browser.newPage();
+  const pageB = await browser.newPage();
+
+  await pageB.addInitScript(() => {
+    window.__testNotifications = [];
+
+    class TestNotification {
+      static permission = 'granted';
+
+      static async requestPermission() {
+        return 'granted';
+      }
+
+      constructor(title, options = {}) {
+        this.title = title;
+        this.options = options;
+        window.__testNotifications.push({ title, ...options });
+      }
+
+      addEventListener() {}
+
+      close() {}
+    }
+
+    Object.defineProperty(window, 'Notification', {
+      configurable: true,
+      writable: true,
+      value: TestNotification,
+    });
+  });
+
+  await openFile(pageA, 'README.md');
+  await openFile(pageB, 'README.md');
+
+  await openChat(pageB);
+  await pageB.locator('#chatNotificationBtn').click();
+  await expect(pageB.locator('#chatNotificationBtn')).toHaveText('Alerts on');
+  await pageB.locator('#chatToggleBtn').click();
+
+  await pageB.evaluate(() => {
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      get: () => true,
+    });
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'hidden',
+    });
+  });
+
+  await sendChatMessage(pageA, 'Background ping from README.');
+
+  await expect.poll(async () => (
+    pageB.evaluate(() => window.__testNotifications.length)
+  )).toBe(1);
+
+  const notification = await pageB.evaluate(() => window.__testNotifications[0]);
+  expect(notification.title).toContain('CollabMD chat');
+  expect(notification.body).toBe('README: Background ping from README.');
+
+  await pageA.close();
+  await pageB.close();
+});
+
 test('follows another user to their current cursor position', async ({ browser }) => {
   const followerPage = await browser.newPage();
   const targetPage = await browser.newPage();
@@ -365,6 +460,43 @@ test('preserves excalidraw iframe instances across unrelated preview rerenders',
 
   await expect.poll(async () => (
     page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('data-instance-id')
+  ), { timeout: 60000 }).toBe(firstInstanceId);
+});
+
+test('preserves Mermaid instances across unrelated preview rerenders', async ({ page }) => {
+  test.slow();
+
+  await openFile(page, 'full-markdown.md');
+  await waitForHeavyPreviewContent(page);
+
+  const mermaidKey = await page.evaluate(() => (
+    document.querySelector('#previewContent .mermaid-shell')?.getAttribute('data-mermaid-key') || ''
+  ));
+  expect(mermaidKey).toBeTruthy();
+
+  await page.evaluate((key) => {
+    const shell = document.querySelector(`#previewContent .mermaid-shell[data-mermaid-key="${key}"]`);
+    shell?.querySelector('.mermaid-placeholder-btn')?.click();
+  }, mermaidKey);
+
+  await expect.poll(async () => (
+    page.evaluate((key) => (
+      document.querySelector(`#previewContent .mermaid-shell[data-mermaid-key="${key}"]`)?.getAttribute('data-mermaid-instance-id') || ''
+    ), mermaidKey)
+  ), { timeout: 60000 }).toMatch(/^\d+$/);
+
+  const firstInstanceId = await page.evaluate((key) => (
+    document.querySelector(`#previewContent .mermaid-shell[data-mermaid-key="${key}"]`)?.getAttribute('data-mermaid-instance-id') || ''
+  ), mermaidKey);
+  const editor = page.locator('.cm-content').first();
+  await editor.click();
+  await page.keyboard.insertText(' ');
+  await page.keyboard.press('Backspace');
+
+  await expect.poll(async () => (
+    page.evaluate((key) => (
+      document.querySelector(`#previewContent .mermaid-shell[data-mermaid-key="${key}"]`)?.getAttribute('data-mermaid-instance-id') || ''
+    ), mermaidKey)
   ), { timeout: 60000 }).toBe(firstInstanceId);
 });
 

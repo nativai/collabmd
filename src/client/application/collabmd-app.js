@@ -2,7 +2,7 @@ import { PreviewRenderer } from './preview-renderer.js';
 import { USER_NAME_MAX_LENGTH, normalizeUserName } from '../domain/room.js';
 import { resolveWikiTarget } from '../domain/vault-utils.js';
 import { EditorSession } from '../infrastructure/editor-session.js';
-import { LobbyPresence } from '../infrastructure/lobby-presence.js';
+import { LOBBY_CHAT_MESSAGE_MAX_LENGTH, LobbyPresence } from '../infrastructure/lobby-presence.js';
 import { getFileFromHash, navigateToFile } from '../infrastructure/runtime-config.js';
 import { BacklinksPanel } from '../presentation/backlinks-panel.js';
 import { ExcalidrawEmbedController } from '../presentation/excalidraw-embed-controller.js';
@@ -18,6 +18,16 @@ export class CollabMdApp {
   constructor() {
     this.elements = {
       currentUserName: document.getElementById('currentUserName'),
+      chatContainer: document.getElementById('chatContainer'),
+      chatEmptyState: document.getElementById('chatEmptyState'),
+      chatForm: document.getElementById('chatForm'),
+      chatInput: document.getElementById('chatInput'),
+      chatMessages: document.getElementById('chatMessages'),
+      chatNotificationButton: document.getElementById('chatNotificationBtn'),
+      chatPanel: document.getElementById('chatPanel'),
+      chatStatus: document.getElementById('chatStatus'),
+      chatToggleBadge: document.getElementById('chatToggleBadge'),
+      chatToggleButton: document.getElementById('chatToggleBtn'),
       displayNameCancel: document.getElementById('displayNameCancel'),
       displayNameDialog: document.getElementById('displayNameDialog'),
       displayNameForm: document.getElementById('displayNameForm'),
@@ -54,10 +64,23 @@ export class CollabMdApp {
     this.sidebarVisibleKey = 'collabmd-sidebar-visible';
     this.followedUserClientId = null;
     this.followedCursorSignature = '';
+    this.chatMessages = [];
+    this.chatMessageIds = new Set();
+    this.chatUnreadCount = 0;
+    this.chatIsOpen = false;
+    this.chatInitialSyncComplete = false;
+    this.chatNotificationsPreferenceKey = 'collabmd-chat-notifications-enabled';
+    this.chatNotificationsEnabled = this.getStoredChatNotificationsEnabled();
+    this.chatNotificationPermission = this.getNotificationPermission();
+    this.chatTimeFormatter = new Intl.DateTimeFormat(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
 
     this.lobby = new LobbyPresence({
       preferredUserName: this.getStoredUserName(),
       onChange: (users) => this.updateGlobalUsers(users),
+      onChatChange: (messages, meta) => this.updateChatMessages(messages, meta),
     });
 
     this.toastController = new ToastController(this.elements.toastContainer);
@@ -125,6 +148,10 @@ export class CollabMdApp {
     this._pendingPreviewLayoutSync = false;
     this._previewLayoutResizeObserver = null;
     this._previewLayoutSyncTimer = null;
+
+    if (this.chatNotificationPermission !== 'granted') {
+      this.chatNotificationsEnabled = false;
+    }
   }
 
   isExcalidrawFile(filePath) {
@@ -194,6 +221,9 @@ export class CollabMdApp {
     this.initializePreviewLayoutObserver();
     this.syncCurrentUserName();
     this.syncWrapToggle();
+    this.syncChatNotificationButton();
+    this.renderChat();
+    this.elements.chatInput?.setAttribute('maxlength', String(LOBBY_CHAT_MESSAGE_MAX_LENGTH));
     this.bindEvents();
     this.restoreSidebarState();
 
@@ -209,6 +239,19 @@ export class CollabMdApp {
   }
 
   bindEvents() {
+    this.elements.chatToggleButton?.addEventListener('click', () => {
+      this.toggleChatPanel();
+    });
+
+    this.elements.chatForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      this.handleChatSubmit();
+    });
+
+    this.elements.chatNotificationButton?.addEventListener('click', () => {
+      void this.handleChatNotificationToggle();
+    });
+
     this.elements.shareButton?.addEventListener('click', () => {
       void this.copyCurrentLink();
     });
@@ -248,7 +291,24 @@ export class CollabMdApp {
       this.closeSidebarOnMobile();
     });
 
+    document.addEventListener('pointerdown', (event) => {
+      if (!this.chatIsOpen) {
+        return;
+      }
+
+      if (this.elements.chatContainer?.contains(event.target)) {
+        return;
+      }
+
+      this.closeChatPanel();
+    });
+
     document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.chatIsOpen) {
+        this.closeChatPanel();
+        return;
+      }
+
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         this.quickSwitcher.toggle();
@@ -630,6 +690,360 @@ export class CollabMdApp {
     }
   }
 
+  // Chat
+
+  updateChatMessages(messages, { initial = false } = {}) {
+    const previousIds = new Set(this.chatMessageIds);
+    const localPeerId = this.lobby.getLocalUser()?.peerId ?? null;
+
+    this.chatMessages = messages;
+    this.chatMessageIds = new Set(messages.map((message) => message.id));
+
+    if (!this.chatInitialSyncComplete) {
+      if (initial) {
+        this.chatInitialSyncComplete = true;
+      }
+
+      this.renderChat();
+      return;
+    }
+
+    const newRemoteMessages = messages.filter((message) => (
+      !previousIds.has(message.id)
+      && message.peerId
+      && message.peerId !== localPeerId
+    ));
+
+    if (this.chatIsOpen) {
+      this.chatUnreadCount = 0;
+    } else if (newRemoteMessages.length > 0) {
+      this.chatUnreadCount += newRemoteMessages.length;
+    }
+
+    for (const message of newRemoteMessages) {
+      this.maybeNotifyChatMessage(message);
+    }
+
+    this.renderChat();
+  }
+
+  toggleChatPanel() {
+    if (this.chatIsOpen) {
+      this.closeChatPanel();
+      return;
+    }
+
+    this.openChatPanel();
+  }
+
+  openChatPanel() {
+    this.chatIsOpen = true;
+    this.chatUnreadCount = 0;
+    this.renderChat();
+    requestAnimationFrame(() => {
+      this.elements.chatInput?.focus();
+      this.scrollChatToBottom();
+    });
+  }
+
+  closeChatPanel() {
+    if (!this.chatIsOpen) {
+      return;
+    }
+
+    this.chatIsOpen = false;
+    this.renderChat();
+  }
+
+  handleChatSubmit() {
+    const input = this.elements.chatInput;
+    if (!input) {
+      return;
+    }
+
+    const sentMessage = this.lobby.sendChatMessage(input.value);
+    if (!sentMessage) {
+      input.focus();
+      return;
+    }
+
+    input.value = '';
+    if (!this.chatIsOpen) {
+      this.openChatPanel();
+      return;
+    }
+
+    this.renderChat();
+  }
+
+  renderChat() {
+    this.elements.chatContainer?.classList.toggle('is-open', this.chatIsOpen);
+    this.elements.chatPanel?.classList.toggle('hidden', !this.chatIsOpen);
+
+    this.syncChatToggleButton();
+    this.syncChatNotificationButton();
+
+    const list = this.elements.chatMessages;
+    const emptyState = this.elements.chatEmptyState;
+
+    if (this.elements.chatStatus) {
+      this.elements.chatStatus.textContent = this.chatInitialSyncComplete
+        ? `${this.globalUsers.length} online`
+        : 'Syncing...';
+    }
+
+    if (!list) {
+      return;
+    }
+
+    list.replaceChildren();
+
+    if (this.chatMessages.length === 0) {
+      emptyState?.classList.remove('hidden');
+      list.classList.add('hidden');
+      return;
+    }
+
+    emptyState?.classList.add('hidden');
+    list.classList.remove('hidden');
+
+    const fragment = document.createDocumentFragment();
+    this.chatMessages.forEach((message) => {
+      fragment.appendChild(this.createChatMessageElement(message));
+    });
+    list.appendChild(fragment);
+
+    if (this.chatIsOpen) {
+      this.scrollChatToBottom();
+    }
+  }
+
+  createChatMessageElement(message) {
+    const item = document.createElement('article');
+    const isLocal = message.peerId === this.lobby.getLocalUser()?.peerId;
+    item.className = 'chat-message';
+    item.classList.toggle('is-local', isLocal);
+
+    const avatar = document.createElement('div');
+    avatar.className = 'chat-message-avatar';
+    avatar.style.backgroundColor = message.userColor || 'var(--color-primary)';
+    avatar.textContent = (message.userName || '?').charAt(0).toUpperCase();
+    avatar.setAttribute('aria-hidden', 'true');
+
+    const body = document.createElement('div');
+    body.className = 'chat-message-body';
+
+    const meta = document.createElement('div');
+    meta.className = 'chat-message-meta';
+
+    const author = document.createElement('span');
+    author.className = 'chat-message-author';
+    author.textContent = isLocal ? `${message.userName} (you)` : message.userName;
+
+    const time = document.createElement('span');
+    time.className = 'chat-message-time';
+    time.textContent = this.formatChatTimestamp(message.createdAt);
+
+    meta.append(author, time);
+
+    const fileLabel = this.getChatMessageFileLabel(message.filePath);
+    if (fileLabel) {
+      const file = document.createElement('span');
+      file.className = 'chat-message-file';
+      file.textContent = fileLabel;
+      meta.append(file);
+    }
+
+    const text = document.createElement('p');
+    text.className = 'chat-message-text';
+    text.textContent = message.text;
+
+    body.append(meta, text);
+    item.append(avatar, body);
+    return item;
+  }
+
+  scrollChatToBottom() {
+    const list = this.elements.chatMessages;
+    if (!list) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      list.scrollTop = list.scrollHeight;
+    });
+  }
+
+  formatChatTimestamp(value) {
+    if (!Number.isFinite(value)) {
+      return '';
+    }
+
+    try {
+      return this.chatTimeFormatter.format(new Date(value));
+    } catch {
+      return '';
+    }
+  }
+
+  getChatMessageFileLabel(filePath) {
+    if (!filePath) {
+      return '';
+    }
+
+    return this.getDisplayName(filePath);
+  }
+
+  syncChatToggleButton() {
+    const button = this.elements.chatToggleButton;
+    const badge = this.elements.chatToggleBadge;
+    if (!button) {
+      return;
+    }
+
+    button.classList.toggle('is-active', this.chatIsOpen);
+    button.setAttribute('aria-expanded', String(this.chatIsOpen));
+    button.title = this.chatUnreadCount > 0
+      ? `Team chat (${this.chatUnreadCount} unread)`
+      : 'Team chat';
+
+    if (!badge) {
+      return;
+    }
+
+    const hasUnread = this.chatUnreadCount > 0;
+    badge.classList.toggle('hidden', !hasUnread);
+    badge.textContent = this.chatUnreadCount > 9 ? '9+' : String(this.chatUnreadCount);
+  }
+
+  getNotificationPermission() {
+    if (typeof Notification !== 'function') {
+      return 'unsupported';
+    }
+
+    return Notification.permission;
+  }
+
+  syncChatNotificationButton() {
+    const button = this.elements.chatNotificationButton;
+    if (!button) {
+      return;
+    }
+
+    const permission = this.getNotificationPermission();
+    this.chatNotificationPermission = permission;
+
+    let label = 'Enable alerts';
+    let title = 'Enable browser notifications for new chat messages';
+    let pressed = false;
+
+    if (permission === 'unsupported') {
+      label = 'No alerts';
+      title = 'Browser notifications are unavailable here';
+    } else if (permission === 'denied') {
+      label = 'Alerts blocked';
+      title = 'Browser notifications are blocked for this site';
+    } else if (permission === 'granted') {
+      pressed = this.chatNotificationsEnabled;
+      label = pressed ? 'Alerts on' : 'Alerts off';
+      title = pressed
+        ? 'Disable browser notifications for chat'
+        : 'Enable browser notifications for chat';
+    }
+
+    button.textContent = label;
+    button.title = title;
+    button.setAttribute('aria-pressed', String(pressed));
+    button.classList.toggle('is-enabled', pressed);
+    button.classList.toggle('is-blocked', permission === 'denied');
+  }
+
+  async handleChatNotificationToggle() {
+    const permission = this.getNotificationPermission();
+    this.chatNotificationPermission = permission;
+
+    if (permission === 'unsupported') {
+      this.toastController.show('Browser notifications are unavailable here');
+      this.syncChatNotificationButton();
+      return;
+    }
+
+    if (permission === 'denied') {
+      this.chatNotificationsEnabled = false;
+      this.storeChatNotificationsEnabled(false);
+      this.toastController.show('Browser notifications are blocked for this site');
+      this.syncChatNotificationButton();
+      return;
+    }
+
+    if (permission === 'default') {
+      const nextPermission = await Notification.requestPermission();
+      this.chatNotificationPermission = nextPermission;
+
+      if (nextPermission !== 'granted') {
+        this.chatNotificationsEnabled = false;
+        this.storeChatNotificationsEnabled(false);
+        this.toastController.show(
+          nextPermission === 'denied'
+            ? 'Browser notifications were blocked'
+            : 'Notification permission was dismissed',
+        );
+        this.syncChatNotificationButton();
+        return;
+      }
+
+      this.chatNotificationsEnabled = true;
+      this.storeChatNotificationsEnabled(true);
+      this.toastController.show('Chat alerts enabled');
+      this.syncChatNotificationButton();
+      return;
+    }
+
+    this.chatNotificationsEnabled = !this.chatNotificationsEnabled;
+    this.storeChatNotificationsEnabled(this.chatNotificationsEnabled);
+    this.toastController.show(this.chatNotificationsEnabled ? 'Chat alerts enabled' : 'Chat alerts disabled');
+    this.syncChatNotificationButton();
+  }
+
+  maybeNotifyChatMessage(message) {
+    if (!this.chatInitialSyncComplete) {
+      return;
+    }
+
+    if (!this.chatNotificationsEnabled || this.getNotificationPermission() !== 'granted') {
+      return;
+    }
+
+    if (!document.hidden) {
+      return;
+    }
+
+    const title = `CollabMD chat • ${message.userName}`;
+    const fileLabel = this.getChatMessageFileLabel(message.filePath);
+    const body = fileLabel ? `${fileLabel}: ${message.text}` : message.text;
+
+    try {
+      const notification = new Notification(title, {
+        body,
+        tag: `collabmd-chat-${message.id}`,
+      });
+
+      notification.addEventListener('click', () => {
+        window.focus?.();
+        if (message.filePath) {
+          navigateToFile(message.filePath);
+        }
+        notification.close?.();
+      });
+
+      setTimeout(() => {
+        notification.close?.();
+      }, 6000);
+    } catch {
+      // Ignore notification delivery failures.
+    }
+  }
+
   // Presence — global (lobby) + per-file awareness
 
   /** Called by the lobby whenever the global user list changes. */
@@ -637,6 +1051,7 @@ export class CollabMdApp {
     this.globalUsers = users;
     this.syncFollowedUser();
     this.renderAvatars();
+    this.renderChat();
     this.renderPresence();
     this.syncCurrentUserName();
   }
@@ -838,9 +1253,11 @@ export class CollabMdApp {
   handleDisplayNameSubmit() {
     const input = this.elements.displayNameInput;
     const dialog = this.elements.displayNameDialog;
-    if (!input || !dialog || !this.session) return;
+    if (!input || !dialog) return;
 
-    const normalizedName = this.session.setUserName(input.value);
+    const normalizedName = this.session
+      ? this.session.setUserName(input.value)
+      : normalizeUserName(input.value);
     if (!normalizedName) {
       input.focus();
       this.toastController.show(`Name must be 1-${USER_NAME_MAX_LENGTH} characters`);
@@ -850,6 +1267,7 @@ export class CollabMdApp {
     this.storeUserName(normalizedName);
     this.lobby.setUserName(normalizedName);
     this.syncCurrentUserName();
+    this.renderChat();
     dialog.close();
     this.toastController.show(`Display name: ${normalizedName}`);
   }
@@ -884,6 +1302,14 @@ export class CollabMdApp {
 
   storeUserName(name) {
     try { localStorage.setItem(this.userNameStorageKey, name); } catch { /* ignore */ }
+  }
+
+  getStoredChatNotificationsEnabled() {
+    try { return localStorage.getItem(this.chatNotificationsPreferenceKey) === 'true'; } catch { return false; }
+  }
+
+  storeChatNotificationsEnabled(enabled) {
+    try { localStorage.setItem(this.chatNotificationsPreferenceKey, String(enabled)); } catch { /* ignore */ }
   }
 
   syncCurrentUserName() {
