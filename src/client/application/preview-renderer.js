@@ -37,6 +37,16 @@ function cancelIdleRender(id) {
   window.clearTimeout(id);
 }
 
+function syncAttribute(target, source, name) {
+  const nextValue = source.getAttribute(name);
+  if (nextValue === null) {
+    target.removeAttribute(name);
+    return;
+  }
+
+  target.setAttribute(name, nextValue);
+}
+
 function getSvgSize(svg) {
   const viewBox = svg.viewBox?.baseVal;
   const attributeWidth = Number.parseFloat(svg.getAttribute('width') || '');
@@ -150,6 +160,7 @@ export class PreviewRenderer {
     this.outlineController = outlineController;
     this.previewContainer = previewContainer;
     this.previewElement = previewElement;
+    this.renderHost = null;
 
     this.frameId = null;
     this.idleId = null;
@@ -168,6 +179,8 @@ export class PreviewRenderer {
     this.pendingMermaidShells = [];
     this.hydrationPaused = false;
     this.mermaidHydrationInProgress = false;
+    this.mermaidInstanceCounter = 0;
+    this.preservedMermaidShells = new Map();
 
     this.handlePreviewClick = (event) => {
       const renderButton = event.target.closest('.mermaid-placeholder-btn');
@@ -217,16 +230,41 @@ export class PreviewRenderer {
     this.setPhase('ready');
   }
 
+  ensureRenderHost() {
+    if (!this.previewElement) {
+      return null;
+    }
+
+    if (this.renderHost?.isConnected && this.renderHost.parentElement === this.previewElement) {
+      return this.renderHost;
+    }
+
+    let renderHost = this.previewElement.querySelector('[data-preview-render-host="true"]');
+    if (!renderHost) {
+      renderHost = document.createElement('div');
+      renderHost.dataset.previewRenderHost = 'true';
+      this.previewElement.appendChild(renderHost);
+    }
+
+    this.renderHost = renderHost;
+    return this.renderHost;
+  }
+
   beginDocumentLoad() {
     this.cancelScheduledRender();
     this.cancelMermaidHydration();
+    this.preservedMermaidShells.clear();
     this.pendingRenderVersion += 1;
     this.activeRenderVersion = this.pendingRenderVersion;
     this.readyRenderVersion = 0;
     this.currentStats = null;
     this.isLargeDocument = false;
     this.resetWorker('Document changed');
-    this.previewElement.innerHTML = '<div class="preview-shell">Rendering preview…</div>';
+    this.ensureRenderHost()?.replaceChildren();
+    const shell = document.createElement('div');
+    shell.className = 'preview-shell';
+    shell.textContent = 'Rendering preview…';
+    this.ensureRenderHost()?.append(shell);
     this.setPhase('shell');
   }
 
@@ -320,6 +358,7 @@ export class PreviewRenderer {
   destroy() {
     this.cancelScheduledRender();
     this.cancelMermaidHydration();
+    this.preservedMermaidShells.clear();
     this.resetWorker('Preview renderer destroyed');
     this.previewElement?.removeEventListener('click', this.handlePreviewClick);
   }
@@ -440,9 +479,14 @@ export class PreviewRenderer {
 
     this.cancelMermaidHydration();
     document.body.classList.remove('mermaid-maximized-open');
+    this.preserveHydratedMermaidsForCommit();
 
     this.onBeforeRenderCommit?.(this.previewElement);
-    this.previewElement.innerHTML = html;
+    const renderHost = this.ensureRenderHost();
+    if (renderHost) {
+      renderHost.innerHTML = html;
+    }
+    this.reconcileHydratedMermaids();
     this.setPhase('base');
 
     this.outlineController.refresh();
@@ -458,6 +502,86 @@ export class PreviewRenderer {
     }
 
     this.setupMermaidHydration(renderVersion);
+  }
+
+  preserveHydratedMermaidsForCommit() {
+    this.preservedMermaidShells.clear();
+    if (!this.previewElement) {
+      return;
+    }
+
+    Array.from(this.previewElement.querySelectorAll('.mermaid-shell[data-mermaid-hydrated="true"][data-mermaid-key]')).forEach((shell) => {
+      const key = shell.dataset.mermaidKey;
+      const source = shell.querySelector('.mermaid-source')?.textContent ?? '';
+      if (!key || !source) {
+        return;
+      }
+
+      if (shell.isConnected) {
+        shell.remove();
+      }
+
+      this.preservedMermaidShells.set(key, {
+        key,
+        shell,
+        source,
+      });
+    });
+  }
+
+  reconcileHydratedMermaids() {
+    if (!this.previewElement || this.preservedMermaidShells.size === 0) {
+      this.preservedMermaidShells.clear();
+      return;
+    }
+
+    let restoredMaximizedShell = false;
+    Array.from(this.previewElement.querySelectorAll('.mermaid-shell[data-mermaid-key]')).forEach((nextShell) => {
+      const key = nextShell.dataset.mermaidKey;
+      const preservedEntry = key ? this.preservedMermaidShells.get(key) : null;
+      if (!preservedEntry) {
+        return;
+      }
+
+      const nextSource = nextShell.querySelector('.mermaid-source')?.textContent ?? '';
+      if (nextSource !== preservedEntry.source) {
+        return;
+      }
+
+      this.syncPreservedMermaidShell(preservedEntry.shell, nextShell);
+      nextShell.replaceWith(preservedEntry.shell);
+      restoredMaximizedShell = restoredMaximizedShell || preservedEntry.shell.classList.contains('is-maximized');
+      this.preservedMermaidShells.delete(key);
+    });
+
+    this.preservedMermaidShells.clear();
+    if (restoredMaximizedShell) {
+      document.body.classList.add('mermaid-maximized-open');
+    }
+  }
+
+  syncPreservedMermaidShell(preservedShell, nextShell) {
+    syncAttribute(preservedShell, nextShell, 'data-source-line');
+    syncAttribute(preservedShell, nextShell, 'data-source-line-end');
+    syncAttribute(preservedShell, nextShell, 'data-mermaid-key');
+    syncAttribute(preservedShell, nextShell, 'data-mermaid-source-hash');
+
+    preservedShell.classList.add('mermaid-shell');
+    preservedShell.dataset.mermaidHydrated = 'true';
+    preservedShell.removeAttribute('data-mermaid-queued');
+
+    const nextSourceNode = nextShell.querySelector('.mermaid-source');
+    let preservedSourceNode = preservedShell.querySelector('.mermaid-source');
+
+    if (!preservedSourceNode && nextSourceNode) {
+      preservedSourceNode = nextSourceNode.cloneNode(true);
+      preservedShell.prepend(preservedSourceNode);
+    }
+
+    if (preservedSourceNode && nextSourceNode) {
+      preservedSourceNode.textContent = nextSourceNode.textContent ?? '';
+      preservedSourceNode.hidden = true;
+    }
   }
 
   setupMermaidHydration(renderVersion) {
@@ -610,6 +734,7 @@ export class PreviewRenderer {
 
       this.enhanceMermaidDiagram(shell, diagram);
       shell.dataset.mermaidHydrated = 'true';
+      shell.dataset.mermaidInstanceId = String(++this.mermaidInstanceCounter);
     } catch (error) {
       console.warn('[preview] Mermaid render failed:', error);
       diagram.remove();

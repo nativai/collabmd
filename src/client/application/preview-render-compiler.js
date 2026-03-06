@@ -8,8 +8,18 @@ function renderToken(renderer, tokens, index, options, env, self) {
   return renderer?.(tokens, index, options, env, self) ?? self.renderToken(tokens, index, options);
 }
 
-function createMermaidPlaceholder({ key, sourceAttributes, sourceText }) {
-  return `<div class="mermaid-shell"${sourceAttributes} data-mermaid-key="${escapeHtml(key)}"><div class="mermaid-placeholder-card"><div class="mermaid-placeholder-copy"><strong>Mermaid diagram</strong><span>Loads when visible</span></div><button type="button" class="mermaid-placeholder-btn" data-mermaid-key="${escapeHtml(key)}">Render</button></div><pre class="mermaid-source" hidden>${escapeHtml(sourceText)}</pre></div>`;
+function hashString(source = '') {
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return (hash >>> 0).toString(36);
+}
+
+function createMermaidPlaceholder({ key, sourceAttributes, sourceHash, sourceText }) {
+  return `<div class="mermaid-shell"${sourceAttributes} data-mermaid-key="${escapeHtml(key)}" data-mermaid-source-hash="${escapeHtml(sourceHash)}"><div class="mermaid-placeholder-card"><div class="mermaid-placeholder-copy"><strong>Mermaid diagram</strong><span>Loads when visible</span></div><button type="button" class="mermaid-placeholder-btn" data-mermaid-key="${escapeHtml(key)}">Render</button></div><pre class="mermaid-source" hidden>${escapeHtml(sourceText)}</pre></div>`;
 }
 
 function createExcalidrawPlaceholder({ embedKey, label, target }) {
@@ -96,7 +106,7 @@ function createMarkdownRenderer(fileList = []) {
   });
 
   const embedCounts = new Map();
-  let mermaidCounter = 0;
+  const mermaidCounts = new Map();
 
   const fallbackFence = markdown.renderer.rules.fence;
   const fallbackLinkOpen = markdown.renderer.rules.link_open;
@@ -113,10 +123,13 @@ function createMarkdownRenderer(fileList = []) {
       : '';
 
     if (info === 'mermaid') {
-      mermaidCounter += 1;
+      const sourceHash = hashString(token.content);
+      const occurrenceIndex = mermaidCounts.get(sourceHash) ?? 0;
+      mermaidCounts.set(sourceHash, occurrenceIndex + 1);
       return createMermaidPlaceholder({
-        key: `mermaid-${mermaidCounter}`,
+        key: `mermaid-${sourceHash}-${occurrenceIndex}`,
         sourceAttributes,
+        sourceHash,
         sourceText: token.content,
       });
     }

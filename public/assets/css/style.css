@@ -1079,6 +1079,7 @@
   margin: 0 auto;
   min-width: 0;
   overflow: hidden;
+  position: relative;
   font-family: var(--font-body);
   font-size: var(--text-sm);
   line-height: 1.7;
@@ -1138,6 +1139,8 @@
   inset: var(--space-3);
   margin: 0;
   z-index: 2;
+  max-width: calc(100% - (var(--space-3) * 2));
+  box-sizing: border-box;
 }
 
 .preview-content.is-excalidraw-file-preview .excalidraw-embed.is-maximized .excalidraw-embed-iframe {
@@ -2085,10 +2088,29 @@ body.mermaid-maximized-open::before {
   background: var(--color-surface);
   transition: box-shadow 0.18s ease;
   display: block;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.excalidraw-embed-overlay-root {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
 }
 
 body.excalidraw-maximized-open {
   overflow: hidden;
+}
+
+body.excalidraw-maximized-open .excalidraw-embed-overlay-root {
+  z-index: 141;
+}
+
+body.excalidraw-maximized-open .resizer {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .excalidraw-embed:hover {
@@ -2196,15 +2218,13 @@ body.excalidraw-maximized-open {
   background: #121212;
 }
 
-.excalidraw-embed.is-expanded .excalidraw-embed-iframe {
-  min-height: 500px;
-}
-
 .excalidraw-embed.is-maximized {
   position: fixed;
   inset: 72px 20px 20px;
   margin: 0;
   z-index: 140;
+  max-width: calc(100vw - 40px);
+  box-sizing: border-box;
   border-radius: 10px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
   display: flex;
@@ -2232,6 +2252,7 @@ body.excalidraw-maximized-open {
 @media (max-width: 768px) {
   .excalidraw-embed.is-maximized {
     inset: 56px 10px 10px;
+    max-width: calc(100vw - 20px);
   }
 
   .excalidraw-embed.is-maximized .excalidraw-embed-iframe {

@@ -109,10 +109,12 @@ export class CollabMdApp {
         this.excalidrawEmbed.reconcileEmbeds(this.elements.previewContent, {
           isLargeDocument: stats.isLargeDocument,
         });
+        this.excalidrawEmbed.syncLayout();
         this.scrollSyncController.setLargeDocumentMode(stats.isLargeDocument);
         this.schedulePreviewLayoutSync({ delayMs: 0 });
       },
       onRenderComplete: () => {
+        this.excalidrawEmbed.syncLayout();
         this.schedulePreviewLayoutSync({ delayMs: 0 });
       },
       outlineController: this.outlineController,
@@ -362,6 +364,7 @@ export class CollabMdApp {
         return;
       }
 
+      this.excalidrawEmbed.syncLayout();
       this.scrollSyncController.invalidatePreviewBlocks();
       this.scrollSyncController.warmPreviewBlocks({
         onReady: () => {

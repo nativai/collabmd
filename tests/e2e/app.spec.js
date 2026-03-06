@@ -197,13 +197,19 @@ test('opens excalidraw files with a direct iframe preview', async ({ page }) => 
       return null;
     }
 
+    const rect = embed.getBoundingClientRect();
     return {
       containerWidth: container.getBoundingClientRect().width,
-      embedWidth: embed.getBoundingClientRect().width,
+      embedWidth: rect.width,
+      left: rect.left,
+      right: rect.right,
+      innerWidth: window.innerWidth,
     };
   });
   expect(maximizedWidths).not.toBeNull();
   expect(maximizedWidths.embedWidth).toBeGreaterThan(maximizedWidths.containerWidth - 48);
+  expect(maximizedWidths.left).toBeGreaterThanOrEqual(0);
+  expect(maximizedWidths.right).toBeLessThanOrEqual(maximizedWidths.innerWidth);
 });
 
 test('creates and opens unresolved wiki-link targets', async ({ page }) => {
@@ -415,7 +421,7 @@ test('keeps the outline open on desktop after selecting a section', async ({ pag
 test('keeps the editor interactive before heavy preview reaches ready', async ({ page }) => {
   test.slow();
 
-  await page.goto(`/#file=${encodeURIComponent('full-markdown.md')}`);
+  await page.goto(`/#file=${encodeURIComponent('sample-full.md')}`);
   await waitForEditor(page);
 
   const phase = await page.locator('#previewContent').getAttribute('data-render-phase');
@@ -430,7 +436,7 @@ test('keeps the editor interactive before heavy preview reaches ready', async ({
 test('progressively hydrates heavy preview instead of rendering all embeds at once', async ({ page }) => {
   test.slow();
 
-  await openFile(page, 'full-markdown.md');
+  await openFile(page, 'sample-full.md');
   await waitForHeavyPreviewContent(page);
 
   const counts = await getHeavyPreviewCounts(page);
@@ -443,14 +449,24 @@ test('progressively hydrates heavy preview instead of rendering all embeds at on
 test('preserves excalidraw iframe instances across unrelated preview rerenders', async ({ page }) => {
   test.slow();
 
-  await openFile(page, 'full-markdown.md');
-  const firstPlaceholder = page.locator('#previewContent .excalidraw-embed-placeholder').first();
-  await firstPlaceholder.scrollIntoViewIfNeeded();
-  await firstPlaceholder.locator('.excalidraw-embed-placeholder-btn').click();
-
+  await openFile(page, 'sample-full.md');
   await expect.poll(async () => (
     page.locator('#previewContent .excalidraw-embed iframe').count()
   ), { timeout: 60000 }).toBeGreaterThan(0);
+
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const iframe = document.querySelector('#previewContent .excalidraw-embed iframe');
+      return iframe?.contentWindow?.location?.pathname || '';
+    })
+  ), { timeout: 60000 }).toBe('/excalidraw-editor.html');
+
+  await page.evaluate(() => {
+    const iframe = document.querySelector('#previewContent .excalidraw-embed iframe');
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.__collabmdPreserveProbe = 'alive';
+    }
+  });
 
   const firstInstanceId = await page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('data-instance-id');
   const editor = page.locator('.cm-content').first();
@@ -461,12 +477,74 @@ test('preserves excalidraw iframe instances across unrelated preview rerenders',
   await expect.poll(async () => (
     page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('data-instance-id')
   ), { timeout: 60000 }).toBe(firstInstanceId);
+
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const iframe = document.querySelector('#previewContent .excalidraw-embed iframe');
+      return iframe?.contentWindow?.__collabmdPreserveProbe || '';
+    })
+  ), { timeout: 60000 }).toBe('alive');
+});
+
+test('embedded excalidraw maximize preserves layout and modal sizing', async ({ page }) => {
+  test.slow();
+
+  await openFile(page, 'sample-full.md');
+
+  await expect.poll(async () => (
+    page.locator('#previewContent .excalidraw-embed iframe').count()
+  ), { timeout: 60000 }).toBeGreaterThan(0);
+
+  await expect(page.locator('#previewContent .excalidraw-embed-btn', { hasText: 'Expand' })).toHaveCount(0);
+
+  await page.locator('#previewContent .excalidraw-embed-btn', { hasText: 'Max' }).first().click();
+  await expect(page.locator('#previewContent .excalidraw-embed-btn', { hasText: 'Restore' }).first()).toBeVisible();
+
+  const afterMaximize = await page.evaluate(() => {
+    const embed = document.querySelector('#previewContent .excalidraw-embed.is-maximized');
+    const previewContainer = document.getElementById('previewContainer');
+    const resizer = document.getElementById('resizer');
+    if (!embed || !previewContainer) {
+      return null;
+    }
+
+    const rect = embed.getBoundingClientRect();
+    const resizerRect = resizer?.getBoundingClientRect();
+    const probeX = resizerRect ? Math.round(resizerRect.left + (resizerRect.width / 2)) : null;
+    const probeY = Math.round(rect.top + 120);
+    const topElement = probeX === null
+      ? null
+      : document.elementFromPoint(probeX, probeY);
+    return {
+      embedHeight: rect.height,
+      embedWidth: rect.width,
+      position: window.getComputedStyle(embed).position,
+      previewWidth: previewContainer.getBoundingClientRect().width,
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+      left: rect.left,
+      right: rect.right,
+      resizerOpacity: resizer ? window.getComputedStyle(resizer).opacity : null,
+      resizerPointerEvents: resizer ? window.getComputedStyle(resizer).pointerEvents : null,
+      hitMaximizedEmbed: Boolean(topElement?.closest('.excalidraw-embed.is-maximized')),
+    };
+  });
+
+  expect(afterMaximize).not.toBeNull();
+  expect(afterMaximize.position).toBe('fixed');
+  expect(afterMaximize.embedWidth).toBeGreaterThan(afterMaximize.previewWidth - 48);
+  expect(afterMaximize.embedHeight).toBeGreaterThan(afterMaximize.viewportHeight - 220);
+  expect(afterMaximize.left).toBeGreaterThanOrEqual(0);
+  expect(afterMaximize.right).toBeLessThanOrEqual(afterMaximize.viewportWidth);
+  expect(afterMaximize.resizerOpacity).toBe('0');
+  expect(afterMaximize.resizerPointerEvents).toBe('none');
+  expect(afterMaximize.hitMaximizedEmbed).toBeTruthy();
 });
 
 test('preserves Mermaid instances across unrelated preview rerenders', async ({ page }) => {
   test.slow();
 
-  await openFile(page, 'full-markdown.md');
+  await openFile(page, 'sample-full.md');
   await waitForHeavyPreviewContent(page);
 
   const mermaidKey = await page.evaluate(() => (
@@ -503,7 +581,7 @@ test('preserves Mermaid instances across unrelated preview rerenders', async ({ 
 test('hydrates more mermaid and excalidraw content as the heavy preview scrolls', async ({ page }) => {
   test.slow();
 
-  await openFile(page, 'full-markdown.md');
+  await openFile(page, 'sample-full.md');
   await waitForHeavyPreviewContent(page);
 
   const before = await getHeavyPreviewCounts(page);
@@ -530,7 +608,7 @@ test('hydrates more mermaid and excalidraw content as the heavy preview scrolls'
 test('defers heavy preview hydration while the editor is actively scrolling', async ({ page }) => {
   test.slow();
 
-  await openFile(page, 'full-markdown.md');
+  await openFile(page, 'sample-full.md');
   await waitForHeavyPreviewContent(page);
   await expect.poll(async () => (
     page.locator('#previewContent').getAttribute('data-render-phase')
@@ -566,7 +644,7 @@ test('defers heavy preview hydration while the editor is actively scrolling', as
 test('keeps editor, preview, and outline aligned in heavy documents after lazy hydration changes layout', async ({ page }) => {
   test.slow();
 
-  await openFile(page, 'full-markdown.md');
+  await openFile(page, 'sample-full.md');
   await page.locator('#outlineToggle').click();
 
   const targetOutlineItem = page.locator('#outlineNav .outline-item[data-source-line="682"]').first();

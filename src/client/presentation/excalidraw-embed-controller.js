@@ -60,6 +60,7 @@ export class ExcalidrawEmbedController {
     this.instanceCounter = 0;
     this.isLargeDocument = false;
     this.maximizedEmbed = null;
+    this.overlayRoot = null;
     this.placeholderObserver = null;
 
     this._onMessage = this._onMessage.bind(this);
@@ -87,6 +88,8 @@ export class ExcalidrawEmbedController {
       entry.placeholder = null;
     });
     this.embedEntries.clear();
+    this.overlayRoot?.remove();
+    this.overlayRoot = null;
   }
 
   detachForCommit() {
@@ -99,9 +102,6 @@ export class ExcalidrawEmbedController {
     this.embedEntries.forEach((entry) => {
       entry.queued = false;
       entry.placeholder = null;
-      if (entry.wrapper?.isConnected) {
-        entry.wrapper.remove();
-      }
     });
   }
 
@@ -157,6 +157,8 @@ export class ExcalidrawEmbedController {
     if (!this.hydrationPaused) {
       this.hydrateVisibleEmbeds();
     }
+
+    this.syncLayout();
   }
 
   hydrateVisibleEmbeds() {
@@ -299,10 +301,6 @@ export class ExcalidrawEmbedController {
   }
 
   _attachWrapper(entry) {
-    if (entry.wrapper?.isConnected) {
-      return;
-    }
-
     const placeholder = entry.placeholder?.isConnected
       ? entry.placeholder
       : this.previewElement?.querySelector(`.excalidraw-embed-placeholder[data-embed-key="${entry.key}"]`);
@@ -312,8 +310,20 @@ export class ExcalidrawEmbedController {
     }
 
     entry.placeholder = placeholder;
-    placeholder.replaceWith(entry.wrapper);
-    entry.placeholder = null;
+    if (this._isFilePreviewEntry(entry)) {
+      if (!entry.wrapper?.isConnected) {
+        placeholder.replaceWith(entry.wrapper);
+      }
+      entry.placeholder = null;
+      return;
+    }
+
+    const overlayRoot = this._ensureOverlayRoot();
+    if (entry.wrapper?.parentElement !== overlayRoot) {
+      overlayRoot.appendChild(entry.wrapper);
+    }
+
+    this._syncEntryLayout(entry);
   }
 
   _destroyEntry(entry) {
@@ -321,6 +331,7 @@ export class ExcalidrawEmbedController {
       this._exitMaximizedEmbed();
     }
 
+    this._resetPlaceholderLayout(entry);
     entry.wrapper?.remove();
     entry.placeholder = null;
   }
@@ -348,13 +359,6 @@ export class ExcalidrawEmbedController {
     label.className = 'excalidraw-embed-label';
     label.textContent = entry.label.replace(/\.excalidraw$/i, '');
 
-    const expandBtn = document.createElement('button');
-    expandBtn.type = 'button';
-    expandBtn.className = 'excalidraw-embed-btn';
-    expandBtn.title = 'Expand diagram';
-    expandBtn.setAttribute('aria-label', 'Toggle diagram size');
-    expandBtn.textContent = 'Expand';
-
     const maxBtn = document.createElement('button');
     maxBtn.type = 'button';
     maxBtn.className = 'excalidraw-embed-btn';
@@ -362,7 +366,7 @@ export class ExcalidrawEmbedController {
     maxBtn.setAttribute('aria-label', 'Maximize diagram');
     maxBtn.textContent = 'Max';
 
-    header.append(icon, label, expandBtn, maxBtn);
+    header.append(icon, label, maxBtn);
 
     const theme = this.getTheme?.() || 'dark';
     const iframe = document.createElement('iframe');
@@ -397,26 +401,30 @@ export class ExcalidrawEmbedController {
     const resizer = document.createElement('div');
     resizer.className = 'excalidraw-embed-resizer';
     resizer.title = 'Drag to resize';
-    this._setupResizer(resizer, iframe);
+    this._setupResizer(resizer, iframe, () => this._syncEntryLayout(entry));
 
     wrapper.append(header, iframe, resizer);
 
-    let isExpanded = false;
     let isMaximized = false;
     let restoreHeight = `${DEFAULT_HEIGHT}px`;
+
+    const syncMaximizeButtonState = () => {
+      maxBtn.textContent = isMaximized ? 'Restore' : 'Max';
+      maxBtn.title = isMaximized ? 'Restore diagram size' : 'Maximize diagram';
+      maxBtn.setAttribute('aria-label', isMaximized ? 'Restore diagram size' : 'Maximize diagram');
+    };
 
     const exitMaximize = () => {
       if (!isMaximized) return;
       isMaximized = false;
       wrapper.classList.remove('is-maximized');
-      maxBtn.textContent = 'Max';
-      maxBtn.title = 'Maximize diagram';
-      maxBtn.setAttribute('aria-label', 'Maximize diagram');
+      syncMaximizeButtonState();
       document.body.classList.remove('excalidraw-maximized-open');
       iframe.style.height = restoreHeight;
       if (this.maximizedEmbed?.wrapper === wrapper) {
         this.maximizedEmbed = null;
       }
+      this._syncEntryLayout(entry);
     };
 
     const enterMaximize = () => {
@@ -425,25 +433,11 @@ export class ExcalidrawEmbedController {
       isMaximized = true;
       restoreHeight = iframe.style.height || `${DEFAULT_HEIGHT}px`;
       wrapper.classList.add('is-maximized');
-      maxBtn.textContent = 'Min';
-      maxBtn.title = 'Restore diagram size';
-      maxBtn.setAttribute('aria-label', 'Restore diagram size');
+      syncMaximizeButtonState();
       document.body.classList.add('excalidraw-maximized-open');
       this.maximizedEmbed = { wrapper, exit: exitMaximize };
+      this._syncEntryLayout(entry);
     };
-
-    expandBtn.addEventListener('click', () => {
-      if (isMaximized) return;
-      isExpanded = !isExpanded;
-      wrapper.classList.toggle('is-expanded', isExpanded);
-      expandBtn.textContent = isExpanded ? 'Collapse' : 'Expand';
-
-      if (isExpanded) {
-        iframe.style.height = `${Math.max(600, window.innerHeight * 0.7)}px`;
-      } else {
-        iframe.style.height = `${DEFAULT_HEIGHT}px`;
-      }
-    });
 
     maxBtn.addEventListener('click', () => {
       if (isMaximized) {
@@ -453,6 +447,8 @@ export class ExcalidrawEmbedController {
       }
     });
 
+    syncMaximizeButtonState();
+
     return {
       iframe,
       instanceId: iframe.dataset.instanceId,
@@ -461,7 +457,7 @@ export class ExcalidrawEmbedController {
     };
   }
 
-  _setupResizer(resizer, iframe) {
+  _setupResizer(resizer, iframe, onResizeEnd = null) {
     let startY = 0;
     let startHeight = 0;
 
@@ -476,6 +472,7 @@ export class ExcalidrawEmbedController {
       iframe.style.pointerEvents = '';
       document.removeEventListener('pointermove', onPointerMove);
       document.removeEventListener('pointerup', onPointerUp);
+      onResizeEnd?.();
     };
 
     resizer.addEventListener('pointerdown', (event) => {
@@ -484,6 +481,97 @@ export class ExcalidrawEmbedController {
       startHeight = iframe.offsetHeight;
       document.addEventListener('pointermove', onPointerMove);
       document.addEventListener('pointerup', onPointerUp);
+    });
+  }
+
+  _ensureOverlayRoot() {
+    if (this.overlayRoot?.isConnected && this.overlayRoot.parentElement === this.previewElement) {
+      return this.overlayRoot;
+    }
+
+    let overlayRoot = this.previewElement?.querySelector('[data-excalidraw-overlay-root="true"]');
+    if (!overlayRoot) {
+      overlayRoot = document.createElement('div');
+      overlayRoot.dataset.excalidrawOverlayRoot = 'true';
+      overlayRoot.className = 'excalidraw-embed-overlay-root';
+      this.previewElement?.appendChild(overlayRoot);
+    }
+
+    this.overlayRoot = overlayRoot;
+    return overlayRoot;
+  }
+
+  _isFilePreviewEntry(entry) {
+    return entry?.key === `${entry?.filePath}#file-preview`;
+  }
+
+  _resetPlaceholderLayout(entry) {
+    if (!entry?.placeholder?.isConnected || this._isFilePreviewEntry(entry)) {
+      return;
+    }
+
+    entry.placeholder.classList.remove('is-hydrated');
+    entry.placeholder.removeAttribute('data-embed-hydrated');
+    entry.placeholder.style.height = '';
+    entry.placeholder.style.pointerEvents = '';
+  }
+
+  _syncEntryLayout(entry) {
+    if (!entry?.wrapper || this._isFilePreviewEntry(entry)) {
+      return;
+    }
+
+    const placeholder = entry.placeholder?.isConnected
+      ? entry.placeholder
+      : this.previewElement?.querySelector(`.excalidraw-embed-placeholder[data-embed-key="${entry.key}"]`);
+
+    if (!placeholder) {
+      return;
+    }
+
+    entry.placeholder = placeholder;
+    placeholder.classList.add('is-hydrated');
+    placeholder.dataset.embedHydrated = 'true';
+    placeholder.style.pointerEvents = 'none';
+
+    const isMaximized = entry.wrapper.classList.contains('is-maximized');
+    const headerHeight = entry.wrapper.querySelector('.excalidraw-embed-header')?.offsetHeight || 0;
+    const iframeHeight = entry.iframe?.offsetHeight
+      || Number.parseFloat(entry.iframe?.style.height || '')
+      || DEFAULT_HEIGHT;
+    const resizerHeight = isMaximized
+      ? 0
+      : (entry.wrapper.querySelector('.excalidraw-embed-resizer')?.offsetHeight || 0);
+    const inlineHeight = Math.ceil(headerHeight + iframeHeight + resizerHeight);
+
+    if (!isMaximized) {
+      entry.inlineHeightPx = inlineHeight;
+    }
+
+    placeholder.style.height = `${Math.ceil(entry.inlineHeightPx || inlineHeight || DEFAULT_HEIGHT)}px`;
+    entry.wrapper.style.pointerEvents = 'auto';
+
+    if (isMaximized) {
+      entry.wrapper.style.position = '';
+      entry.wrapper.style.top = '';
+      entry.wrapper.style.left = '';
+      entry.wrapper.style.width = '';
+      entry.wrapper.style.margin = '';
+      return;
+    }
+
+    entry.wrapper.style.position = 'absolute';
+    entry.wrapper.style.top = `${placeholder.offsetTop}px`;
+    entry.wrapper.style.left = `${placeholder.offsetLeft}px`;
+    entry.wrapper.style.width = `${placeholder.offsetWidth}px`;
+    entry.wrapper.style.margin = '0';
+  }
+
+  syncLayout() {
+    this.embedEntries.forEach((entry) => {
+      if (entry.wrapper && !this._isFilePreviewEntry(entry)) {
+        this._syncEntryLayout(entry);
+      }
     });
   }
 

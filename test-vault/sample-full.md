@@ -12,7 +12,7 @@ Key features:
 - Wiki-link resolution with bi-directional backlinks
 - Mermaid diagram rendering
 - Excalidraw drawing embeds
-- Cloudflare tunnel for instant public sharing
+- Cloudflare tunnel for instant public
 
 ---
 
@@ -253,7 +253,7 @@ Key features:
 - Wiki-link resolution with bi-directional backlinks
 - Mermaid diagram rendering
 - Excalidraw drawing embeds
-- Cloudflare tunnel for instant public sharing
+- Cloudflare tunnel for instant public
 
 ---
 
@@ -285,6 +285,7 @@ The diagram above is fully editable — try drawing on it directly in the previe
 ```mermaid
 sequenceDiagram
     participant User
+    participant X
     participant Editor as CodeMirror
     participant Yjs as Yjs Document
     participant WS as WebSocket

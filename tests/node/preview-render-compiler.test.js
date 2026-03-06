@@ -32,9 +32,34 @@ test('compilePreviewDocument emits stable excalidraw placeholder keys and wiki-l
   assert.match(html, /data-embed-key="system-architecture\.excalidraw#0"/);
   assert.match(html, /data-embed-key="system-architecture\.excalidraw#1"/);
   assert.match(html, /class="wiki-link"/);
-  assert.match(html, /data-mermaid-key="mermaid-1"/);
+  assert.match(html, /data-mermaid-key="mermaid-[a-z0-9]+-0"/);
+  assert.match(html, /data-mermaid-source-hash="[a-z0-9]+"/);
   assert.equal(stats.excalidrawEmbeds, 2);
   assert.equal(stats.mermaidBlocks, 1);
+});
+
+test('compilePreviewDocument keeps Mermaid keys stable across unrelated markdown edits', () => {
+  const baseMarkdown = [
+    '```mermaid',
+    'graph TD',
+    '  A-->B',
+    '```',
+  ].join('\n');
+  const editedMarkdown = [
+    'Intro paragraph',
+    '',
+    '```mermaid',
+    'graph TD',
+    '  A-->B',
+    '```',
+  ].join('\n');
+
+  const baseHtml = compilePreviewDocument({ markdownText: baseMarkdown }).html;
+  const editedHtml = compilePreviewDocument({ markdownText: editedMarkdown }).html;
+  const baseKey = baseHtml.match(/data-mermaid-key="([^"]+)"/)?.[1];
+  const editedKey = editedHtml.match(/data-mermaid-key="([^"]+)"/)?.[1];
+
+  assert.equal(baseKey, editedKey);
 });
 
 test('large-document classification triggers on any configured threshold', () => {
