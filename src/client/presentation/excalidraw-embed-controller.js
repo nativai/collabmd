@@ -183,11 +183,17 @@ export class ExcalidrawEmbedController {
 
   updateTheme(theme) {
     this.embedEntries.forEach((entry) => {
-      entry.iframe?.contentWindow?.postMessage({
+      this._postMessageToEntry(entry, {
         source: 'collabmd-host',
         type: 'set-theme',
         theme,
-      }, window.location.origin);
+      });
+    });
+  }
+
+  updateLocalUser(user) {
+    this.embedEntries.forEach((entry) => {
+      this._syncEntryUser(entry, user);
     });
   }
 
@@ -235,6 +241,11 @@ export class ExcalidrawEmbedController {
     }
 
     if (this.hydrationPaused) {
+      return;
+    }
+
+    if (prioritize && !this.hydrationInProgress && this.hydrationIdleId === null) {
+      void this._flushHydrationQueue();
       return;
     }
 
@@ -460,13 +471,22 @@ export class ExcalidrawEmbedController {
     if (localUser?.peerId) {
       iframeUrl.searchParams.set('userPeerId', localUser.peerId);
     }
-    const serverOverride = new URLSearchParams(window.location.search).get('server');
+    const hostSearchParams = new URLSearchParams(window.location.search);
+    const serverOverride = hostSearchParams.get('server');
     if (serverOverride) {
       iframeUrl.searchParams.set('server', serverOverride);
     }
+    if (hostSearchParams.get('test') === '1') {
+      iframeUrl.searchParams.set('test', '1');
+    }
+    if (hostSearchParams.has('syncTimeoutMs')) {
+      iframeUrl.searchParams.set('syncTimeoutMs', hostSearchParams.get('syncTimeoutMs'));
+    }
     iframe.src = iframeUrl.toString();
     iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
-    iframe.setAttribute('loading', 'lazy');
+    // The controller already lazy-hydrates embeds near the viewport, so the
+    // iframe should start loading immediately once it has been mounted.
+    iframe.setAttribute('loading', 'eager');
     iframe.title = `Excalidraw: ${entry.filePath}`;
     iframe.style.height = `${DEFAULT_HEIGHT}px`;
 
@@ -672,6 +692,12 @@ export class ExcalidrawEmbedController {
 
     if (msg.type === 'ready') {
       this._clearEntryBootTimeout(entry);
+      this._syncEntryUser(entry);
+      this._postMessageToEntry(entry, {
+        source: 'collabmd-host',
+        type: 'set-theme',
+        theme: this.getTheme?.() || 'dark',
+      });
       return;
     }
 
@@ -692,5 +718,27 @@ export class ExcalidrawEmbedController {
     }
     this.maximizedEmbed = null;
     document.body.classList.remove('excalidraw-maximized-open');
+  }
+
+  _postMessageToEntry(entry, payload) {
+    entry?.iframe?.contentWindow?.postMessage(payload, window.location.origin);
+  }
+
+  _syncEntryUser(entry, overrideUser = null) {
+    const localUser = overrideUser || this.getLocalUser?.();
+    if (!localUser) {
+      return;
+    }
+
+    this._postMessageToEntry(entry, {
+      source: 'collabmd-host',
+      type: 'set-user',
+      user: {
+        color: localUser.color || '',
+        colorLight: localUser.colorLight || '',
+        name: localUser.name || '',
+        peerId: localUser.peerId || '',
+      },
+    });
   }
 }

@@ -92,6 +92,8 @@ export class CollaborationRoom {
     this.hydratePromise = null;
     this.persistTimer = null;
     this.deleted = false;
+    this.shutdownGeneration = 0;
+    this.finalizePromise = null;
 
     this.awareness.setLocalState(null);
     this.registerDocListeners();
@@ -274,6 +276,7 @@ export class CollaborationRoom {
   }
 
   async addClient(ws) {
+    this.shutdownGeneration += 1;
     await this.hydrate();
 
     ws.controlledClientIds = new Set();
@@ -308,14 +311,39 @@ export class CollaborationRoom {
       return;
     }
 
-    clearTimeout(this.persistTimer);
-    void this.persist().catch((error) => {
-      console.error(`[room:${this.name}] Failed to persist final room state:`, error.message);
-    });
+    this.finalizeIfIdle();
+  }
 
-    this.awareness.destroy();
-    this.doc.destroy();
-    this.onEmpty?.(this.name);
+  finalizeIfIdle() {
+    if (this.clients.size > 0) {
+      return;
+    }
+
+    const generation = ++this.shutdownGeneration;
+    if (this.finalizePromise) {
+      return;
+    }
+
+    this.finalizePromise = (async () => {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+
+      try {
+        await this.persist();
+      } catch (error) {
+        console.error(`[room:${this.name}] Failed to persist final room state:`, error.message);
+      }
+
+      if (this.clients.size > 0 || generation !== this.shutdownGeneration) {
+        return;
+      }
+
+      this.awareness.destroy();
+      this.doc.destroy();
+      this.onEmpty?.(this.name);
+    })().finally(() => {
+      this.finalizePromise = null;
+    });
   }
 
   handleMessage(ws, rawData) {

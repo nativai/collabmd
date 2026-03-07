@@ -42,6 +42,26 @@ async function openSampleFull(page, { plantUmlLabel = 'sample-full-plantuml' } =
   await openFile(page, 'sample-full.md');
 }
 
+async function waitForExcalidrawTestHarness(page) {
+  await expect.poll(async () => (
+    page.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__?.isReady?.() || false)
+  )).toBe(true);
+}
+
+async function waitForExcalidrawFrameHarness(page, selector = '#previewContent .excalidraw-embed iframe') {
+  const handle = await page.locator(selector).first().elementHandle();
+  const frame = await handle?.contentFrame();
+  if (!frame) {
+    throw new Error(`Missing iframe for selector: ${selector}`);
+  }
+
+  await expect.poll(async () => (
+    frame.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__?.isReady?.() || false)
+  )).toBe(true);
+
+  return frame;
+}
+
 async function appendEditorContent(page, content) {
   const editor = page.locator('.cm-content').first();
   await editor.click();
@@ -233,6 +253,89 @@ test('allows explicit session takeover between tabs in the same browser context'
   }).toBe('# Takeover Owner\n\nOnly once.\n');
 
   await verifyContext.close();
+});
+
+test('direct Excalidraw fallback does not wipe live room state from another page', async ({ browser }) => {
+  const context = await browser.newContext();
+  const pageA = await context.newPage();
+  const pageB = await context.newPage();
+
+  await pageA.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
+  await waitForExcalidrawTestHarness(pageA);
+
+  await pageA.evaluate(() => {
+    const scene = JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson());
+    scene.appState = {
+      ...(scene.appState || {}),
+      viewBackgroundColor: '#123456',
+    };
+    window.__COLLABMD_EXCALIDRAW_TEST__.setScene(scene);
+  });
+  await pageA.waitForTimeout(150);
+
+  await pageB.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1&syncTimeoutMs=0');
+  await waitForExcalidrawTestHarness(pageB);
+
+  await expect.poll(async () => (
+    pageA.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
+  )).toBe('#123456');
+
+  await context.close();
+});
+
+test('taking over an Excalidraw file tab preserves the live scene', async ({ browser }) => {
+  const context = await browser.newContext();
+  const pageA = await context.newPage();
+  const pageB = await context.newPage();
+
+  await seedStoredUserName(pageA);
+  await seedStoredUserName(pageB);
+
+  await pageA.goto('/?test=1#file=sample-excalidraw.excalidraw');
+  const frameA = await waitForExcalidrawFrameHarness(pageA);
+
+  await frameA.evaluate(() => {
+    const scene = JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson());
+    scene.appState = {
+      ...(scene.appState || {}),
+      viewBackgroundColor: '#345678',
+    };
+    window.__COLLABMD_EXCALIDRAW_TEST__.setScene(scene);
+  });
+  await frameA.waitForTimeout(150);
+
+  await pageB.goto('/?test=1#file=sample-excalidraw.excalidraw');
+  await expect(pageB.locator('#tabLockOverlay')).toBeVisible();
+  await pageB.locator('#tabLockTakeoverBtn').click();
+
+  await expect(pageB.locator('#tabLockOverlay')).toBeHidden();
+  await expect(pageA.locator('#tabLockOverlay')).toBeVisible();
+
+  const frameB = await waitForExcalidrawFrameHarness(pageB);
+  await expect.poll(async () => (
+    frameB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
+  )).toBe('#345678');
+
+  await context.close();
+});
+
+test('renaming in the app updates the mounted Excalidraw iframe user name', async ({ page }) => {
+  await seedStoredUserName(page, 'Before Name');
+  await page.goto('/?test=1#file=sample-excalidraw.excalidraw');
+
+  const frame = await waitForExcalidrawFrameHarness(page, '#previewContent .excalidraw-embed iframe');
+  await expect.poll(async () => (
+    frame.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getLocalUserName())
+  )).toBe('Before Name');
+
+  await page.locator('#editNameBtn').click();
+  await expect(page.locator('#displayNameDialog')).toBeVisible();
+  await page.locator('#displayNameInput').fill('After Name');
+  await page.locator('#displayNameSubmit').click();
+
+  await expect.poll(async () => (
+    frame.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getLocalUserName())
+  )).toBe('After Name');
 });
 
 test('sidebar shows vault file tree', async ({ page }) => {

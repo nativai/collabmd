@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 
 import { CollaborationRoom } from '../../src/server/domain/collaboration/collaboration-room.js';
+import { RoomRegistry } from '../../src/server/domain/collaboration/room-registry.js';
 import { createCommentThreadSharedType } from '../../src/domain/comment-threads.js';
 
 function createSocket({ bufferedAmount = 0 } = {}) {
@@ -262,6 +263,97 @@ test('CollaborationRoom hydrates and persists excalidraw rooms via excalidraw fi
   assert.equal(writes[0].path, 'diagram.excalidraw');
   assert.equal(writes[0].content, `${initialScene}-updated`);
   assert.equal(backlinkUpdates, 0);
+});
+
+test('CollaborationRoom keeps the latest excalidraw state available while final persist is still running', async () => {
+  const initialScene = JSON.stringify({
+    appState: { gridSize: null, viewBackgroundColor: '#ffffff' },
+    elements: [],
+    files: {},
+    source: 'collabmd',
+    type: 'excalidraw',
+    version: 2,
+  });
+  const updatedScene = JSON.stringify({
+    appState: { gridSize: null, viewBackgroundColor: '#ffffff' },
+    elements: [{ id: 'shape-live', type: 'ellipse' }],
+    files: {},
+    source: 'collabmd',
+    type: 'excalidraw',
+    version: 2,
+  });
+
+  let persistedScene = initialScene;
+  let releaseFirstPersist = null;
+  let firstPersistStarted = null;
+  const firstPersistStartedPromise = new Promise((resolve) => {
+    firstPersistStarted = resolve;
+  });
+  let writes = 0;
+
+  const roomRegistry = new RoomRegistry({
+    createRoom: ({ name, onEmpty }) => new CollaborationRoom({
+      maxBufferedAmountBytes: 1024,
+      name,
+      onEmpty,
+      vaultFileStore: {
+        async readExcalidrawFile(path) {
+          assert.equal(path, 'diagram.excalidraw');
+          return persistedScene;
+        },
+        async writeExcalidrawFile(path, content) {
+          assert.equal(path, 'diagram.excalidraw');
+          writes += 1;
+
+          if (writes === 1) {
+            firstPersistStarted();
+            await new Promise((resolve) => {
+              releaseFirstPersist = () => {
+                persistedScene = content;
+                resolve();
+              };
+            });
+            return;
+          }
+
+          persistedScene = content;
+        },
+      },
+    }),
+  });
+
+  const room = roomRegistry.getOrCreate('diagram.excalidraw');
+  await room.hydrate();
+  assert.equal(room.doc.getText('codemirror').toString(), initialScene);
+
+  room.doc.transact(() => {
+    const ytext = room.doc.getText('codemirror');
+    ytext.delete(0, ytext.length);
+    ytext.insert(0, updatedScene);
+  }, 'test-live-update');
+
+  const socketA = createSocket();
+  socketA.controlledClientIds = new Set();
+  room.clients.add(socketA);
+  room.removeClient(socketA);
+
+  await firstPersistStartedPromise;
+  assert.equal(roomRegistry.get('diagram.excalidraw'), room);
+
+  const reconnectingRoom = roomRegistry.getOrCreate('diagram.excalidraw');
+  assert.equal(reconnectingRoom, room);
+
+  const socketB = createSocket();
+  await reconnectingRoom.addClient(socketB);
+  assert.equal(reconnectingRoom.doc.getText('codemirror').toString(), updatedScene);
+  assert.equal(persistedScene, initialScene);
+
+  releaseFirstPersist();
+  await Promise.resolve();
+  assert.equal(roomRegistry.get('diagram.excalidraw'), reconnectingRoom);
+
+  reconnectingRoom.removeClient(socketB);
+  await Promise.resolve();
 });
 
 test('CollaborationRoom hydrates and persists PlantUML rooms via PlantUML file APIs', async () => {

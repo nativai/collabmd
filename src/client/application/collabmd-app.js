@@ -1486,6 +1486,7 @@ export class CollabMdApp {
 
     this.storeUserName(normalizedName);
     this.lobby.setUserName(normalizedName);
+    this.excalidrawEmbed.updateLocalUser(this.lobby.getLocalUser());
     this.syncCurrentUserName();
     this.renderChat();
     dialog.close();
