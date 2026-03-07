@@ -217,7 +217,22 @@ test('allows explicit session takeover between tabs in the same browser context'
   await expect(pageA.locator('#tabLockOverlay')).toBeVisible();
   await expect(pageA.locator('#tabLockTitle')).toHaveText('This tab is no longer active');
 
+  await replaceEditorContent(pageB, '# Takeover Owner\n\nOnly once.\n');
+
   await context.close();
+
+  const verifyContext = await browser.newContext();
+  const verifyPage = await verifyContext.newPage();
+  await verifyPage.goto('/');
+  await expect.poll(async () => {
+    const fileData = await verifyPage.evaluate(async () => {
+      const response = await fetch('/api/file?path=README.md');
+      return response.json();
+    });
+    return fileData.content;
+  }).toBe('# Takeover Owner\n\nOnly once.\n');
+
+  await verifyContext.close();
 });
 
 test('sidebar shows vault file tree', async ({ page }) => {

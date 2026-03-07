@@ -90,6 +90,8 @@ export class CollabMdApp {
     });
     this.commentThreads = [];
     this.isTabActive = false;
+    this.fileExplorerReady = false;
+    this.fileExplorerReadyPromise = Promise.resolve();
 
     this.lobby = new LobbyPresence({
       preferredUserName: this.getStoredUserName(),
@@ -298,8 +300,12 @@ export class CollabMdApp {
     window.addEventListener('hashchange', () => this.handleHashChange());
     window.addEventListener('resize', this.createResizeHandler());
 
-    this.fileExplorer.refresh().then(() => {
-      this.handleHashChange();
+    this.fileExplorerReadyPromise = this.fileExplorer.refresh().then(() => {
+      this.fileExplorerReady = true;
+      if (this.isTabActive) {
+        return this.handleHashChange();
+      }
+      return undefined;
     });
 
   }
@@ -1558,7 +1564,9 @@ export class CollabMdApp {
     }
 
     if (wasInactive) {
-      void this.handleHashChange();
+      if (this.fileExplorerReady) {
+        void this.handleHashChange();
+      }
       this.promptForDisplayNameIfNeeded();
     }
 
