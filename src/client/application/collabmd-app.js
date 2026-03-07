@@ -31,9 +31,12 @@ export class CollabMdApp {
       chatToggleBadge: document.getElementById('chatToggleBadge'),
       chatToggleButton: document.getElementById('chatToggleBtn'),
       displayNameCancel: document.getElementById('displayNameCancel'),
+      displayNameCopy: document.getElementById('displayNameCopy'),
       displayNameDialog: document.getElementById('displayNameDialog'),
       displayNameForm: document.getElementById('displayNameForm'),
       displayNameInput: document.getElementById('displayNameInput'),
+      displayNameSubmit: document.getElementById('displayNameSubmit'),
+      displayNameTitle: document.getElementById('displayNameTitle'),
       editNameButton: document.getElementById('editNameBtn'),
       editorContainer: document.getElementById('editorContainer'),
       editorPage: document.getElementById('editor-page'),
@@ -164,6 +167,7 @@ export class CollabMdApp {
       toastController: this.toastController,
     });
     this._backlinkRefreshTimer = null;
+    this._hasPromptedForDisplayName = false;
     this._previewHydrationPaused = false;
     this._pendingPreviewLayoutSync = false;
     this._previewLayoutResizeObserver = null;
@@ -287,6 +291,8 @@ export class CollabMdApp {
     this.fileExplorer.refresh().then(() => {
       this.handleHashChange();
     });
+
+    this.promptForDisplayNameIfNeeded();
   }
 
   bindEvents() {
@@ -1381,18 +1387,52 @@ export class CollabMdApp {
 
   // Display name dialog
 
-  openDisplayNameDialog() {
+  openDisplayNameDialog({ mode = 'edit' } = {}) {
     const dialog = this.elements.displayNameDialog;
     const input = this.elements.displayNameInput;
+    const title = this.elements.displayNameTitle;
+    const copy = this.elements.displayNameCopy;
+    const cancel = this.elements.displayNameCancel;
+    const submit = this.elements.displayNameSubmit;
     if (!dialog || !input) return;
 
-    input.value = this.getCurrentUserName();
+    const isOnboarding = mode === 'onboarding';
+    if (title) {
+      title.textContent = isOnboarding ? 'Choose your display name' : 'Update display name';
+    }
+    if (copy) {
+      copy.textContent = isOnboarding
+        ? 'Pick a name collaborators will see. You can skip for now and continue as a guest.'
+        : 'Your name will be visible to everyone editing this vault.';
+    }
+    if (cancel) {
+      cancel.textContent = isOnboarding ? 'Skip for now' : 'Cancel';
+    }
+    if (submit) {
+      submit.textContent = isOnboarding ? 'Continue' : 'Save name';
+    }
+
+    input.value = isOnboarding ? '' : this.getCurrentUserName();
+    if (dialog.open) {
+      return;
+    }
     if (typeof dialog.showModal === 'function') {
       dialog.showModal();
     } else {
       dialog.setAttribute('open', 'true');
     }
     requestAnimationFrame(() => { input.focus(); input.select(); });
+  }
+
+  promptForDisplayNameIfNeeded() {
+    if (this._hasPromptedForDisplayName || this.getStoredUserName()) {
+      return;
+    }
+
+    this._hasPromptedForDisplayName = true;
+    requestAnimationFrame(() => {
+      this.openDisplayNameDialog({ mode: 'onboarding' });
+    });
   }
 
   handleDisplayNameSubmit() {

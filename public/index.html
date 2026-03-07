@@ -277,8 +277,8 @@
   <dialog class="app-dialog" id="displayNameDialog">
     <form class="app-dialog-form" id="displayNameForm" method="dialog">
       <div class="app-dialog-header">
-        <h2 class="app-dialog-title">Update display name</h2>
-        <p class="app-dialog-copy">Your name will be visible to everyone editing this vault.</p>
+        <h2 class="app-dialog-title" id="displayNameTitle">Update display name</h2>
+        <p class="app-dialog-copy" id="displayNameCopy">Your name will be visible to everyone editing this vault.</p>
       </div>
       <label class="app-dialog-field" for="displayNameInput">
         <span class="app-dialog-label">Name</span>
@@ -286,7 +286,7 @@
       </label>
       <div class="app-dialog-actions">
         <button type="button" class="btn btn-secondary" id="displayNameCancel">Cancel</button>
-        <button type="submit" class="btn btn-primary">Save name</button>
+        <button type="submit" class="btn btn-primary" id="displayNameSubmit">Save name</button>
       </div>
     </form>
   </dialog>

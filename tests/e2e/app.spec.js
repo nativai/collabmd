@@ -1,8 +1,17 @@
 import { test, expect } from '@playwright/test';
 import { resetE2EVaultSnapshot } from './helpers/vault-snapshot.js';
 
-test.beforeEach(async () => {
+const E2E_USER_NAME = 'E2E User';
+
+async function seedStoredUserName(page, name = E2E_USER_NAME) {
+  await page.addInitScript((storedName) => {
+    window.localStorage.setItem('collabmd-user-name', storedName);
+  }, name);
+}
+
+test.beforeEach(async ({ page }) => {
   await resetE2EVaultSnapshot();
+  await seedStoredUserName(page);
 });
 
 async function waitForEditor(page) {
@@ -10,6 +19,7 @@ async function waitForEditor(page) {
 }
 
 async function openFile(page, filePath) {
+  await seedStoredUserName(page);
   await page.goto(`/#file=${encodeURIComponent(filePath)}`);
   await waitForEditor(page);
 }
@@ -166,6 +176,26 @@ test('shows empty state when no file is selected', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#emptyState')).toBeVisible();
   await expect(page.locator('.empty-state-title')).toContainText('Select a file');
+});
+
+test('prompts first-time visitors for a display name', async ({ browser }) => {
+  const page = await browser.newPage();
+
+  await page.goto('/');
+
+  await expect(page.locator('#displayNameDialog')).toBeVisible();
+  await expect(page.locator('#displayNameTitle')).toHaveText('Choose your display name');
+  await expect(page.locator('#displayNameCopy')).toContainText('continue as a guest');
+  await expect(page.locator('#displayNameCancel')).toHaveText('Skip for now');
+  await expect(page.locator('#displayNameInput')).toHaveValue('');
+
+  await page.locator('#displayNameCancel').click();
+  await expect(page.locator('#displayNameDialog')).not.toBeVisible();
+  await expect.poll(async () => (
+    page.evaluate(() => window.localStorage.getItem('collabmd-user-name'))
+  )).toBeNull();
+
+  await page.close();
 });
 
 test('sidebar shows vault file tree', async ({ page }) => {
