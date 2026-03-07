@@ -149,7 +149,7 @@ try {
 
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║           CollabMD v2.0.0            ║');
+  console.log('  ║           CollabMD v0.1.0            ║');
   console.log('  ╚══════════════════════════════════════╝');
   console.log('');
   console.log(`  Vault:  ${vaultPath} (${fileCount} markdown files)`);
