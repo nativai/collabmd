@@ -697,6 +697,7 @@ async function init() {
         postToParent('ready');
       },
       initialData,
+      aiEnabled: false,
       isCollaborating: true,
       onChange: (elements, appState, files) => {
         scheduleSyncToRoom(elements, appState, files);

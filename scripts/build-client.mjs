@@ -14,10 +14,12 @@ const clientOutputDir = resolve(publicDir, 'assets/js');
 const clientStyleOutputDir = resolve(publicDir, 'assets/css');
 const obsoleteOutputDirs = [
   resolve(publicDir, 'assets/domain'),
+  resolve(publicDir, 'assets/vendor/mermaid'),
   resolve(publicDir, 'assets/vendor/modules'),
 ];
 const clientAppEntrySource = resolve(clientSourceDir, 'main.js');
 const excalidrawEditorEntrySource = resolve(clientSourceDir, 'excalidraw-editor.js');
+const excalidrawMermaidStubSource = resolve(clientSourceDir, 'excalidraw-mermaid-stub.js');
 const previewWorkerSource = resolve(clientSourceDir, 'application/preview-render-worker.js');
 const previewWorkerOutput = resolve(clientOutputDir, 'application/preview-render-worker.js');
 const styleAssetFiles = ['base.css', 'style.css'];
@@ -35,15 +37,6 @@ async function copyHighlightThemeFiles() {
   await copyFile(
     require.resolve('highlight.js/styles/github-dark.min.css'),
     resolve(themeDir, 'github-dark.min.css'),
-  );
-}
-
-async function copyMermaidBundle() {
-  const mermaidDir = resolve(publicDir, 'assets/vendor/mermaid');
-  await mkdir(mermaidDir, { recursive: true });
-  await copyFile(
-    require.resolve('mermaid/dist/mermaid.min.js'),
-    resolve(mermaidDir, 'mermaid.min.js'),
   );
 }
 
@@ -78,6 +71,9 @@ async function bundleClientApp() {
     entryPoints: {
       'excalidraw-editor': excalidrawEditorEntrySource,
       main: clientAppEntrySource,
+    },
+    alias: {
+      '@excalidraw/mermaid-to-excalidraw': excalidrawMermaidStubSource,
     },
     define: {
       'process.env.NODE_ENV': '"production"',
@@ -117,7 +113,6 @@ try {
   await mkdir(clientOutputDir, { recursive: true });
   await mkdir(clientStyleOutputDir, { recursive: true });
   await copyHighlightThemeFiles();
-  await copyMermaidBundle();
   await bundleStyles();
   await bundleClientApp();
   await bundlePreviewWorker();

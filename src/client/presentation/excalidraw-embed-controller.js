@@ -6,6 +6,7 @@ const IFRAME_BOOT_TIMEOUT_MS = 15000;
 const MAX_HEIGHT = 800;
 const MAX_IFRAME_BOOT_ATTEMPTS = 3;
 const MIN_HEIGHT = 200;
+const EDITOR_IFRAME_PATH = '/excalidraw-editor.html';
 
 function requestIdleRender(callback, timeout) {
   if (typeof window.requestIdleCallback === 'function') {
@@ -424,6 +425,43 @@ export class ExcalidrawEmbedController {
     }
   }
 
+  _buildIframeUrl(entry) {
+    const iframeUrl = new URL(EDITOR_IFRAME_PATH, window.location.origin);
+    const theme = this.getTheme?.() || 'dark';
+
+    iframeUrl.searchParams.set('file', entry.filePath);
+    iframeUrl.searchParams.set('theme', theme);
+    iframeUrl.searchParams.set('boot', entry.instanceId || '');
+
+    const localUser = this.getLocalUser?.();
+    if (localUser?.name) {
+      iframeUrl.searchParams.set('userName', localUser.name);
+    }
+    if (localUser?.color) {
+      iframeUrl.searchParams.set('userColor', localUser.color);
+    }
+    if (localUser?.colorLight) {
+      iframeUrl.searchParams.set('userColorLight', localUser.colorLight);
+    }
+    if (localUser?.peerId) {
+      iframeUrl.searchParams.set('userPeerId', localUser.peerId);
+    }
+
+    const hostSearchParams = new URLSearchParams(window.location.search);
+    const serverOverride = hostSearchParams.get('server');
+    if (serverOverride) {
+      iframeUrl.searchParams.set('server', serverOverride);
+    }
+    if (hostSearchParams.get('test') === '1') {
+      iframeUrl.searchParams.set('test', '1');
+    }
+    if (hostSearchParams.has('syncTimeoutMs')) {
+      iframeUrl.searchParams.set('syncTimeoutMs', hostSearchParams.get('syncTimeoutMs'));
+    }
+
+    return iframeUrl;
+  }
+
   _createEmbedContainer(entry) {
     const wrapper = document.createElement('div');
     wrapper.className = 'excalidraw-embed';
@@ -450,39 +488,11 @@ export class ExcalidrawEmbedController {
 
     header.append(icon, label, maxBtn);
 
-    const theme = this.getTheme?.() || 'dark';
     const iframe = document.createElement('iframe');
     iframe.className = 'excalidraw-embed-iframe';
     iframe.dataset.instanceId = String(++this.instanceCounter);
-    const iframeUrl = new URL('/excalidraw-editor.html', window.location.origin);
-    iframeUrl.searchParams.set('file', entry.filePath);
-    iframeUrl.searchParams.set('theme', theme);
-    iframeUrl.searchParams.set('boot', iframe.dataset.instanceId);
-    const localUser = this.getLocalUser?.();
-    if (localUser?.name) {
-      iframeUrl.searchParams.set('userName', localUser.name);
-    }
-    if (localUser?.color) {
-      iframeUrl.searchParams.set('userColor', localUser.color);
-    }
-    if (localUser?.colorLight) {
-      iframeUrl.searchParams.set('userColorLight', localUser.colorLight);
-    }
-    if (localUser?.peerId) {
-      iframeUrl.searchParams.set('userPeerId', localUser.peerId);
-    }
-    const hostSearchParams = new URLSearchParams(window.location.search);
-    const serverOverride = hostSearchParams.get('server');
-    if (serverOverride) {
-      iframeUrl.searchParams.set('server', serverOverride);
-    }
-    if (hostSearchParams.get('test') === '1') {
-      iframeUrl.searchParams.set('test', '1');
-    }
-    if (hostSearchParams.has('syncTimeoutMs')) {
-      iframeUrl.searchParams.set('syncTimeoutMs', hostSearchParams.get('syncTimeoutMs'));
-    }
-    iframe.src = iframeUrl.toString();
+    entry.instanceId = iframe.dataset.instanceId;
+    iframe.src = this._buildIframeUrl(entry).toString();
     iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
     // The controller already lazy-hydrates embeds near the viewport, so the
     // iframe should start loading immediately once it has been mounted.

@@ -19,3 +19,19 @@ test('client build emits the preview worker and main bundle references the emitt
     /new URL\("\.\/application\/preview-render-worker\.js",import\.meta\.url\)/,
   );
 });
+
+test('excalidraw build does not emit the disabled mermaid-to-excalidraw payload', async () => {
+  const excalidrawBundlePath = resolve(rootDir, 'public/assets/js/excalidraw-editor.js');
+  const excalidrawBundle = await readFile(excalidrawBundlePath, 'utf8');
+  const importedSpecifiers = [
+    ...excalidrawBundle.matchAll(/from"([^"]+)"/g),
+    ...excalidrawBundle.matchAll(/import\("([^"]+)"\)/g),
+  ].map((match) => match[1]);
+
+  assert.doesNotMatch(excalidrawBundle, /mermaid-to-excalidraw/);
+  assert.match(excalidrawBundle, /excalidraw-mermaid-stub/i);
+  assert.deepEqual(
+    importedSpecifiers.filter((specifier) => /(flowchart-elk|mindmap-definition|sequenceDiagram|katex|cytoscape|elk)/i.test(specifier)),
+    [],
+  );
+});

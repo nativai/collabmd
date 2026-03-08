@@ -27,3 +27,4 @@ public/assets/domain/
 public/assets/vendor/
 test-results/
 vault/
+.codex/

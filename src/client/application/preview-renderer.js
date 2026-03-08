@@ -17,7 +17,6 @@ const PLANTUML_ZOOM = {
 };
 const IDLE_RENDER_TIMEOUT_MS = 500;
 const MERMAID_BATCH_SIZE = 2;
-const MERMAID_SCRIPT_PATH = '/assets/vendor/mermaid/mermaid.min.js';
 const PLANTUML_BATCH_SIZE = 2;
 
 function requestIdleRender(callback, timeout) {
@@ -236,6 +235,7 @@ export class PreviewRenderer {
     this.currentTheme = document.documentElement?.dataset.theme === 'light' ? 'light' : 'dark';
     this.isLargeDocument = false;
     this.mermaidLoader = null;
+    this.mermaidRuntime = null;
     this.worker = null;
     this.workerDisabled = false;
     this.workerJob = null;
@@ -378,13 +378,13 @@ export class PreviewRenderer {
 
   applyTheme(theme) {
     this.currentTheme = theme;
-    const mermaid = window.mermaid;
     const highlightTheme = document.getElementById('hljs-theme');
     if (highlightTheme) {
       const { darkHref, lightHref } = highlightTheme.dataset;
       highlightTheme.href = theme === 'dark' ? darkHref : lightHref;
     }
 
+    const mermaid = this.mermaidRuntime;
     if (!mermaid) {
       return;
     }
@@ -415,62 +415,31 @@ export class PreviewRenderer {
   }
 
   ensureMermaid() {
-    if (window.mermaid) {
-      this.configureMermaid(window.mermaid);
-      return Promise.resolve(window.mermaid);
+    if (this.mermaidRuntime) {
+      this.configureMermaid(this.mermaidRuntime);
+      return Promise.resolve(this.mermaidRuntime);
     }
 
     if (this.mermaidLoader) {
       return this.mermaidLoader;
     }
 
-    this.mermaidLoader = new Promise((resolve, reject) => {
-      const onReady = () => {
-        const mermaid = window.mermaid;
+    this.mermaidLoader = import('../mermaid-runtime.js')
+      .then((module) => {
+        const mermaid = module?.default;
         if (!mermaid) {
-          this.mermaidLoader = null;
-          reject(new Error('Mermaid runtime failed to initialize'));
-          return;
+          throw new Error('Mermaid runtime failed to initialize');
         }
 
-        const readyScript = document.querySelector('script[data-collabmd-mermaid="true"]');
-        readyScript?.setAttribute('data-collabmd-mermaid-state', 'ready');
+        this.mermaidRuntime = mermaid;
         this.configureMermaid(mermaid);
-        resolve(mermaid);
-      };
-
-      const onError = () => {
+        return mermaid;
+      })
+      .catch((error) => {
         this.mermaidLoader = null;
-        const failedScript = document.querySelector('script[data-collabmd-mermaid="true"]');
-        failedScript?.setAttribute('data-collabmd-mermaid-state', 'error');
-        reject(new Error('Failed to load Mermaid runtime'));
-      };
-
-      const existingScript = document.querySelector('script[data-collabmd-mermaid="true"]');
-      if (existingScript) {
-        if (existingScript.getAttribute('data-collabmd-mermaid-state') === 'ready') {
-          onReady();
-          return;
-        }
-
-        if (existingScript.getAttribute('data-collabmd-mermaid-state') === 'error') {
-          existingScript.remove();
-        } else {
-          existingScript.addEventListener('load', onReady, { once: true });
-          existingScript.addEventListener('error', onError, { once: true });
-          return;
-        }
-      }
-
-      const script = document.createElement('script');
-      script.src = MERMAID_SCRIPT_PATH;
-      script.async = true;
-      script.dataset.collabmdMermaid = 'true';
-      script.dataset.collabmdMermaidState = 'loading';
-      script.addEventListener('load', onReady, { once: true });
-      script.addEventListener('error', onError, { once: true });
-      document.head.appendChild(script);
-    });
+        this.mermaidRuntime = null;
+        throw new Error(error instanceof Error ? error.message : 'Failed to load Mermaid runtime');
+      });
 
     return this.mermaidLoader;
   }
