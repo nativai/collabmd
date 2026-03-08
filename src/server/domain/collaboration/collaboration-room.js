@@ -5,13 +5,8 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 
 import { MSG_AWARENESS, MSG_SYNC } from './protocol.js';
+import { CollaborationDocumentStore } from './collaboration-document-store.js';
 import { populateCommentThreads, serializeCommentThreads } from '../../../domain/comment-threads.js';
-import {
-  isExcalidrawFilePath,
-  isMermaidFilePath,
-  isPlantUmlFilePath,
-  supportsBacklinksForFilePath,
-} from '../../../domain/file-kind.js';
 
 function closeSlowClient(ws, { maxBufferedAmountBytes, name }) {
   if (ws.backpressureCloseIssued) {
@@ -78,6 +73,7 @@ function readAwarenessEntries(update) {
 
 export class CollaborationRoom {
   constructor({
+    documentStore = null,
     name,
     idleGraceMs = 0,
     maxBufferedAmountBytes,
@@ -88,8 +84,11 @@ export class CollaborationRoom {
     this.name = name;
     this.idleGraceMs = idleGraceMs;
     this.maxBufferedAmountBytes = maxBufferedAmountBytes;
-    this.vaultFileStore = vaultFileStore;
-    this.backlinkIndex = backlinkIndex;
+    this.documentStore = documentStore ?? new CollaborationDocumentStore({
+      backlinkIndex,
+      name,
+      vaultFileStore,
+    });
     this.onEmpty = onEmpty;
     this.doc = new Y.Doc({ gc: true });
     this.awareness = new awarenessProtocol.Awareness(this.doc);
@@ -114,16 +113,16 @@ export class CollaborationRoom {
     if (!this.hydratePromise) {
       this.hydratePromise = (async () => {
         try {
-          if (this.vaultFileStore) {
-            const snapshot = await this.readPersistedSnapshot();
+          if (this.documentStore?.hasPersistence()) {
+            const snapshot = await this.documentStore.readSnapshot();
             if (snapshot) {
               Y.applyUpdate(this.doc, snapshot, 'hydrate');
               return;
             }
 
             const [content, commentThreads] = await Promise.all([
-              this.readPersistedContent(),
-              this.readPersistedCommentThreads(),
+              this.documentStore.readContent(),
+              this.documentStore.readCommentThreads(),
             ]);
             if (content !== null) {
               const ytext = this.doc.getText('codemirror');
@@ -193,7 +192,7 @@ export class CollaborationRoom {
   }
 
   schedulePersist() {
-    if (!this.vaultFileStore) {
+    if (!this.documentStore?.hasPersistence()) {
       return;
     }
 
@@ -206,103 +205,17 @@ export class CollaborationRoom {
   }
 
   async persist() {
-    if (!this.vaultFileStore || this.deleted) {
+    if (!this.documentStore?.hasPersistence() || this.deleted) {
       return;
     }
 
     const content = this.doc.getText('codemirror').toString();
     const commentThreads = serializeCommentThreads(this.doc.getArray('comments'));
-    await this.writePersistedContent(content);
-    await this.writePersistedCommentThreads(commentThreads);
-    await this.writePersistedSnapshot(Y.encodeStateAsUpdate(this.doc));
-
-    // Keep the backlink index in sync with every save
-    if (this.backlinkIndex && supportsBacklinksForFilePath(this.name)) {
-      this.backlinkIndex.updateFile(this.name, content);
-    }
-  }
-
-  async readPersistedContent() {
-    if (!this.vaultFileStore) {
-      return null;
-    }
-
-    if (isExcalidrawFilePath(this.name) && typeof this.vaultFileStore.readExcalidrawFile === 'function') {
-      return this.vaultFileStore.readExcalidrawFile(this.name);
-    }
-
-    if (isMermaidFilePath(this.name) && typeof this.vaultFileStore.readMermaidFile === 'function') {
-      return this.vaultFileStore.readMermaidFile(this.name);
-    }
-
-    if (isPlantUmlFilePath(this.name) && typeof this.vaultFileStore.readPlantUmlFile === 'function') {
-      return this.vaultFileStore.readPlantUmlFile(this.name);
-    }
-
-    return this.vaultFileStore.readMarkdownFile(this.name);
-  }
-
-  async readPersistedSnapshot() {
-    if (!this.vaultFileStore || typeof this.vaultFileStore.readCollaborationSnapshot !== 'function') {
-      return null;
-    }
-
-    return this.vaultFileStore.readCollaborationSnapshot(this.name);
-  }
-
-  async writePersistedContent(content) {
-    if (!this.vaultFileStore) {
-      return;
-    }
-
-    if (isExcalidrawFilePath(this.name) && typeof this.vaultFileStore.writeExcalidrawFile === 'function') {
-      await this.vaultFileStore.writeExcalidrawFile(this.name, content, {
-        invalidateCollaborationSnapshot: false,
-      });
-      return;
-    }
-
-    if (isMermaidFilePath(this.name) && typeof this.vaultFileStore.writeMermaidFile === 'function') {
-      await this.vaultFileStore.writeMermaidFile(this.name, content, {
-        invalidateCollaborationSnapshot: false,
-      });
-      return;
-    }
-
-    if (isPlantUmlFilePath(this.name) && typeof this.vaultFileStore.writePlantUmlFile === 'function') {
-      await this.vaultFileStore.writePlantUmlFile(this.name, content, {
-        invalidateCollaborationSnapshot: false,
-      });
-      return;
-    }
-
-    await this.vaultFileStore.writeMarkdownFile(this.name, content, {
-      invalidateCollaborationSnapshot: false,
+    await this.documentStore.persistState({
+      commentThreads,
+      content,
+      snapshot: Y.encodeStateAsUpdate(this.doc),
     });
-  }
-
-  async writePersistedSnapshot(snapshot) {
-    if (!this.vaultFileStore || typeof this.vaultFileStore.writeCollaborationSnapshot !== 'function') {
-      return;
-    }
-
-    await this.vaultFileStore.writeCollaborationSnapshot(this.name, snapshot);
-  }
-
-  async readPersistedCommentThreads() {
-    if (!this.vaultFileStore || typeof this.vaultFileStore.readCommentThreads !== 'function') {
-      return [];
-    }
-
-    return this.vaultFileStore.readCommentThreads(this.name);
-  }
-
-  async writePersistedCommentThreads(threads) {
-    if (!this.vaultFileStore || typeof this.vaultFileStore.writeCommentThreads !== 'function') {
-      return;
-    }
-
-    await this.vaultFileStore.writeCommentThreads(this.name, threads);
   }
 
   rename(nextName) {
@@ -311,6 +224,7 @@ export class CollaborationRoom {
     }
 
     this.name = nextName;
+    this.documentStore?.rename(nextName);
   }
 
   markDeleted() {

@@ -2,6 +2,7 @@ import { createServer } from 'http';
 
 import { loadConfig } from './config/env.js';
 import { BacklinkIndex } from './domain/backlink-index.js';
+import { CollaborationDocumentStore } from './domain/collaboration/collaboration-document-store.js';
 import { CollaborationRoom } from './domain/collaboration/collaboration-room.js';
 import { PlantUmlRenderer } from './domain/plantuml-renderer.js';
 import { RoomRegistry } from './domain/collaboration/room-registry.js';
@@ -38,13 +39,15 @@ export function createAppServer(config = loadConfig()) {
   });
   const roomRegistry = new RoomRegistry({
     createRoom: ({ name, onEmpty }) => new CollaborationRoom({
+      documentStore: new CollaborationDocumentStore({
+        backlinkIndex: name === '__lobby__' ? null : backlinkIndex,
+        name,
+        vaultFileStore: name === '__lobby__' ? null : vaultFileStore,
+      }),
       idleGraceMs: config.wsRoomIdleGraceMs,
       maxBufferedAmountBytes: config.wsMaxBufferedAmountBytes,
       name,
       onEmpty,
-      // The __lobby__ room is awareness-only (global presence) — no file.
-      vaultFileStore: name === '__lobby__' ? null : vaultFileStore,
-      backlinkIndex: name === '__lobby__' ? null : backlinkIndex,
     }),
   });
   const requestHandler = createRequestHandler(
