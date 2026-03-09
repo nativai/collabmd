@@ -539,7 +539,6 @@ export class ExcalidrawEmbedController {
     iframe.dataset.instanceId = String(++this.instanceCounter);
     entry.instanceId = iframe.dataset.instanceId;
     iframe.src = this._buildIframeUrl(entry).toString();
-    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
     // The controller already lazy-hydrates embeds near the viewport, so the
     // iframe should start loading immediately once it has been mounted.
     iframe.setAttribute('loading', 'eager');

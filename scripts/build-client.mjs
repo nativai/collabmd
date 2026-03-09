@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, copyFile, readFile, writeFile } from 'fs/promises';
+import { mkdir, mkdtemp, rm, copyFile, readdir, readFile, writeFile } from 'fs/promises';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
@@ -26,6 +26,32 @@ const excalidrawLoaderOutput = resolve(clientOutputDir, 'excalidraw-editor.js');
 const excalidrawCssLoaderOutput = resolve(clientOutputDir, 'excalidraw-editor.css');
 const styleAssetFiles = ['base.css', 'style.css'];
 const buildWorkingDir = await mkdtemp(join(tmpdir(), 'collabmd-build-'));
+const deprecatedLifecycleListenerPatches = [
+  {
+    pattern: /(\b(?:window\.)?addEventListener\(\s*)(["'])beforeunload\2/g,
+    replacement: '$1$2pagehide$2',
+  },
+  {
+    pattern: /(\b(?:window\.)?removeEventListener\(\s*)(["'])beforeunload\2/g,
+    replacement: '$1$2pagehide$2',
+  },
+  {
+    pattern: /(\b(?:window\.)?addEventListener\(\s*)(["'])unload\2/g,
+    replacement: '$1$2pagehide$2',
+  },
+  {
+    pattern: /(\b(?:window\.)?removeEventListener\(\s*)(["'])unload\2/g,
+    replacement: '$1$2pagehide$2',
+  },
+  {
+    pattern: /(\b[A-Za-z_$][\w$]*\(\s*window\s*,\s*)(["'])beforeunload\2/g,
+    replacement: '$1$2pagehide$2',
+  },
+  {
+    pattern: /(\b[A-Za-z_$][\w$]*\(\s*window\s*,\s*)(["'])unload\2/g,
+    replacement: '$1$2pagehide$2',
+  },
+];
 
 async function copyHighlightThemeFiles() {
   const themeDir = resolve(publicDir, 'assets/vendor/highlight');
@@ -59,6 +85,37 @@ async function bundlePreviewWorker() {
     platform: 'browser',
     target: ['es2022'],
   });
+}
+
+async function listFilesRecursive(directoryPath) {
+  const entries = await readdir(directoryPath, { withFileTypes: true });
+  const childPaths = await Promise.all(entries.map(async (entry) => {
+    const entryPath = resolve(directoryPath, entry.name);
+    if (entry.isDirectory()) {
+      return listFilesRecursive(entryPath);
+    }
+    return entryPath;
+  }));
+
+  return childPaths.flat();
+}
+
+async function patchDeprecatedLifecycleListeners() {
+  const outputFiles = await listFilesRecursive(clientOutputDir);
+  const jsFiles = outputFiles.filter((filePath) => filePath.endsWith('.js'));
+
+  await Promise.all(jsFiles.map(async (filePath) => {
+    const source = await readFile(filePath, 'utf8');
+    let patchedSource = source;
+
+    for (const { pattern, replacement } of deprecatedLifecycleListenerPatches) {
+      patchedSource = patchedSource.replace(pattern, replacement);
+    }
+
+    if (patchedSource !== source) {
+      await writeFile(filePath, patchedSource, 'utf8');
+    }
+  }));
 }
 
 async function bundleMainApp() {
@@ -141,6 +198,7 @@ async function bundleExcalidrawApp() {
 
   const hashedJsFile = hashedJsPath.replace(/\\/g, '/').split('/').pop();
   const hashedCssFile = hashedCssPath.replace(/\\/g, '/').split('/').pop();
+  const hashedJsAbsolutePath = resolve(clientOutputDir, hashedJsFile);
 
   await writeFile(
     excalidrawLoaderOutput,
@@ -180,6 +238,7 @@ try {
   await bundleMainApp();
   await bundleExcalidrawApp();
   await bundlePreviewWorker();
+  await patchDeprecatedLifecycleListeners();
 } finally {
   await rm(buildWorkingDir, { force: true, recursive: true });
 }

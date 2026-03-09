@@ -8,15 +8,17 @@ export class LayoutController {
     this.previewPane = document.getElementById('previewPane');
     this.mobileToggleButton = document.getElementById('mobileViewToggle');
     this.resizer = document.getElementById('resizer');
+    this.viewButtons = Array.from(document.querySelectorAll('.view-btn'));
   }
 
   initialize() {
-    document.querySelectorAll('.view-btn').forEach((button) => {
+    this.viewButtons.forEach((button) => {
       button.addEventListener('click', () => this.setView(button.dataset.view));
     });
 
     this.mobileToggleButton?.addEventListener('click', () => this.toggleMobileView());
     this.initializeResizer();
+    this.syncViewButtons();
   }
 
   reset() {
@@ -31,15 +33,14 @@ export class LayoutController {
     if (this.previewPane) {
       this.previewPane.style.flex = '';
     }
+
+    this.updateResizerValue();
   }
 
   setView(view) {
     this.currentView = view;
     this.editorLayout?.setAttribute('data-view', view);
-
-    document.querySelectorAll('.view-btn').forEach((button) => {
-      button.classList.toggle('active', button.dataset.view === view);
-    });
+    this.syncViewButtons();
 
     if (view === 'split' || view === 'editor') {
       this.scheduleEditorMeasure();
@@ -75,6 +76,47 @@ export class LayoutController {
     this.mobileToggleButton.innerHTML = `${label === 'Editor' ? editorIcon : previewIcon}<span class="toolbar-btn-label">${label}</span>`;
   }
 
+  syncViewButtons() {
+    this.viewButtons.forEach((button) => {
+      const isActive = button.dataset.view === this.currentView;
+      button.classList.toggle('active', isActive);
+      button.setAttribute('aria-pressed', String(isActive));
+    });
+  }
+
+  updateResizerValue() {
+    if (!this.resizer || !this.editorLayout || !this.editorPane) {
+      return;
+    }
+
+    const totalWidth = this.editorLayout.offsetWidth;
+    if (!Number.isFinite(totalWidth) || totalWidth <= 0) {
+      return;
+    }
+
+    const percentage = Math.round((this.editorPane.offsetWidth / totalWidth) * 100);
+    this.resizer.setAttribute('aria-valuenow', String(Math.max(20, Math.min(80, percentage))));
+  }
+
+  applyEditorPaneWidth(width) {
+    if (!this.editorLayout || !this.editorPane || !this.previewPane) {
+      return;
+    }
+
+    const totalWidth = this.editorLayout.offsetWidth;
+    if (!Number.isFinite(totalWidth) || totalWidth <= 0) {
+      return;
+    }
+
+    const minPaneWidth = 200;
+    const nextWidth = Math.max(minPaneWidth, Math.min(totalWidth - minPaneWidth, width));
+    const percentage = (nextWidth / totalWidth) * 100;
+
+    this.editorPane.style.flex = `0 0 ${percentage}%`;
+    this.previewPane.style.flex = '1';
+    this.updateResizerValue();
+  }
+
   initializeResizer() {
     if (!this.resizer || !this.editorLayout || !this.editorPane || !this.previewPane) {
       return;
@@ -100,12 +142,7 @@ export class LayoutController {
       }
 
       const delta = event.clientX - startX;
-      const totalWidth = this.editorLayout.offsetWidth;
-      const width = Math.max(200, Math.min(totalWidth - 200, startWidth + delta));
-      const percentage = (width / totalWidth) * 100;
-
-      this.editorPane.style.flex = `0 0 ${percentage}%`;
-      this.previewPane.style.flex = '1';
+      this.applyEditorPaneWidth(startWidth + delta);
     });
 
     document.addEventListener('mouseup', () => {
@@ -119,5 +156,42 @@ export class LayoutController {
       document.body.style.userSelect = '';
       this.scheduleEditorMeasure();
     });
+
+    this.resizer.addEventListener('keydown', (event) => {
+      const totalWidth = this.editorLayout.offsetWidth;
+      if (!Number.isFinite(totalWidth) || totalWidth <= 0) {
+        return;
+      }
+
+      const step = Math.max(24, Math.round(totalWidth * 0.05));
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        this.applyEditorPaneWidth(this.editorPane.offsetWidth - step);
+        this.scheduleEditorMeasure();
+        return;
+      }
+
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        this.applyEditorPaneWidth(this.editorPane.offsetWidth + step);
+        this.scheduleEditorMeasure();
+        return;
+      }
+
+      if (event.key === 'Home') {
+        event.preventDefault();
+        this.applyEditorPaneWidth(totalWidth * 0.2);
+        this.scheduleEditorMeasure();
+        return;
+      }
+
+      if (event.key === 'End') {
+        event.preventDefault();
+        this.applyEditorPaneWidth(totalWidth * 0.8);
+        this.scheduleEditorMeasure();
+      }
+    });
+
+    this.updateResizerValue();
   }
 }

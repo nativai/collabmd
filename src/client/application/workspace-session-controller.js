@@ -150,6 +150,7 @@ export class WorkspaceSessionController {
 
       app.scrollSyncController.attachEditorScroller(session.getScrollContainer());
       session.applyTheme(app.themeController.getTheme());
+      await session.waitForInitialSync();
       session.requestMeasure();
       await this.waitForNextPaint();
 

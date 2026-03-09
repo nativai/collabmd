@@ -32,6 +32,15 @@ export class BacklinksPanel {
       this._expanded = !this._expanded;
       this._applyExpandState();
     });
+
+    this.header?.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+      }
+
+      event.preventDefault();
+      this.header.click();
+    });
   }
 
   /**
@@ -167,6 +176,12 @@ export class BacklinksPanel {
 
   _applyExpandState() {
     this.panel?.classList.toggle('expanded', this._expanded);
+    this.header?.setAttribute('aria-expanded', String(this._expanded));
+    this.header?.setAttribute('aria-disabled', String(this._backlinks.length === 0));
     this.body?.setAttribute('aria-hidden', String(!this._expanded));
+
+    if (this.body) {
+      this.body.toggleAttribute('inert', !this._expanded);
+    }
   }
 }

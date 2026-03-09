@@ -12,7 +12,7 @@ const CONTENT_TYPES = {
 };
 
 function isVersionedAssetPath(pathname = '') {
-  return /-[A-Z0-9]{8,}\.(?:css|js)$/iu.test(pathname);
+  return /-[A-Z0-9]{8,}\.(?:css|js|woff2?|ttf|svg)$/iu.test(pathname);
 }
 
 function getStaticCacheControl(pathname = '', extension = '') {

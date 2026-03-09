@@ -170,6 +170,9 @@ export class EditorSession {
     this.commentThreads = null;
     this.handleCommentThreadsChange = null;
     this.wsBaseUrl = '';
+    this.initialSyncComplete = false;
+    this.initialSyncPromise = Promise.resolve();
+    this.resolveInitialSync = null;
   }
 
   async initialize(filePath) {
@@ -186,6 +189,10 @@ export class EditorSession {
     });
 
     this.provider = provider;
+    this.initialSyncComplete = false;
+    this.initialSyncPromise = new Promise((resolve) => {
+      this.resolveInitialSync = resolve;
+    });
 
     const awareness = provider.awareness;
     this.awareness = awareness;
@@ -201,6 +208,9 @@ export class EditorSession {
       }
 
       initialSyncDone = true;
+      this.initialSyncComplete = true;
+      this.resolveInitialSync?.();
+      this.resolveInitialSync = null;
       this.onContentChange?.();
     });
 
@@ -593,12 +603,29 @@ export class EditorSession {
     return true;
   }
 
+  waitForInitialSync(timeoutMs = 1500) {
+    if (this.initialSyncComplete) {
+      return Promise.resolve();
+    }
+
+    return Promise.race([
+      this.initialSyncPromise,
+      new Promise((resolve) => {
+        window.setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+  }
+
   destroy() {
     if (this.commentThreads && this.handleCommentThreadsChange) {
       this.commentThreads.unobserveDeep(this.handleCommentThreadsChange);
     }
     this.commentThreads = null;
     this.handleCommentThreadsChange = null;
+    this.resolveInitialSync?.();
+    this.resolveInitialSync = null;
+    this.initialSyncComplete = false;
+    this.initialSyncPromise = Promise.resolve();
 
     this.provider?.disconnect();
     this.provider?.destroy();

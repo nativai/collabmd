@@ -309,13 +309,15 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
 
 .sidebar-actions {
   display: flex;
-  gap: 2px;
+  gap: 4px;
 }
 
 .sidebar-action-btn {
   background: none;
   border: none;
-  padding: var(--space-1);
+  min-width: 28px;
+  min-height: 28px;
+  padding: 4px;
   border-radius: var(--radius-sm);
   color: var(--color-text-muted);
   cursor: pointer;

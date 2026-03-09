@@ -1521,6 +1521,10 @@ export class CollabMdApp {
     const name = this.getCurrentUserName();
     el.textContent = name || 'Set name';
     el.classList.toggle('has-name', Boolean(name));
+    this.elements.editNameButton?.setAttribute(
+      'aria-label',
+      `${name || 'Set name'}. Change display name`,
+    );
   }
 
   // Line wrapping storage

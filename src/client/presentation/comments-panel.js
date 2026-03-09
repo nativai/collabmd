@@ -293,6 +293,10 @@ export class CommentsPanel {
     this.body?.setAttribute('aria-hidden', String(!this.expanded));
     this.header?.setAttribute('aria-expanded', String(this.expanded));
 
+    if (this.body) {
+      this.body.toggleAttribute('inert', !this.expanded);
+    }
+
     if (this.toggle) {
       this.toggle.textContent = label;
     }
