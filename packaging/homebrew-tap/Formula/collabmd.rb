@@ -27,29 +27,36 @@ class Collabmd < Formula
       "--host", "127.0.0.1",
       "--port", port.to_s,
       out: log_path,
-      err: log_path,
+      err: log_path
     )
 
-    begin
-      output = nil
+    output = nil
 
-      Timeout.timeout(15) do
-        loop do
-          begin
-            output = shell_output("curl -fsS http://127.0.0.1:#{port}/health").strip
-            break if output == "ok"
-          rescue ErrorDuringExecution
-            sleep 1
-          else
-            sleep 1 unless output == "ok"
-          end
+    Timeout.timeout(15) do
+      loop do
+        begin
+          output = shell_output("curl -fsS http://127.0.0.1:#{port}/health").strip
+          break if output == "ok"
+        rescue ErrorDuringExecution
+          sleep 1
+        else
+          sleep 1 if output != "ok"
         end
       end
+    end
 
-      assert_equal "ok", output
-    ensure
-      Process.kill("TERM", pid) rescue nil
-      Process.wait(pid) rescue nil
+    assert_equal "ok", output
+  ensure
+    begin
+      Process.kill("TERM", pid)
+    rescue Errno::ESRCH
+      nil
+    end
+
+    begin
+      Process.wait(pid)
+    rescue Errno::ECHILD
+      nil
     end
   end
 end
