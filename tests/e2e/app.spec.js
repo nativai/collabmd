@@ -167,6 +167,35 @@ async function getPlantUmlZoomMetrics(page) {
   });
 }
 
+async function getPreviewHorizontalOverflowMetrics(page) {
+  return page.evaluate(() => {
+    const container = document.getElementById('previewContainer');
+    const shell = document.querySelector('#previewContent .plantuml-shell');
+    const toolbar = document.querySelector('#previewContent .plantuml-toolbar');
+    const frame = document.querySelector('#previewContent .plantuml-frame');
+    const maximizeButton = document.querySelector('#previewContent .plantuml-maximize-btn');
+
+    if (!container || !shell || !toolbar || !frame || !maximizeButton) {
+      return null;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const shellRect = shell.getBoundingClientRect();
+    const toolbarRect = toolbar.getBoundingClientRect();
+    const buttonRect = maximizeButton.getBoundingClientRect();
+
+    return {
+      containerClientWidth: container.clientWidth,
+      containerScrollWidth: container.scrollWidth,
+      frameClientWidth: frame.clientWidth,
+      frameScrollWidth: frame.scrollWidth,
+      shellRightOverflow: Math.max(0, Math.ceil(shellRect.right - containerRect.right)),
+      toolbarRightOverflow: Math.max(0, Math.ceil(toolbarRect.right - containerRect.right)),
+      maximizeButtonRightOverflow: Math.max(0, Math.ceil(buttonRect.right - containerRect.right)),
+    };
+  });
+}
+
 async function getVisibleEditorLineNumbers(page) {
   return page.evaluate(() => (
     Array.from(document.querySelectorAll('.cm-lineNumbers .cm-gutterElement'))
@@ -1465,6 +1494,52 @@ test.describe('mobile outline', () => {
     await page.locator('#outlineNav .outline-item', { hasText: 'Links' }).click();
 
     await expect(page.locator('#outlinePanel')).toBeHidden();
+  });
+});
+
+test.describe('mobile PlantUML preview', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+  });
+
+  test('keeps embedded and standalone PlantUML previews inside the mobile preview pane', async ({ page }) => {
+    await page.route('**/api/plantuml/render', async (route) => {
+      await route.fulfill({
+        body: JSON.stringify({
+          ok: true,
+          svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 1400"><text x="40" y="120">mobile-plantuml</text></svg>',
+        }),
+        contentType: 'application/json',
+        status: 200,
+      });
+    });
+
+    await openFile(page, 'README.md');
+    await replaceEditorContent(page, '# Mobile PlantUML\n\n![[sample-plantuml.puml]]');
+    await page.locator('#mobileViewToggle').click();
+    await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+
+    const embeddedMetrics = await getPreviewHorizontalOverflowMetrics(page);
+    expect(embeddedMetrics).not.toBeNull();
+    expect(embeddedMetrics.containerScrollWidth - embeddedMetrics.containerClientWidth).toBeLessThanOrEqual(1);
+    expect(embeddedMetrics.shellRightOverflow).toBeLessThanOrEqual(1);
+    expect(embeddedMetrics.toolbarRightOverflow).toBeLessThanOrEqual(1);
+    expect(embeddedMetrics.maximizeButtonRightOverflow).toBeLessThanOrEqual(1);
+    expect(embeddedMetrics.frameClientWidth).toBeGreaterThan(0);
+    expect(embeddedMetrics.frameClientWidth).toBeLessThanOrEqual(embeddedMetrics.containerClientWidth);
+
+    await openFile(page, 'sample-plantuml.puml');
+    await page.locator('#mobileViewToggle').click();
+    await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+
+    const standaloneMetrics = await getPreviewHorizontalOverflowMetrics(page);
+    expect(standaloneMetrics).not.toBeNull();
+    expect(standaloneMetrics.containerScrollWidth - standaloneMetrics.containerClientWidth).toBeLessThanOrEqual(1);
+    expect(standaloneMetrics.shellRightOverflow).toBeLessThanOrEqual(1);
+    expect(standaloneMetrics.toolbarRightOverflow).toBeLessThanOrEqual(1);
+    expect(standaloneMetrics.maximizeButtonRightOverflow).toBeLessThanOrEqual(1);
+    expect(standaloneMetrics.frameClientWidth).toBeGreaterThan(0);
+    expect(standaloneMetrics.frameClientWidth).toBeLessThanOrEqual(standaloneMetrics.containerClientWidth);
   });
 });
 
