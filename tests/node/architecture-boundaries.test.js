@@ -29,9 +29,6 @@ const RULES = [
     name: 'client-application-no-adapter-imports',
     appliesTo: 'src/client/application/',
     forbidden: ['src/client/presentation/', 'src/client/infrastructure/'],
-    allowFiles: new Set([
-      'src/client/application/collabmd-app.js',
-    ]),
   },
   {
     name: 'server-domain-no-infrastructure',

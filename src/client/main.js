@@ -1,9 +1,9 @@
-import { CollabMdApp } from './application/collabmd-app.js';
+import { CollabMdAppShell } from './bootstrap/collabmd-app-shell.js';
 import { ensureClientAuthenticated } from './infrastructure/auth-client.js';
 
 async function start() {
   await ensureClientAuthenticated();
-  const app = new CollabMdApp();
+  const app = new CollabMdAppShell();
   app.initialize();
 }
 

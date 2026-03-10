@@ -1,12 +1,12 @@
-import { PreviewRenderer } from './preview-renderer.js';
-import { WorkspaceCoordinator } from './workspace-coordinator.js';
-import { WorkspaceStateStore } from './workspace-state-store.js';
-import { bindAppShellElements } from './app-shell-elements.js';
-import { chatFeature } from './app-shell/chat-feature.js';
-import { gitFeature } from './app-shell/git-feature.js';
-import { presenceFeature } from './app-shell/presence-feature.js';
-import { uiFeature } from './app-shell/ui-feature.js';
-import { workspaceFeature } from './app-shell/workspace-feature.js';
+import { PreviewRenderer } from '../application/preview-renderer.js';
+import { WorkspaceCoordinator } from '../application/workspace-coordinator.js';
+import { WorkspaceStateStore } from '../application/workspace-state-store.js';
+import { bindAppShellElements } from '../application/app-shell-elements.js';
+import { chatFeature } from '../application/app-shell/chat-feature.js';
+import { gitFeature } from '../application/app-shell/git-feature.js';
+import { presenceFeature } from '../application/app-shell/presence-feature.js';
+import { uiFeature } from '../application/app-shell/ui-feature.js';
+import { workspaceFeature } from '../application/app-shell/workspace-feature.js';
 import { LOBBY_CHAT_MESSAGE_MAX_LENGTH, LobbyPresence } from '../infrastructure/lobby-presence.js';
 import { BrowserNavigationPort } from '../infrastructure/browser-navigation-port.js';
 import { BrowserNotificationPort } from '../infrastructure/browser-notification-port.js';
@@ -25,7 +25,7 @@ import { ScrollSyncController } from '../presentation/scroll-sync-controller.js'
 import { ThemeController } from '../presentation/theme-controller.js';
 import { ToastController } from '../presentation/toast-controller.js';
 
-export class CollabMdApp {
+export class CollabMdAppShell {
   constructor() {
     this.elements = bindAppShellElements(document);
     this.runtimeConfig = getRuntimeConfig();
@@ -313,7 +313,7 @@ export class CollabMdApp {
 }
 
 Object.assign(
-  CollabMdApp.prototype,
+  CollabMdAppShell.prototype,
   workspaceFeature,
   gitFeature,
   chatFeature,
