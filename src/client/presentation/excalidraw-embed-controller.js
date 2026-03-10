@@ -64,6 +64,7 @@ export class ExcalidrawEmbedController {
     this.isLargeDocument = false;
     this.maximizedEmbed = null;
     this.overlayRoot = null;
+    this.maximizedRoot = null;
     this.placeholderObserver = null;
 
     this._onMessage = this._onMessage.bind(this);
@@ -94,6 +95,8 @@ export class ExcalidrawEmbedController {
     this.embedEntries.clear();
     this.overlayRoot?.remove();
     this.overlayRoot = null;
+    this.maximizedRoot?.remove();
+    this.maximizedRoot = null;
   }
 
   detachForCommit() {
@@ -104,6 +107,9 @@ export class ExcalidrawEmbedController {
     this.hydrationInProgress = false;
     if (this.overlayRoot) {
       this.overlayRoot.hidden = true;
+    }
+    if (this.maximizedRoot) {
+      this.maximizedRoot.hidden = true;
     }
 
     this.embedEntries.forEach((entry) => {
@@ -567,6 +573,7 @@ export class ExcalidrawEmbedController {
       wrapper.classList.remove('is-maximized');
       syncMaximizeButtonState();
       document.body.classList.remove('excalidraw-maximized-open');
+      this._restoreWrapperMount(entry);
       iframe.style.height = restoreHeight;
       if (this.maximizedEmbed?.wrapper === wrapper) {
         this.maximizedEmbed = null;
@@ -579,6 +586,7 @@ export class ExcalidrawEmbedController {
       this._exitMaximizedEmbed();
       isMaximized = true;
       restoreHeight = iframe.style.height || `${DEFAULT_HEIGHT}px`;
+      this._mountWrapperInMaximizedRoot(entry);
       wrapper.classList.add('is-maximized');
       syncMaximizeButtonState();
       document.body.classList.add('excalidraw-maximized-open');
@@ -648,6 +656,23 @@ export class ExcalidrawEmbedController {
     return overlayRoot;
   }
 
+  _ensureMaximizedRoot() {
+    if (this.maximizedRoot?.isConnected && this.maximizedRoot.parentElement === document.body) {
+      return this.maximizedRoot;
+    }
+
+    let maximizedRoot = document.body.querySelector('[data-excalidraw-maximized-root="true"]');
+    if (!maximizedRoot) {
+      maximizedRoot = document.createElement('div');
+      maximizedRoot.dataset.excalidrawMaximizedRoot = 'true';
+      maximizedRoot.className = 'excalidraw-maximized-root';
+      document.body.appendChild(maximizedRoot);
+    }
+
+    this.maximizedRoot = maximizedRoot;
+    return maximizedRoot;
+  }
+
   _isFilePreviewEntry(entry) {
     return entry?.key === `${entry?.filePath}#file-preview`;
   }
@@ -665,6 +690,55 @@ export class ExcalidrawEmbedController {
     entry.placeholder.removeAttribute('data-embed-hydrated');
     entry.placeholder.style.height = '';
     entry.placeholder.style.pointerEvents = '';
+  }
+
+  _mountWrapperInMaximizedRoot(entry) {
+    if (!entry?.wrapper) {
+      return;
+    }
+
+    const maximizedRoot = this._ensureMaximizedRoot();
+    maximizedRoot.hidden = false;
+    entry.restoreParent = entry.wrapper.parentElement || null;
+    entry.restoreNextSibling = entry.wrapper.nextSibling || null;
+    entry.wrapper.style.position = '';
+    entry.wrapper.style.top = '';
+    entry.wrapper.style.left = '';
+    entry.wrapper.style.width = '';
+    entry.wrapper.style.margin = '';
+    if (entry.wrapper.parentElement !== maximizedRoot) {
+      maximizedRoot.appendChild(entry.wrapper);
+    }
+  }
+
+  _restoreWrapperMount(entry) {
+    if (!entry?.wrapper) {
+      return;
+    }
+
+    if (this._shouldInlineFilePreview(entry)) {
+      const { restoreParent, restoreNextSibling } = entry;
+      if (restoreParent?.isConnected) {
+        if (restoreNextSibling?.parentElement === restoreParent) {
+          restoreParent.insertBefore(entry.wrapper, restoreNextSibling);
+        } else {
+          restoreParent.appendChild(entry.wrapper);
+        }
+      }
+    } else {
+      const overlayRoot = this._ensureOverlayRoot();
+      overlayRoot.hidden = false;
+      if (entry.wrapper.parentElement !== overlayRoot) {
+        overlayRoot.appendChild(entry.wrapper);
+      }
+    }
+
+    entry.restoreParent = null;
+    entry.restoreNextSibling = null;
+
+    if (this.maximizedRoot && this.maximizedRoot.childElementCount === 0) {
+      this.maximizedRoot.hidden = true;
+    }
   }
 
   _syncEntryLayout(entry) {

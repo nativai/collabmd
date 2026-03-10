@@ -29,6 +29,7 @@ export class PlantUmlPreviewHydrator {
     this.svgInflightRequests = new Map();
     this.shellRefits = new WeakMap();
     this.activeMaximizedShell = null;
+    this.maximizedRoot = null;
     this.resizeFrameId = null;
   }
 
@@ -40,6 +41,8 @@ export class PlantUmlPreviewHydrator {
       cancelAnimationFrame(this.resizeFrameId);
       this.resizeFrameId = null;
     }
+    this.maximizedRoot?.remove();
+    this.maximizedRoot = null;
   }
 
   cancelHydration() {
@@ -69,6 +72,9 @@ export class PlantUmlPreviewHydrator {
 
   clearActiveShell() {
     this.activeMaximizedShell = null;
+    if (this.maximizedRoot && this.maximizedRoot.childElementCount === 0) {
+      this.maximizedRoot.hidden = true;
+    }
   }
 
   syncActiveShell() {
@@ -192,6 +198,58 @@ export class PlantUmlPreviewHydrator {
         preservedSourceNode.textContent = nextSource;
       }
       preservedSourceNode.hidden = true;
+    }
+  }
+
+  ensureMaximizedRoot() {
+    if (this.maximizedRoot?.isConnected && this.maximizedRoot.parentElement === document.body) {
+      return this.maximizedRoot;
+    }
+
+    let maximizedRoot = document.body.querySelector('[data-plantuml-maximized-root="true"]');
+    if (!maximizedRoot) {
+      maximizedRoot = document.createElement('div');
+      maximizedRoot.dataset.plantumlMaximizedRoot = 'true';
+      maximizedRoot.className = 'plantuml-maximized-root';
+      document.body.appendChild(maximizedRoot);
+    }
+
+    this.maximizedRoot = maximizedRoot;
+    return maximizedRoot;
+  }
+
+  mountShellInMaximizedRoot(shell) {
+    if (!shell) {
+      return;
+    }
+
+    const maximizedRoot = this.ensureMaximizedRoot();
+    maximizedRoot.hidden = false;
+    shell._plantumlRestoreParent = shell.parentElement || null;
+    shell._plantumlRestoreNextSibling = shell.nextSibling || null;
+    maximizedRoot.appendChild(shell);
+  }
+
+  restoreShellMount(shell) {
+    if (!shell) {
+      return;
+    }
+
+    const restoreParent = shell._plantumlRestoreParent;
+    const restoreNextSibling = shell._plantumlRestoreNextSibling;
+    if (restoreParent?.isConnected) {
+      if (restoreNextSibling?.parentElement === restoreParent) {
+        restoreParent.insertBefore(shell, restoreNextSibling);
+      } else {
+        restoreParent.appendChild(shell);
+      }
+    }
+
+    shell._plantumlRestoreParent = null;
+    shell._plantumlRestoreNextSibling = null;
+
+    if (this.maximizedRoot && this.maximizedRoot.childElementCount === 0) {
+      this.maximizedRoot.hidden = true;
     }
   }
 
@@ -439,6 +497,7 @@ export class PlantUmlPreviewHydrator {
 
     this.shellRefits.delete(shell);
     if (this.activeMaximizedShell === shell) {
+      this.restoreShellMount(shell);
       this.clearActiveShell();
     }
 
@@ -446,7 +505,7 @@ export class PlantUmlPreviewHydrator {
     shell.removeAttribute('data-plantuml-instance-id');
     shell.removeAttribute('data-plantuml-queued');
     shell.classList.remove('is-maximized');
-    if (!this.renderer.previewElement?.querySelector('.plantuml-shell.is-maximized')) {
+    if (!this.syncActiveShell()) {
       document.body.classList.remove('plantuml-maximized-open');
     }
     shell.querySelector(':scope > .plantuml-toolbar')?.remove();
@@ -627,11 +686,14 @@ export class PlantUmlPreviewHydrator {
     };
 
     const setMaximizedState = (shouldMaximize) => {
-      const previewElement = this.renderer.previewElement;
       if (shouldMaximize) {
-        const activeContainer = previewElement.querySelector('.plantuml-shell.is-maximized');
+        const activeContainer = this.syncActiveShell();
         if (activeContainer && activeContainer !== shell) {
+          this.restoreShellMount(activeContainer);
           activeContainer.classList.remove('is-maximized');
+          if (this.activeMaximizedShell === activeContainer) {
+            this.clearActiveShell();
+          }
           this.shellRefits.get(activeContainer)?.();
           const activeButton = activeContainer.querySelector('.plantuml-maximize-btn');
           if (activeButton) {
@@ -640,6 +702,7 @@ export class PlantUmlPreviewHydrator {
           }
         }
 
+        this.mountShellInMaximizedRoot(shell);
         shell.classList.add('is-maximized');
         this.activeMaximizedShell = shell;
         document.body.classList.add('plantuml-maximized-open');
@@ -648,11 +711,12 @@ export class PlantUmlPreviewHydrator {
         return;
       }
 
+      this.restoreShellMount(shell);
       shell.classList.remove('is-maximized');
       if (this.activeMaximizedShell === shell) {
         this.clearActiveShell();
       }
-      if (!previewElement.querySelector('.plantuml-shell.is-maximized')) {
+      if (!this.syncActiveShell()) {
         document.body.classList.remove('plantuml-maximized-open');
       }
       syncMaximizeButtonState();

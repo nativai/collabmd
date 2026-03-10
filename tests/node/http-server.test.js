@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { execFile as execFileCallback } from 'node:child_process';
 import { createServer } from 'node:http';
 import { request } from 'node:http';
-import { writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
@@ -169,6 +170,68 @@ test('HTTP server exposes git status and diff endpoints for git-backed vaults', 
   const cleanStatusResponse = await httpRequest(`${app.baseUrl}/api/git/status?force=true`);
   assert.equal(cleanStatusResponse.statusCode, 200);
   assert.match(cleanStatusResponse.body, /"changedFiles":0/);
+});
+
+test('HTTP server exposes git push and pull endpoints for repos with an upstream', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  const remoteDir = await mkdtemp(join(tmpdir(), 'collabmd-http-git-remote-'));
+  const peerDir = await mkdtemp(join(tmpdir(), 'collabmd-http-git-peer-'));
+  t.after(async () => {
+    await rm(remoteDir, { force: true, recursive: true });
+    await rm(peerDir, { force: true, recursive: true });
+  });
+
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_EMAIL: 'tests@example.com',
+    GIT_AUTHOR_NAME: 'CollabMD Tests',
+    GIT_COMMITTER_EMAIL: 'tests@example.com',
+    GIT_COMMITTER_NAME: 'CollabMD Tests',
+  };
+  await execFile('git', ['init'], { cwd: app.vaultDir, env: gitEnv });
+  await execFile('git', ['config', 'user.email', 'tests@example.com'], { cwd: app.vaultDir, env: gitEnv });
+  await execFile('git', ['config', 'user.name', 'CollabMD Tests'], { cwd: app.vaultDir, env: gitEnv });
+  await execFile('git', ['add', 'test.md'], { cwd: app.vaultDir, env: gitEnv });
+  await execFile('git', ['commit', '-m', 'Initial commit'], { cwd: app.vaultDir, env: gitEnv });
+  await execFile('git', ['init', '--bare', remoteDir], { env: gitEnv });
+  await execFile('git', ['remote', 'add', 'origin', remoteDir], { cwd: app.vaultDir, env: gitEnv });
+  await execFile('git', ['push', '-u', 'origin', 'master'], { cwd: app.vaultDir, env: gitEnv });
+
+  await writeFile(join(app.vaultDir, 'test.md'), '# Test\n\nLocal push change.\n', 'utf8');
+  await execFile('git', ['add', 'test.md'], { cwd: app.vaultDir, env: gitEnv });
+  await execFile('git', ['commit', '-m', 'Local push commit'], { cwd: app.vaultDir, env: gitEnv });
+
+  const pushResponse = await httpRequest(`${app.baseUrl}/api/git/push`, {
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+  assert.equal(pushResponse.statusCode, 200);
+  assert.match(pushResponse.body, /"ok":true/);
+
+  await execFile('git', ['clone', remoteDir, peerDir], { env: gitEnv });
+  await execFile('git', ['config', 'user.email', 'tests@example.com'], { cwd: peerDir, env: gitEnv });
+  await execFile('git', ['config', 'user.name', 'CollabMD Tests'], { cwd: peerDir, env: gitEnv });
+  await writeFile(join(peerDir, 'test.md'), '# Test\n\nLocal push change.\nPeer pull change.\n', 'utf8');
+  await execFile('git', ['add', 'test.md'], { cwd: peerDir, env: gitEnv });
+  await execFile('git', ['commit', '-m', 'Peer pull commit'], { cwd: peerDir, env: gitEnv });
+  await execFile('git', ['push'], { cwd: peerDir, env: gitEnv });
+
+  const pullResponse = await httpRequest(`${app.baseUrl}/api/git/pull`, {
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+  assert.equal(pullResponse.statusCode, 200);
+  assert.match(pullResponse.body, /"ok":true/);
+
+  const fileResponse = await httpRequest(`${app.baseUrl}/api/file?path=test.md`);
+  assert.equal(fileResponse.statusCode, 200);
+  assert.match(fileResponse.body, /Peer pull change/);
 });
 
 test('HTTP server supports password auth without blocking static assets', async (t) => {

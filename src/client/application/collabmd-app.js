@@ -141,6 +141,8 @@ export class CollabMdApp {
     });
     this.gitPanel = new GitPanelController({
       onCommitStaged: () => this.openGitCommitDialog(),
+      onPullBranch: () => this.pullGitBranch(),
+      onPushBranch: () => this.pushGitBranch(),
       enabled: this.runtimeConfig.gitEnabled !== false,
       onRepoChange: (isGitRepo, status) => this.handleGitRepoChange(isGitRepo, status),
       onSelectDiff: (filePath, { scope }) => this.handleGitDiffSelection(filePath, {
@@ -911,6 +913,26 @@ export class CollabMdApp {
       filePath,
       preferredScope: scope === 'all' ? 'all' : 'working-tree',
     });
+  }
+
+  async pushGitBranch() {
+    try {
+      await this.postGitAction('/api/git/push', {});
+      this.toastController.show('Pushed branch');
+      await this.refreshGitAfterAction();
+    } catch (error) {
+      this.toastController.show(error.message || 'Failed to push branch');
+    }
+  }
+
+  async pullGitBranch() {
+    try {
+      await this.postGitAction('/api/git/pull', {});
+      this.toastController.show('Pulled branch');
+      await this.refreshGitAfterAction();
+    } catch (error) {
+      this.toastController.show(error.message || 'Failed to pull branch');
+    }
   }
 
   openGitCommitDialog() {

@@ -205,3 +205,56 @@ test('GitService stages, unstages, and commits all staged changes', async (t) =>
   assert.equal((status.sections.find((section) => section.key === 'staged')?.files ?? []).length, 0);
   assert.equal((status.sections.find((section) => section.key === 'working-tree')?.files ?? []).length, 0);
 });
+
+test('GitService pushes and pulls against an upstream branch', async (t) => {
+  const remoteDir = await mkdtemp(join(tmpdir(), 'collabmd-git-remote-'));
+  const seedDir = await mkdtemp(join(tmpdir(), 'collabmd-git-seed-'));
+  const localDir = await mkdtemp(join(tmpdir(), 'collabmd-git-local-'));
+  t.after(async () => {
+    await rm(remoteDir, { force: true, recursive: true });
+    await rm(seedDir, { force: true, recursive: true });
+    await rm(localDir, { force: true, recursive: true });
+  });
+
+  await runGit(remoteDir, ['init', '--bare']);
+
+  await runGit(seedDir, ['init']);
+  await runGit(seedDir, ['config', 'user.email', 'tests@example.com']);
+  await runGit(seedDir, ['config', 'user.name', 'CollabMD Tests']);
+  await writeFile(join(seedDir, 'test.md'), '# Seed\n', 'utf8');
+  await runGit(seedDir, ['add', 'test.md']);
+  await runGit(seedDir, ['commit', '-m', 'Initial commit']);
+  await runGit(seedDir, ['remote', 'add', 'origin', remoteDir]);
+  await runGit(seedDir, ['push', '-u', 'origin', 'master']);
+
+  await runGit(tmpdir(), ['clone', remoteDir, localDir]);
+  await runGit(localDir, ['config', 'user.email', 'tests@example.com']);
+  await runGit(localDir, ['config', 'user.name', 'CollabMD Tests']);
+
+  const gitService = new GitService({ vaultDir: localDir });
+
+  await writeFile(join(localDir, 'test.md'), '# Seed\nlocal change\n', 'utf8');
+  await runGit(localDir, ['add', 'test.md']);
+  await runGit(localDir, ['commit', '-m', 'Local commit']);
+  await gitService.pushBranch();
+
+  const remoteLog = await execFile('git', ['--git-dir', remoteDir, 'log', '-1', '--pretty=%s']);
+  assert.equal(String(remoteLog.stdout).trim(), 'Local commit');
+
+  const peerDir = await mkdtemp(join(tmpdir(), 'collabmd-git-peer-'));
+  t.after(async () => {
+    await rm(peerDir, { force: true, recursive: true });
+  });
+  await runGit(tmpdir(), ['clone', remoteDir, peerDir]);
+  await runGit(peerDir, ['config', 'user.email', 'tests@example.com']);
+  await runGit(peerDir, ['config', 'user.name', 'CollabMD Tests']);
+  await writeFile(join(peerDir, 'test.md'), '# Seed\nlocal change\npeer change\n', 'utf8');
+  await runGit(peerDir, ['add', 'test.md']);
+  await runGit(peerDir, ['commit', '-m', 'Peer commit']);
+  await runGit(peerDir, ['push']);
+
+  await gitService.pullBranch();
+
+  const localContent = await execFile('git', ['show', 'HEAD:test.md'], { cwd: localDir });
+  assert.match(String(localContent.stdout), /peer change/);
+});

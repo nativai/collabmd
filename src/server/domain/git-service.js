@@ -724,6 +724,40 @@ export class GitService {
     };
   }
 
+  async pushBranch() {
+    const status = await this.getStatus({ force: true });
+    if (status.branch?.detached) {
+      throw createRequestError(409, 'Cannot push from a detached HEAD');
+    }
+    if (!status.branch?.upstream) {
+      throw createRequestError(409, 'No upstream branch is configured for push');
+    }
+
+    const output = await this.execGit(['push']);
+    this.invalidateStatusCache();
+    return {
+      ok: true,
+      output: output.trim(),
+    };
+  }
+
+  async pullBranch() {
+    const status = await this.getStatus({ force: true });
+    if (status.branch?.detached) {
+      throw createRequestError(409, 'Cannot pull from a detached HEAD');
+    }
+    if (!status.branch?.upstream) {
+      throw createRequestError(409, 'No upstream branch is configured for pull');
+    }
+
+    const output = await this.execGit(['pull', '--ff-only']);
+    this.invalidateStatusCache();
+    return {
+      ok: true,
+      output: output.trim(),
+    };
+  }
+
   async getLocalChangeSummary(sections = []) {
     const hasHeadCommit = await this.hasHeadCommit();
     const trackedSummary = parseNumstatOutput(

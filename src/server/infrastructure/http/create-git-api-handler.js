@@ -141,6 +141,40 @@ export function createGitApiHandler({ gitService = null }) {
       return true;
     }
 
+    if (requestUrl.pathname === '/api/git/push' && req.method === 'POST') {
+      try {
+        const result = await gitService.pushBranch();
+        jsonResponse(req, res, 200, result);
+      } catch (error) {
+        const statusCode = getRequestErrorStatusCode(error);
+        if (statusCode) {
+          jsonResponse(req, res, statusCode, { error: error.message });
+          return true;
+        }
+
+        console.error('[api] Failed to push git branch:', error.message);
+        jsonResponse(req, res, 500, { error: 'Failed to push git branch' });
+      }
+      return true;
+    }
+
+    if (requestUrl.pathname === '/api/git/pull' && req.method === 'POST') {
+      try {
+        const result = await gitService.pullBranch();
+        jsonResponse(req, res, 200, result);
+      } catch (error) {
+        const statusCode = getRequestErrorStatusCode(error);
+        if (statusCode) {
+          jsonResponse(req, res, statusCode, { error: error.message });
+          return true;
+        }
+
+        console.error('[api] Failed to pull git branch:', error.message);
+        jsonResponse(req, res, 500, { error: 'Failed to pull git branch' });
+      }
+      return true;
+    }
+
     jsonResponse(req, res, 404, { error: 'Git API endpoint not found' });
     return true;
   };

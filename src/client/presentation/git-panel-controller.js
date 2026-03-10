@@ -28,6 +28,10 @@ function actionIconSvg(action) {
   switch (action) {
     case 'commit':
       return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+    case 'pull':
+      return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="m18 13-6 6-6-6"/></svg>';
+    case 'push':
+      return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m6 11 6-6 6 6"/></svg>';
     case 'unstage':
       return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12H8"/><path d="m12 16-4-4 4-4"/></svg>';
     default:
@@ -80,6 +84,8 @@ export class GitPanelController {
   constructor({
     enabled = true,
     onCommitStaged = () => {},
+    onPullBranch = () => {},
+    onPushBranch = () => {},
     onRepoChange = () => {},
     onSelectDiff = () => {},
     onStageFile = () => {},
@@ -90,6 +96,8 @@ export class GitPanelController {
   } = {}) {
     this.enabled = enabled;
     this.onCommitStaged = onCommitStaged;
+    this.onPullBranch = onPullBranch;
+    this.onPushBranch = onPushBranch;
     this.onRepoChange = onRepoChange;
     this.onSelectDiff = onSelectDiff;
     this.onStageFile = onStageFile;
@@ -164,6 +172,17 @@ export class GitPanelController {
         : null;
       if (commitStagedButton) {
         void this.handleCommitStaged();
+        return;
+      }
+
+      const syncButton = event.target instanceof Element
+        ? event.target.closest('[data-git-sync-action]')
+        : null;
+      if (syncButton) {
+        const action = syncButton.getAttribute('data-git-sync-action');
+        if (action === 'pull' || action === 'push') {
+          void this.handleSyncAction(action);
+        }
       }
     });
 
@@ -298,6 +317,27 @@ export class GitPanelController {
     }
   }
 
+  async handleSyncAction(action) {
+    const actionKey = `sync:${action}`;
+    if (this.pendingActionKey === actionKey) {
+      return;
+    }
+
+    this.pendingActionKey = actionKey;
+    this.render();
+
+    try {
+      if (action === 'pull') {
+        await this.onPullBranch();
+      } else if (action === 'push') {
+        await this.onPushBranch();
+      }
+    } finally {
+      this.pendingActionKey = null;
+      this.render();
+    }
+  }
+
   renderSection(section) {
     const files = this.filterFiles(section.files);
     if (files.length === 0) {
@@ -395,14 +435,41 @@ export class GitPanelController {
     const hasChanges = Boolean(this.status.summary?.changedFiles);
     const hasStagedChanges = Number(this.status.summary?.staged || 0) > 0;
     const isCommitPending = this.pendingActionKey === 'commit-staged';
+    const hasUpstream = Boolean(branch.upstream);
+    const isPullPending = this.pendingActionKey === 'sync:pull';
+    const isPushPending = this.pendingActionKey === 'sync:push';
 
     this.panel.innerHTML = `
       <div class="git-branch-bar">
-        <span class="git-branch-name">
-          ${branchIconSvg()}
-          ${escapeHtml(branch.name || 'HEAD')}
-        </span>
-        ${renderBranchMetrics(this.status.summary, branch)}
+        <div class="git-branch-meta">
+          <span class="git-branch-name">
+            ${branchIconSvg()}
+            ${escapeHtml(branch.name || 'HEAD')}
+          </span>
+          ${renderBranchMetrics(this.status.summary, branch)}
+        </div>
+        <div class="git-branch-actions" role="group" aria-label="Remote sync actions">
+          <button
+            class="git-branch-action-btn"
+            type="button"
+            data-git-sync-action="pull"
+            title="${hasUpstream ? 'Pull remote changes (fast-forward only)' : 'No upstream branch configured'}"
+            aria-label="Pull branch"
+            ${!hasUpstream || isPullPending ? 'disabled' : ''}
+          >
+            ${isPullPending ? '...' : `${actionIconSvg('pull')}<span>Pull</span>`}
+          </button>
+          <button
+            class="git-branch-action-btn"
+            type="button"
+            data-git-sync-action="push"
+            title="${hasUpstream ? 'Push local commits' : 'No upstream branch configured'}"
+            aria-label="Push branch"
+            ${!hasUpstream || isPushPending ? 'disabled' : ''}
+          >
+            ${isPushPending ? '...' : `${actionIconSvg('push')}<span>Push</span>`}
+          </button>
+        </div>
       </div>
       ${sectionMarkup || '<div class="git-panel-empty">No local changes</div>'}
       ${hasChanges ? `
