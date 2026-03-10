@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { PlantUmlRenderer } from '../../src/server/domain/plantuml-renderer.js';
+import { PlantUmlRenderer } from '../../src/server/infrastructure/plantuml/plantuml-renderer.js';
 
 test('PlantUmlRenderer accepts SVG payloads prefixed with PlantUML processing instructions', async () => {
   const renderer = new PlantUmlRenderer({

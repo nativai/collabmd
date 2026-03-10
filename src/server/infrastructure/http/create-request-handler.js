@@ -1,3 +1,4 @@
+import { createAuthApiHandler } from './create-auth-api-handler.js';
 import { createGitApiHandler } from './create-git-api-handler.js';
 import { createEsmProxyHandler } from './create-esm-proxy-handler.js';
 import { createStaticHandler } from './create-static-handler.js';
@@ -22,6 +23,7 @@ export function createRequestHandler(
 ) {
   const handleEsmProxy = createEsmProxyHandler();
   const handleStaticRequest = createStaticHandler(config, authService);
+  const handleAuthApi = createAuthApiHandler({ authService });
   const handleGitApi = createGitApiHandler({ gitService });
   const handleVaultApi = createVaultApiHandler({
     backlinkIndex,
@@ -58,7 +60,7 @@ export function createRequestHandler(
       return;
     }
 
-    if (await authService.handleAuthApiRequest(req, res, requestUrl)) {
+    if (await handleAuthApi(req, res, requestUrl)) {
       return;
     }
 
@@ -66,8 +68,12 @@ export function createRequestHandler(
       return;
     }
 
-    if (requestUrl.pathname.startsWith('/api/') && !authService.requireApiAuthentication(req, res)) {
-      return;
+    if (requestUrl.pathname.startsWith('/api/')) {
+      const authorization = authService.authorizeApiRequest(req);
+      if (!authorization.ok) {
+        jsonResponse(req, res, authorization.statusCode, authorization.body);
+        return;
+      }
     }
 
     if (await handleVaultApi(req, res, requestUrl)) {

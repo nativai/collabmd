@@ -69,6 +69,44 @@ test('oidc auth is reserved in config and marked not implemented in client confi
   assert.equal(authService.getClientConfig().implemented, false);
 });
 
+test('password auth returns transport-agnostic session results and API authorization decisions', () => {
+  const config = loadConfig({
+    auth: {
+      password: 'shared-secret',
+      strategy: AUTH_STRATEGY_PASSWORD,
+    },
+    vaultDir: process.cwd(),
+  });
+  const authService = createAuthService(config);
+  const request = {
+    headers: {},
+  };
+
+  const missingPassword = authService.createSession(request, {});
+  assert.equal(missingPassword.statusCode, 400);
+  assert.equal(missingPassword.body.error, 'Missing password');
+  assert.equal(missingPassword.setCookie, null);
+
+  const unauthorized = authService.authorizeApiRequest(request);
+  assert.equal(unauthorized.ok, false);
+  assert.equal(unauthorized.statusCode, 401);
+  assert.equal(unauthorized.body.code, 'AUTH_REQUIRED');
+
+  const sessionResult = authService.createSession(request, {
+    password: 'shared-secret',
+  });
+  assert.equal(sessionResult.statusCode, 200);
+  assert.equal(sessionResult.body.ok, true);
+  assert.equal(typeof sessionResult.setCookie, 'string');
+
+  const authorizedRequest = {
+    headers: {
+      cookie: sessionResult.setCookie,
+    },
+  };
+  assert.deepEqual(authService.authorizeApiRequest(authorizedRequest), { ok: true });
+});
+
 test('loadConfig rejects unsupported auth strategies', () => {
   assert.throws(() => {
     loadConfig({

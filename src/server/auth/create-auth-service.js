@@ -1,7 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
-import { jsonResponse } from '../infrastructure/http/http-response.js';
-import { parseJsonBody } from '../infrastructure/http/request-body.js';
 import { createSessionCookieManager } from './session-cookie.js';
 
 export const AUTH_STRATEGY_NONE = 'none';
@@ -32,6 +30,15 @@ export function createRandomSessionSecret() {
 
 function hashPassword(value) {
   return createHash('sha256').update(String(value ?? ''), 'utf8').digest();
+}
+
+function createResponse(statusCode, body, options = {}) {
+  return {
+    body,
+    kind: options.kind || 'response',
+    setCookie: options.setCookie || null,
+    statusCode,
+  };
 }
 
 function createUnauthorizedBody(clientConfig, {
@@ -89,56 +96,41 @@ function createPasswordStrategy(authConfig, sessionCookieManager, clientConfig) 
   }
 
   return {
-    async handleAuthApiRequest(req, res, requestUrl) {
-      if (requestUrl.pathname === '/api/auth/status' && req.method === 'GET') {
-        jsonResponse(req, res, 200, {
-          authenticated: hasValidSession(req),
-          auth: clientConfig,
-        });
-        return true;
+    createSession(req, body = {}) {
+      if (typeof body.password !== 'string' || !body.password) {
+        return createResponse(400, { error: 'Missing password' }, { kind: 'invalid_request' });
       }
 
-      if (requestUrl.pathname === '/api/auth/session' && req.method === 'POST') {
-        const body = await parseJsonBody(req);
-        if (typeof body.password !== 'string' || !body.password) {
-          jsonResponse(req, res, 400, { error: 'Missing password' });
-          return true;
-        }
+      const submittedPasswordHash = hashPassword(body.password);
+      const isValidPassword = submittedPasswordHash.length === expectedPasswordHash.length
+        && timingSafeEqual(submittedPasswordHash, expectedPasswordHash);
 
-        const submittedPasswordHash = hashPassword(body.password);
-        const isValidPassword = submittedPasswordHash.length === expectedPasswordHash.length
-          && timingSafeEqual(submittedPasswordHash, expectedPasswordHash);
+      if (!isValidPassword) {
+        return createResponse(401, {
+          auth: clientConfig,
+          code: 'AUTH_INVALID_CREDENTIALS',
+          error: 'Incorrect password',
+        }, { kind: 'invalid_credentials' });
+      }
 
-        if (!isValidPassword) {
-          jsonResponse(req, res, 401, {
-            auth: clientConfig,
-            code: 'AUTH_INVALID_CREDENTIALS',
-            error: 'Incorrect password',
-          });
-          return true;
-        }
-
-        const setCookie = sessionCookieManager.createSessionCookie(req, {
+      return createResponse(200, {
+        auth: clientConfig,
+        authenticated: true,
+        ok: true,
+      }, {
+        kind: 'session_created',
+        setCookie: sessionCookieManager.createSessionCookie(req, {
           authenticatedAt: Date.now(),
           strategy: AUTH_STRATEGY_PASSWORD,
-        });
+        }),
+      });
+    },
 
-        res.setHeader('Set-Cookie', setCookie);
-        jsonResponse(req, res, 200, {
-          auth: clientConfig,
-          authenticated: true,
-          ok: true,
-        });
-        return true;
-      }
-
-      if (requestUrl.pathname === '/api/auth/session' && req.method === 'DELETE') {
-        res.setHeader('Set-Cookie', sessionCookieManager.clearSession(req));
-        jsonResponse(req, res, 200, { ok: true });
-        return true;
-      }
-
-      return false;
+    getStatus(req) {
+      return createResponse(200, {
+        authenticated: hasValidSession(req),
+        auth: clientConfig,
+      }, { kind: 'status' });
     },
 
     isAuthenticated(req) {
@@ -149,26 +141,15 @@ function createPasswordStrategy(authConfig, sessionCookieManager, clientConfig) 
 
 function createNoneStrategy(clientConfig) {
   return {
-    async handleAuthApiRequest(req, res, requestUrl) {
-      if (requestUrl.pathname === '/api/auth/status' && req.method === 'GET') {
-        jsonResponse(req, res, 200, {
-          authenticated: true,
-          auth: clientConfig,
-        });
-        return true;
-      }
+    createSession() {
+      return createResponse(405, { error: 'Authentication is disabled' }, { kind: 'disabled' });
+    },
 
-      if (requestUrl.pathname === '/api/auth/session' && req.method === 'DELETE') {
-        jsonResponse(req, res, 200, { ok: true });
-        return true;
-      }
-
-      if (requestUrl.pathname === '/api/auth/session' && req.method === 'POST') {
-        jsonResponse(req, res, 405, { error: 'Authentication is disabled' });
-        return true;
-      }
-
-      return false;
+    getStatus() {
+      return createResponse(200, {
+        authenticated: true,
+        auth: clientConfig,
+      }, { kind: 'status' });
     },
 
     isAuthenticated() {
@@ -179,36 +160,23 @@ function createNoneStrategy(clientConfig) {
 
 function createOidcStrategy(clientConfig, sessionCookieManager) {
   return {
-    async handleAuthApiRequest(req, res, requestUrl) {
-      if (requestUrl.pathname === '/api/auth/status' && req.method === 'GET') {
-        jsonResponse(req, res, 200, {
-          authenticated: false,
-          auth: clientConfig,
-        });
-        return true;
-      }
+    createSession() {
+      return createResponse(501, {
+        auth: clientConfig,
+        code: 'AUTH_NOT_IMPLEMENTED',
+        error: 'OIDC authentication is not implemented yet',
+      }, { kind: 'not_implemented' });
+    },
 
-      if (requestUrl.pathname === '/api/auth/session' && req.method === 'DELETE') {
-        res.setHeader('Set-Cookie', sessionCookieManager.clearSession(req));
-        jsonResponse(req, res, 200, { ok: true });
-        return true;
-      }
-
-      if (requestUrl.pathname === '/api/auth/session' && req.method === 'POST') {
-        jsonResponse(req, res, 501, {
-          auth: clientConfig,
-          code: 'AUTH_NOT_IMPLEMENTED',
-          error: 'OIDC authentication is not implemented yet',
-        });
-        return true;
-      }
-
-      return false;
+    getStatus() {
+      return createResponse(200, {
+        authenticated: false,
+        auth: clientConfig,
+      }, { kind: 'status' });
     },
 
     isAuthenticated(req) {
-      const session = sessionCookieManager.readSession(req);
-      return session?.strategy === AUTH_STRATEGY_OIDC;
+      return sessionCookieManager.readSession(req)?.strategy === AUTH_STRATEGY_OIDC;
     },
   };
 }
@@ -231,40 +199,16 @@ export function createAuthService(config) {
   }
 
   return {
-    getClientConfig() {
-      return clientConfig;
-    },
-
-    getStartupInfo() {
-      return {
-        generatedPassword: authConfig.generatedPassword || '',
-        password: authConfig.password || '',
-        passwordWasGenerated: Boolean(authConfig.passwordWasGenerated),
-        strategy: authConfig.strategy,
-      };
-    },
-
-    async handleAuthApiRequest(req, res, requestUrl) {
-      const handled = await strategy.handleAuthApiRequest(req, res, requestUrl);
-      if (handled) {
-        return true;
-      }
-
-      if (requestUrl.pathname === '/api/auth' || requestUrl.pathname.startsWith('/api/auth/')) {
-        jsonResponse(req, res, 404, { error: 'Auth endpoint not found' });
-        return true;
-      }
-
-      return false;
-    },
-
-    requireApiAuthentication(req, res) {
+    authorizeApiRequest(req) {
       if (strategy.isAuthenticated(req)) {
-        return true;
+        return { ok: true };
       }
 
-      jsonResponse(req, res, 401, createUnauthorizedBody(clientConfig));
-      return false;
+      return {
+        body: createUnauthorizedBody(clientConfig),
+        ok: false,
+        statusCode: 401,
+      };
     },
 
     authorizeWebSocketRequest(req) {
@@ -281,6 +225,34 @@ export function createAuthService(config) {
         statusCode: 401,
         statusMessage: 'Unauthorized',
       };
+    },
+
+    clearSession(req) {
+      return createResponse(200, { ok: true }, {
+        kind: 'logout_ok',
+        setCookie: sessionCookieManager.clearSession(req),
+      });
+    },
+
+    createSession(req, body) {
+      return strategy.createSession(req, body);
+    },
+
+    getClientConfig() {
+      return clientConfig;
+    },
+
+    getStartupInfo() {
+      return {
+        generatedPassword: authConfig.generatedPassword || '',
+        password: authConfig.password || '',
+        passwordWasGenerated: Boolean(authConfig.passwordWasGenerated),
+        strategy: authConfig.strategy,
+      };
+    },
+
+    getStatus(req) {
+      return strategy.getStatus(req);
     },
   };
 }

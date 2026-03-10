@@ -1,19 +1,17 @@
 import { PreviewRenderer } from './preview-renderer.js';
-import { WorkspaceSessionController } from './workspace-session-controller.js';
-import {
-  isDiagramFilePath,
-  isExcalidrawFilePath,
-  isMarkdownFilePath,
-  isMermaidFilePath,
-  isPlantUmlFilePath,
-  stripVaultFileExtension,
-  supportsBacklinksForFilePath,
-  supportsCommentsForFilePath,
-} from '../../domain/file-kind.js';
-import { USER_NAME_MAX_LENGTH, normalizeUserName } from '../domain/room.js';
-import { resolveWikiTarget } from '../domain/vault-utils.js';
+import { WorkspaceCoordinator } from './workspace-coordinator.js';
+import { WorkspaceStateStore } from './workspace-state-store.js';
+import { bindAppShellElements } from './app-shell-elements.js';
+import { chatFeature } from './app-shell/chat-feature.js';
+import { gitFeature } from './app-shell/git-feature.js';
+import { presenceFeature } from './app-shell/presence-feature.js';
+import { uiFeature } from './app-shell/ui-feature.js';
+import { workspaceFeature } from './app-shell/workspace-feature.js';
 import { LOBBY_CHAT_MESSAGE_MAX_LENGTH, LobbyPresence } from '../infrastructure/lobby-presence.js';
-import { getHashRoute, getRuntimeConfig, navigateToFile, navigateToGitDiff } from '../infrastructure/runtime-config.js';
+import { BrowserNavigationPort } from '../infrastructure/browser-navigation-port.js';
+import { BrowserNotificationPort } from '../infrastructure/browser-notification-port.js';
+import { BrowserPreferencesPort } from '../infrastructure/browser-preferences-port.js';
+import { getRuntimeConfig } from '../infrastructure/runtime-config.js';
 import { TabActivityLock } from '../infrastructure/tab-activity-lock.js';
 import { BacklinksPanel } from '../presentation/backlinks-panel.js';
 import { CommentsPanel } from '../presentation/comments-panel.js';
@@ -29,102 +27,31 @@ import { ToastController } from '../presentation/toast-controller.js';
 
 export class CollabMdApp {
   constructor() {
-    this.elements = {
-      currentUserName: document.getElementById('currentUserName'),
-      commentSelectionButton: document.getElementById('commentSelectionBtn'),
-      chatContainer: document.getElementById('chatContainer'),
-      chatEmptyState: document.getElementById('chatEmptyState'),
-      chatForm: document.getElementById('chatForm'),
-      chatInput: document.getElementById('chatInput'),
-      chatMessages: document.getElementById('chatMessages'),
-      chatNotificationButton: document.getElementById('chatNotificationBtn'),
-      chatPanel: document.getElementById('chatPanel'),
-      chatStatus: document.getElementById('chatStatus'),
-      chatToggleBadge: document.getElementById('chatToggleBadge'),
-      chatToggleButton: document.getElementById('chatToggleBtn'),
-      gitCommitCancel: document.getElementById('gitCommitCancel'),
-      gitCommitCopy: document.getElementById('gitCommitCopy'),
-      gitCommitDialog: document.getElementById('gitCommitDialog'),
-      gitCommitForm: document.getElementById('gitCommitForm'),
-      gitCommitInput: document.getElementById('gitCommitInput'),
-      gitCommitSubmit: document.getElementById('gitCommitSubmit'),
-      gitCommitTitle: document.getElementById('gitCommitTitle'),
-      displayNameCancel: document.getElementById('displayNameCancel'),
-      displayNameCopy: document.getElementById('displayNameCopy'),
-      displayNameDialog: document.getElementById('displayNameDialog'),
-      displayNameForm: document.getElementById('displayNameForm'),
-      displayNameInput: document.getElementById('displayNameInput'),
-      displayNameSubmit: document.getElementById('displayNameSubmit'),
-      displayNameTitle: document.getElementById('displayNameTitle'),
-      editNameButton: document.getElementById('editNameBtn'),
-      editorContainer: document.getElementById('editorContainer'),
-      markdownToolbar: document.getElementById('markdownToolbar'),
-      editorPage: document.getElementById('editor-page'),
-      diffPage: document.getElementById('diff-page'),
-      fileSearch: document.getElementById('fileSearch'),
-      filesSidebarTab: document.getElementById('filesSidebarTab'),
-      gitSearch: document.getElementById('gitSearch'),
-      gitSearchInput: document.getElementById('gitSearchInput'),
-      gitSidebarTab: document.getElementById('gitSidebarTab'),
-      lineInfo: document.getElementById('lineInfo'),
-      mobileViewToggle: document.getElementById('mobileViewToggle'),
-      previewContent: document.getElementById('previewContent'),
-      previewContainer: document.getElementById('previewContainer'),
-      commentsPanel: document.getElementById('commentsPanel'),
-      commentsToggle: document.getElementById('commentsToggle'),
-      shareButton: document.getElementById('shareBtn'),
-      toastContainer: document.getElementById('toastContainer'),
-      toggleWrapButton: document.getElementById('toggleWrapBtn'),
-      userAvatars: document.getElementById('userAvatars'),
-      userCount: document.getElementById('userCount'),
-      wrapToggleLabel: document.getElementById('wrapToggleLabel'),
-      activeFileName: document.getElementById('activeFileName'),
-      sidebarToggle: document.getElementById('sidebarToggle'),
-      sidebarClose: document.getElementById('sidebarClose'),
-      sidebar: document.getElementById('sidebar'),
-      emptyState: document.getElementById('emptyState'),
-      backlinksPanel: document.getElementById('backlinksPanel'),
-      outlineToggle: document.getElementById('outlineToggle'),
-      tabLockCopy: document.getElementById('tabLockCopy'),
-      tabLockOverlay: document.getElementById('tabLockOverlay'),
-      tabLockTakeoverButton: document.getElementById('tabLockTakeoverBtn'),
-      tabLockTitle: document.getElementById('tabLockTitle'),
-      toolbarCenter: document.getElementById('toolbarCenter'),
-      toolbarDiffBadge: document.getElementById('toolbarDiffBadge'),
-      sidebarTabs: document.getElementById('sidebarTabs'),
-    };
-
+    this.elements = bindAppShellElements(document);
     this.runtimeConfig = getRuntimeConfig();
-    this.session = null;
-    this.currentFilePath = null;
-    this.globalUsers = [];
-    this.connectionState = { status: 'disconnected', unreachable: false };
-    this.sessionLoadToken = 0;
-    this.connectionHelpShown = false;
-    this.userNameStorageKey = 'collabmd-user-name';
-    this.lineWrappingStorageKey = 'collabmd-editor-line-wrap';
-    this.sidebarVisibleKey = 'collabmd-sidebar-visible';
-    this.followedUserClientId = null;
-    this.followedCursorSignature = '';
-    this.chatMessages = [];
-    this.chatMessageIds = new Set();
-    this.chatUnreadCount = 0;
-    this.chatIsOpen = false;
-    this.chatInitialSyncComplete = false;
-    this.chatNotificationsPreferenceKey = 'collabmd-chat-notifications-enabled';
-    this.chatNotificationsEnabled = this.getStoredChatNotificationsEnabled();
-    this.chatNotificationPermission = this.getNotificationPermission();
-    this.chatTimeFormatter = new Intl.DateTimeFormat(undefined, {
-      hour: 'numeric',
-      minute: '2-digit',
+    this.stateStore = new WorkspaceStateStore();
+    this.navigation = new BrowserNavigationPort();
+    this.preferences = new BrowserPreferencesPort({
+      chatNotificationsKey: 'collabmd-chat-notifications-enabled',
+      lineWrappingKey: 'collabmd-editor-line-wrap',
+      sidebarVisibleKey: 'collabmd-sidebar-visible',
+      userNameKey: 'collabmd-user-name',
     });
+    this.notifications = new BrowserNotificationPort();
+    this._session = null;
+    this._hasPromptedForDisplayName = false;
+    this._backlinkRefreshTimer = null;
+    this._pendingPreviewLayoutSync = false;
+    this._previewHydrationPaused = false;
+    this._previewLayoutResizeObserver = null;
+    this._previewLayoutSyncTimer = null;
+    this.chatTimeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+    this.chatNotificationsEnabled = this.preferences.getChatNotificationsEnabled();
+    this.chatNotificationPermission = this.notifications.getPermission();
+    this.lobbyChatMessageMaxLength = LOBBY_CHAT_MESSAGE_MAX_LENGTH;
+    this.quickSwitcher = null;
     this.quickSwitcherModulePromise = null;
-    this.commentThreads = [];
-    this.isTabActive = false;
-    this.fileExplorerReady = false;
     this.fileExplorerReadyPromise = Promise.resolve();
-    this.gitRepoAvailable = false;
-    this.activeSidebarTab = 'files';
 
     this.lobby = new LobbyPresence({
       preferredUserName: this.getStoredUserName(),
@@ -133,28 +60,21 @@ export class CollabMdApp {
     });
 
     this.toastController = new ToastController(this.elements.toastContainer);
-    this.quickSwitcher = null;
     this.fileExplorer = new FileExplorerController({
+      onFileDelete: () => this.navigation.navigateToFile(null),
       onFileSelect: (filePath) => this.handleFileSelection(filePath, { closeSidebarOnMobile: true }),
-      onFileDelete: () => navigateToFile(null),
       toastController: this.toastController,
     });
     this.gitPanel = new GitPanelController({
+      enabled: this.runtimeConfig.gitEnabled !== false,
       onCommitStaged: () => this.openGitCommitDialog(),
       onPullBranch: () => this.pullGitBranch(),
       onPushBranch: () => this.pushGitBranch(),
-      enabled: this.runtimeConfig.gitEnabled !== false,
       onRepoChange: (isGitRepo, status) => this.handleGitRepoChange(isGitRepo, status),
-      onSelectDiff: (filePath, { scope }) => this.handleGitDiffSelection(filePath, {
-        closeSidebarOnMobile: true,
-        scope,
-      }),
+      onSelectDiff: (filePath, { scope }) => this.handleGitDiffSelection(filePath, { closeSidebarOnMobile: true, scope }),
       onStageFile: (filePath, { scope }) => this.stageGitFile(filePath, { scope }),
       onUnstageFile: (filePath, { scope }) => this.unstageGitFile(filePath, { scope }),
-      onViewAllDiff: () => this.handleGitDiffSelection(null, {
-        closeSidebarOnMobile: true,
-        scope: 'all',
-      }),
+      onViewAllDiff: () => this.handleGitDiffSelection(null, { closeSidebarOnMobile: true, scope: 'all' }),
       searchInput: this.elements.gitSearchInput,
       toastController: this.toastController,
     });
@@ -168,18 +88,14 @@ export class CollabMdApp {
     this.previewRenderer = new PreviewRenderer({
       getContent: () => this.getPreviewSource(),
       getFileList: () => this.fileExplorer.flatFiles,
-      onBeforeRenderCommit: () => {
-        this.excalidrawEmbed.detachForCommit();
-      },
       onAfterRenderCommit: (_previewElement, stats) => {
-        this.excalidrawEmbed.reconcileEmbeds(this.elements.previewContent, {
-          isLargeDocument: stats.isLargeDocument,
-        });
+        this.excalidrawEmbed.reconcileEmbeds(this.elements.previewContent, { isLargeDocument: stats.isLargeDocument });
         this.excalidrawEmbed.syncLayout();
         this.scrollSyncController.setLargeDocumentMode(stats.isLargeDocument);
         this.commentsPanel.decoratePreviewAnchors();
         this.schedulePreviewLayoutSync({ delayMs: 0 });
       },
+      onBeforeRenderCommit: () => this.excalidrawEmbed.detachForCommit(),
       onRenderComplete: () => {
         this.excalidrawEmbed.syncLayout();
         this.commentsPanel.decoratePreviewAnchors();
@@ -189,12 +105,8 @@ export class CollabMdApp {
       previewContainer: this.elements.previewContainer,
       previewElement: this.elements.previewContent,
     });
-    this.themeController = new ThemeController({
-      onChange: (theme) => this.handleThemeChange(theme),
-    });
-    this.layoutController = new LayoutController({
-      onMeasureEditor: () => this.session?.requestMeasure(),
-    });
+    this.themeController = new ThemeController({ onChange: (theme) => this.handleThemeChange(theme) });
+    this.layoutController = new LayoutController({ onMeasureEditor: () => this.session?.requestMeasure() });
     this.scrollSyncController = new ScrollSyncController({
       getEditorLineNumber: () => this.session?.getTopVisibleLineNumber(0.35) ?? 1,
       onEditorScrollActivityChange: (isActive) => this.handleEditorScrollActivityChange(isActive),
@@ -203,8 +115,8 @@ export class CollabMdApp {
       scrollEditorToLine: (lineNumber, viewportRatio) => this.session?.scrollToLine(lineNumber, viewportRatio),
     });
     this.backlinksPanel = new BacklinksPanel({
-      panelElement: this.elements.backlinksPanel,
       onFileSelect: (filePath) => this.handleFileSelection(filePath, { closeSidebarOnMobile: true }),
+      panelElement: this.elements.backlinksPanel,
     });
     this.commentsPanel = new CommentsPanel({
       onCreateThread: (payload) => this.handleCommentThreadCreate(payload),
@@ -217,416 +129,160 @@ export class CollabMdApp {
       toggleButton: this.elements.commentsToggle,
     });
     this.excalidrawEmbed = new ExcalidrawEmbedController({
-      getTheme: () => this.themeController.getTheme(),
       getLocalUser: () => this.lobby.getLocalUser(),
+      getTheme: () => this.themeController.getTheme(),
       previewContainer: this.elements.previewContainer,
       previewElement: this.elements.previewContent,
       toastController: this.toastController,
     });
     this.gitDiffView = new GitDiffViewController({
       onCommitStaged: () => this.openGitCommitDialog(),
-      onOpenFile: (filePath) => {
-        if (!filePath) {
-          return;
-        }
-        navigateToFile(filePath);
-      },
+      onOpenFile: (filePath) => filePath && this.navigation.navigateToFile(filePath),
       onStageFile: (filePath, { scope }) => this.stageGitFile(filePath, { scope }),
       onUnstageFile: (filePath, { scope }) => this.unstageGitFile(filePath, { scope }),
       toastController: this.toastController,
     });
-    this._backlinkRefreshTimer = null;
-    this._hasPromptedForDisplayName = false;
-    this._previewHydrationPaused = false;
-    this._pendingPreviewLayoutSync = false;
-    this._previewLayoutResizeObserver = null;
-    this._previewLayoutSyncTimer = null;
     this.tabActivityLock = new TabActivityLock({
       onActivated: ({ takeover }) => this.handleTabActivated({ takeover }),
       onBlocked: () => this.handleTabBlocked({ reason: 'active-elsewhere' }),
       onStolen: () => this.handleTabBlocked({ reason: 'taken-over' }),
     });
-    this.workspaceSession = new WorkspaceSessionController(this);
+    this.workspaceCoordinator = new WorkspaceCoordinator({
+      attachEditorScroller: (scroller) => this.scrollSyncController.attachEditorScroller(scroller),
+      beginDocumentLoad: () => this.previewRenderer.beginDocumentLoad(),
+      cleanupAfterSessionDestroy: () => {
+        this.scrollSyncController.setLargeDocumentMode(false);
+        this.scrollSyncController.invalidatePreviewBlocks();
+        this.outlineController.cleanup();
+        this.followedCursorSignature = '';
+        clearTimeout(this._backlinkRefreshTimer);
+      },
+      createEditorSession: (EditorSession, options) => new EditorSession({
+        editorContainer: this.elements.editorContainer,
+        getFileList: options.getFileList,
+        initialTheme: options.theme,
+        lineInfoElement: this.elements.lineInfo,
+        lineWrappingEnabled: options.lineWrappingEnabled,
+        localUser: options.localUser,
+        onAwarenessChange: options.onAwarenessChange,
+        onCommentsChange: options.onCommentsChange,
+        onConnectionChange: options.onConnectionChange,
+        onContentChange: options.onContentChange,
+        preferredUserName: options.preferredUserName,
+      }),
+      getDisplayName: (filePath) => this.getDisplayName(filePath),
+      getFileList: () => this.fileExplorer.flatFiles,
+      getLineWrappingEnabled: () => this.getStoredLineWrapping(),
+      getLocalUser: () => this.lobby.getLocalUser(),
+      getStoredUserName: () => this.getStoredUserName(),
+      getTheme: () => this.themeController.getTheme(),
+      isExcalidrawFile: (filePath) => this.isExcalidrawFile(filePath),
+      isMermaidFile: (filePath) => this.isMermaidFile(filePath),
+      isPlantUmlFile: (filePath) => this.isPlantUmlFile(filePath),
+      isTabActive: () => this.isTabActive,
+      loadEditorSessionClass: () => this.loadEditorSessionClass(),
+      loadBacklinks: (filePath) => this.backlinksPanel.load(filePath),
+      onBeforeFileOpen: () => {
+        this.layoutController.reset();
+        this.resetPreviewMode();
+        this.elements.emptyState?.classList.add('hidden');
+        this.elements.editorPage?.classList.remove('hidden');
+        this.elements.diffPage?.classList.add('hidden');
+        this.clearInitialFileBootstrap();
+      },
+      onCommentsChange: (threads) => this.updateCommentThreads(threads),
+      onConnectionChange: (state) => this.handleConnectionChange(state),
+      onContentChange: ({ isMermaid, isPlantUml }) => {
+        this.previewRenderer.queueRender();
+        if (this.commentThreads.length > 0) {
+          this.updateCommentThreads(this.session?.getCommentThreads() ?? []);
+        }
+        if (!isMermaid && !isPlantUml) {
+          this.scheduleBacklinkRefresh();
+        }
+      },
+      onFileAwarenessChange: (users) => this.updateFileAwareness(users),
+      onFileOpenError: () => {
+        this.showEditorLoadError();
+        this.syncWrapToggle();
+        this.toastController.show('Failed to initialize editor');
+      },
+      onFileOpenReady: () => {
+        this.hideEditorLoading();
+      },
+      onSessionAssigned: (session) => {
+        this.session = session;
+      },
+      onRenderExcalidrawPreview: (filePath) => this.renderExcalidrawFilePreview(filePath),
+      onSyncWrapToggle: () => this.syncWrapToggle(),
+      onUpdateActiveFile: (filePath) => this.fileExplorer.setActiveFile(filePath),
+      onUpdateCurrentFile: (filePath) => {
+        this.currentFilePath = filePath;
+      },
+      onUpdateLobbyCurrentFile: (filePath) => this.lobby.setCurrentFile(filePath),
+      onUpdateVisibleChrome: (filePath, { displayName }) => {
+        this.syncFileChrome(filePath);
+        if (this.elements.activeFileName) {
+          this.elements.activeFileName.textContent = displayName;
+        }
+      },
+      onViewModeReset: () => this.resetPreviewMode(),
+      renderPresence: () => this.renderPresence(),
+      scrollContainerForSession: (session) => session.getScrollContainer(),
+      setCommentsFile: (filePath, options) => this.commentsPanel.setCurrentFile(filePath, options),
+      showEditorLoading: () => this.showEditorLoading(),
+      stateStore: this.stateStore,
+    });
 
     if (this.chatNotificationPermission !== 'granted') {
       this.chatNotificationsEnabled = false;
     }
   }
 
-  isExcalidrawFile(filePath) {
-    return isExcalidrawFilePath(filePath);
-  }
-
-  isMermaidFile(filePath) {
-    return isMermaidFilePath(filePath);
-  }
-
-  isPlantUmlFile(filePath) {
-    return isPlantUmlFilePath(filePath);
-  }
-
-  createDiagramPreviewDocument(language, source = '') {
-    const text = String(source ?? '');
-    const longestFence = Math.max(...(text.match(/`+/g)?.map((fence) => fence.length) ?? [0]));
-    const fence = '`'.repeat(Math.max(3, longestFence + 1));
-    return `${fence}${language}\n${text}\n${fence}`;
-  }
-
-  getPreviewSource() {
-    const source = this.session?.getText() ?? '';
-    if (this.isMermaidFile(this.currentFilePath)) {
-      return this.createDiagramPreviewDocument('mermaid', source);
-    }
-
-    if (this.isPlantUmlFile(this.currentFilePath)) {
-      return this.createDiagramPreviewDocument('plantuml', source);
-    }
-
-    return source;
-  }
-
-  getDisplayName(filePath) {
-    return stripVaultFileExtension(String(filePath ?? '')
-      .split('/')
-      .pop());
-  }
-
-  resetPreviewMode() {
-    this.elements.previewContent?.classList.remove('is-excalidraw-file-preview');
-    this.elements.previewContent?.classList.remove('is-mermaid-file-preview');
-    this.elements.previewContent?.classList.remove('is-plantuml-file-preview');
-  }
-
-  syncFileChrome(filePath) {
-    const isExcalidraw = this.isExcalidrawFile(filePath);
-    const isMarkdown = isMarkdownFilePath(filePath);
-    const isMermaid = this.isMermaidFile(filePath);
-    const isPlantUml = this.isPlantUmlFile(filePath);
-    const isDiagramFile = isDiagramFilePath(filePath);
-    this.elements.markdownToolbar?.classList.toggle('hidden', !isMarkdown);
-    this.elements.outlineToggle?.classList.toggle('hidden', isDiagramFile);
-    this.elements.commentsToggle?.classList.toggle('hidden', isDiagramFile);
-    this.elements.commentSelectionButton?.classList.toggle('hidden', isDiagramFile);
-    this.elements.previewContent?.classList.toggle('is-mermaid-file-preview', isMermaid);
-    this.elements.previewContent?.classList.toggle('is-plantuml-file-preview', isPlantUml);
-
-    if (isExcalidraw) {
-      this.layoutController.setView('preview');
-      this.outlineController.close();
-      this.backlinksPanel.clear();
-      return;
-    }
-
-    if (isMermaid || isPlantUml) {
-      this.outlineController.close();
-      this.backlinksPanel.clear();
-    }
-  }
-
-  renderExcalidrawFilePreview(filePath) {
-    const previewElement = this.elements.previewContent;
-    if (!previewElement) {
-      return;
-    }
-
-    this.excalidrawEmbed.detachForCommit();
-    this.resetPreviewMode();
-    previewElement.classList.add('is-excalidraw-file-preview');
-    const renderHost = this.previewRenderer.ensureRenderHost();
-    this.previewRenderer.normalizePreviewChildren(renderHost);
-
-    const placeholder = document.createElement('div');
-    placeholder.className = 'excalidraw-embed-placeholder';
-    placeholder.dataset.embedKey = `${filePath}#file-preview`;
-    placeholder.dataset.embedLabel = this.getDisplayName(filePath);
-    placeholder.dataset.embedTarget = filePath;
-    const loadingShell = document.createElement('div');
-    loadingShell.className = 'preview-shell';
-    loadingShell.textContent = 'Loading Excalidraw preview…';
-    placeholder.appendChild(loadingShell);
-    if (renderHost) {
-      renderHost.replaceChildren(placeholder);
-      renderHost.style.minHeight = '';
-    }
-
-    previewElement.dataset.renderPhase = 'ready';
-    this.outlineController.refresh();
-    this.scrollSyncController.setLargeDocumentMode(false);
-    this.scrollSyncController.invalidatePreviewBlocks();
-    this.excalidrawEmbed.reconcileEmbeds(previewElement, { isLargeDocument: false });
-    this.excalidrawEmbed.hydrateVisibleEmbeds();
-    this.schedulePreviewLayoutSync({ delayMs: 0 });
-  }
-
-  initialize() {
-    this.themeController.initialize();
-    this.previewRenderer.applyTheme(this.themeController.getTheme());
-    this.previewRenderer.scheduleWorkerPrewarm();
-    this.outlineController.initialize();
-    this.layoutController.initialize();
-    this.scrollSyncController.initialize();
-    this.fileExplorer.initialize();
-    this.gitPanel.initialize();
-    this.gitDiffView.initialize();
-    this.initializePreviewLayoutObserver();
-    this.syncCurrentUserName();
-    this.syncWrapToggle();
-    this.syncChatNotificationButton();
-    this.renderChat();
-    void this.gitPanel.refresh({ force: true });
-    this.elements.chatInput?.setAttribute('maxlength', String(LOBBY_CHAT_MESSAGE_MAX_LENGTH));
-    this.bindEvents();
-    this.restoreSidebarState();
-    this.tabActivityLock.initialize();
-    this.tabActivityLock.tryActivate();
-
-    window.addEventListener('hashchange', () => this.handleHashChange());
-    window.addEventListener('resize', this.createResizeHandler());
-
-    this.fileExplorerReadyPromise = this.fileExplorer.refresh().then(() => {
-      this.fileExplorerReady = true;
-      if (this.isTabActive) {
-        return this.handleHashChange();
-      }
-      return undefined;
-    });
-
-  }
-
-  bindEvents() {
-    this.elements.chatToggleButton?.addEventListener('click', () => {
-      this.toggleChatPanel();
-    });
-
-    this.elements.chatForm?.addEventListener('submit', (event) => {
-      event.preventDefault();
-      this.handleChatSubmit();
-    });
-
-    this.elements.chatNotificationButton?.addEventListener('click', () => {
-      void this.handleChatNotificationToggle();
-    });
-
-    this.elements.shareButton?.addEventListener('click', () => {
-      void this.copyCurrentLink();
-    });
-
-    this.elements.editNameButton?.addEventListener('click', () => {
-      this.openDisplayNameDialog();
-    });
-
-    this.elements.displayNameCancel?.addEventListener('click', () => {
-      this.elements.displayNameDialog?.close();
-    });
-
-    this.elements.gitCommitCancel?.addEventListener('click', () => {
-      this.elements.gitCommitDialog?.close();
-    });
-
-    this.elements.gitCommitDialog?.addEventListener('close', () => {
-      if (this.elements.gitCommitInput) {
-        this.elements.gitCommitInput.value = '';
-      }
-    });
-
-    this.elements.markdownToolbar?.addEventListener('click', (event) => {
-      const button = event.target instanceof Element
-        ? event.target.closest('[data-markdown-action]')
-        : null;
-      const action = button?.getAttribute('data-markdown-action');
-      if (!action) {
-        return;
-      }
-
-      this.applyMarkdownToolbarAction(action);
-    });
-
-    this.elements.displayNameForm?.addEventListener('submit', (event) => {
-      event.preventDefault();
-      this.handleDisplayNameSubmit();
-    });
-
-    this.elements.gitCommitForm?.addEventListener('submit', (event) => {
-      event.preventDefault();
-      void this.handleGitCommitSubmit();
-    });
-
-    this.elements.tabLockTakeoverButton?.addEventListener('click', () => {
-      this.handleTabTakeover();
-    });
-
-    this.elements.toggleWrapButton?.addEventListener('click', () => {
-      this.toggleLineWrapping();
-    });
-
-    this.elements.commentSelectionButton?.addEventListener('click', () => {
-      this.startCommentFromEditorSelection();
-    });
-
-    this.elements.previewContent?.addEventListener('click', (event) => {
-      const wikiLink = event.target.closest('a.wiki-link[data-wiki-target]');
-      if (!wikiLink) {
-        return;
-      }
-
-      event.preventDefault();
-      this.handleWikiLinkClick(wikiLink.dataset.wikiTarget);
-    });
-
-    this.elements.sidebarToggle?.addEventListener('click', () => {
-      this.toggleSidebar();
-    });
-
-    this.elements.sidebarClose?.addEventListener('click', () => {
-      this.closeSidebarOnMobile();
-    });
-
-    this.elements.filesSidebarTab?.addEventListener('click', () => {
-      this.setSidebarTab('files');
-    });
-
-    this.elements.gitSidebarTab?.addEventListener('click', () => {
-      if (!this.gitRepoAvailable) {
-        return;
-      }
-      this.setSidebarTab('git');
-    });
-
-    document.addEventListener('pointerdown', (event) => {
-      if (!this.chatIsOpen) {
-        return;
-      }
-
-      if (this.elements.chatContainer?.contains(event.target)) {
-        return;
-      }
-
-      this.closeChatPanel();
-    });
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.chatIsOpen) {
-        this.closeChatPanel();
-        return;
-      }
-
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        void this.toggleQuickSwitcher();
-      }
-    });
-  }
-
-  createResizeHandler() {
-    let resizeTimer = null;
-    return () => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        this.restoreSidebarState();
-        this.schedulePreviewLayoutSync({ delayMs: 0 });
-      }, 100);
-    };
-  }
-
-  initializePreviewLayoutObserver() {
-    if (typeof ResizeObserver !== 'function' || !this.elements.previewContent) {
-      return;
-    }
-
-    this._previewLayoutResizeObserver?.disconnect();
-    this._previewLayoutResizeObserver = new ResizeObserver(() => {
-      this.schedulePreviewLayoutSync();
-    });
-    this._previewLayoutResizeObserver.observe(this.elements.previewContent);
-  }
-
-  schedulePreviewLayoutSync({ delayMs = 120 } = {}) {
-    if (this._previewHydrationPaused) {
-      this._pendingPreviewLayoutSync = true;
-      return;
-    }
-
-    clearTimeout(this._previewLayoutSyncTimer);
-
-    this._previewLayoutSyncTimer = setTimeout(() => {
-      this._previewLayoutSyncTimer = null;
-
-      if (!this.session || !this.elements.previewContent) {
-        return;
-      }
-
-      if (this.elements.previewContent.dataset.renderPhase === 'shell') {
-        return;
-      }
-
-      if (this._previewHydrationPaused) {
-        this._pendingPreviewLayoutSync = true;
-        return;
-      }
-
-      this.excalidrawEmbed.syncLayout();
-      this.scrollSyncController.invalidatePreviewBlocks();
-      this.scrollSyncController.warmPreviewBlocks({
-        onReady: () => {
-          if (!this.session) {
-            return;
-          }
-
-          this.scrollSyncController.realignAfterLayoutChange();
-          this.outlineController.scheduleActiveHeadingUpdate();
-        },
-      });
-    }, delayMs);
-  }
-
-  handleEditorScrollActivityChange(isActive) {
-    this._previewHydrationPaused = Boolean(isActive);
-    this.previewRenderer.setHydrationPaused(this._previewHydrationPaused);
-    this.excalidrawEmbed.setHydrationPaused(this._previewHydrationPaused);
-
-    if (this._previewHydrationPaused) {
-      clearTimeout(this._previewLayoutSyncTimer);
-      this._previewLayoutSyncTimer = null;
-      this._pendingPreviewLayoutSync = true;
-      return;
-    }
-
-    if (this._pendingPreviewLayoutSync) {
-      this._pendingPreviewLayoutSync = false;
-      this.schedulePreviewLayoutSync({ delayMs: 0 });
-    }
-  }
-
-  async handleHashChange() {
-    if (!this.isTabActive) {
-      return;
-    }
-
-    const route = getHashRoute();
-    if (route.type === 'empty') {
-      this.gitPanel.setSelection();
-      this.showEmptyState();
-      this.syncMainChrome({ mode: 'empty', title: 'CollabMD' });
-      return;
-    }
-
-    if (route.type === 'git-diff') {
-      this.setSidebarTab('git');
-      await this.showGitDiff(route);
-      return;
-    }
-
-    this.setSidebarTab('files');
-    await this.openFile(route.filePath);
-  }
-
-  showEmptyState() {
-    this.gitDiffView.hide();
-    this.workspaceSession.showEmptyState();
-  }
+  get session() { return this._session; }
+  set session(value) { this._session = value; }
+  get currentFilePath() { return this.stateStore.get('currentFilePath'); }
+  set currentFilePath(value) { this.stateStore.set('currentFilePath', value); }
+  get globalUsers() { return this.stateStore.get('globalUsers'); }
+  set globalUsers(value) { this.stateStore.set('globalUsers', value); }
+  get connectionState() { return this.stateStore.get('connectionState'); }
+  set connectionState(value) { this.stateStore.set('connectionState', value); }
+  get sessionLoadToken() { return this.stateStore.get('sessionLoadToken'); }
+  set sessionLoadToken(value) { this.stateStore.set('sessionLoadToken', value); }
+  get connectionHelpShown() { return this.stateStore.get('connectionHelpShown'); }
+  set connectionHelpShown(value) { this.stateStore.set('connectionHelpShown', value); }
+  get chatMessages() { return this.stateStore.get('chatMessages'); }
+  set chatMessages(value) { this.stateStore.set('chatMessages', value); }
+  get chatMessageIds() { return this.stateStore.get('chatMessageIds'); }
+  set chatMessageIds(value) { this.stateStore.set('chatMessageIds', value); }
+  get chatUnreadCount() { return this.stateStore.get('chatUnreadCount'); }
+  set chatUnreadCount(value) { this.stateStore.set('chatUnreadCount', value); }
+  get chatIsOpen() { return this.stateStore.get('chatIsOpen'); }
+  set chatIsOpen(value) { this.stateStore.set('chatIsOpen', value); }
+  get chatInitialSyncComplete() { return this.stateStore.get('chatInitialSyncComplete'); }
+  set chatInitialSyncComplete(value) { this.stateStore.set('chatInitialSyncComplete', value); }
+  get commentThreads() { return this.stateStore.get('commentThreads'); }
+  set commentThreads(value) { this.stateStore.set('commentThreads', value); }
+  get isTabActive() { return this.stateStore.get('isTabActive'); }
+  set isTabActive(value) { this.stateStore.set('isTabActive', value); }
+  get fileExplorerReady() { return this.stateStore.get('fileExplorerReady'); }
+  set fileExplorerReady(value) { this.stateStore.set('fileExplorerReady', value); }
+  get gitRepoAvailable() { return this.stateStore.get('gitRepoAvailable'); }
+  set gitRepoAvailable(value) { this.stateStore.set('gitRepoAvailable', value); }
+  get activeSidebarTab() { return this.stateStore.get('activeSidebarTab'); }
+  set activeSidebarTab(value) { this.stateStore.set('activeSidebarTab', value); }
+  get followedUserClientId() { return this.stateStore.get('followedUserClientId'); }
+  set followedUserClientId(value) { this.stateStore.set('followedUserClientId', value); }
+  get followedCursorSignature() { return this.stateStore.get('followedCursorSignature'); }
+  set followedCursorSignature(value) { this.stateStore.set('followedCursorSignature', value); }
 
   loadEditorSessionClass() {
-    return this.workspaceSession.loadEditorSessionClass();
+    if (!this._editorSessionModulePromise) {
+      this._editorSessionModulePromise = import('../infrastructure/editor-session.js')
+        .then((module) => module.EditorSession);
+    }
+
+    return this._editorSessionModulePromise;
   }
 
   async ensureQuickSwitcher() {
@@ -654,1317 +310,13 @@ export class CollabMdApp {
     const quickSwitcher = await this.ensureQuickSwitcher();
     quickSwitcher.toggle();
   }
-
-  async openFile(filePath) {
-    this.gitPanel.setSelection();
-    this.gitDiffView.hide();
-    this.syncMainChrome({ mode: 'editor' });
-    await this.workspaceSession.openFile(filePath);
-  }
-
-  cleanupSession() {
-    this.workspaceSession.cleanupSession();
-  }
-
-  handleWikiLinkClick(target) {
-    const files = this.fileExplorer.flatFiles;
-    const match = resolveWikiTarget(target, files);
-
-    if (match) {
-      navigateToFile(match);
-    } else {
-      const normalizedPath = this.normalizeNewWikiFilePath(target);
-      if (!normalizedPath) {
-        this.toastController.show('Cannot create an empty wiki-link target');
-        return;
-      }
-      this.createAndOpenFile(normalizedPath, target);
-    }
-  }
-
-  normalizeNewWikiFilePath(target) {
-    const normalized = String(target ?? '')
-      .trim()
-      .replace(/\\/g, '/')
-      .replace(/^\/+/, '')
-      .split('/')
-      .map((segment) => segment.trim())
-      .filter(Boolean)
-      .join('/');
-
-    if (!normalized) {
-      return null;
-    }
-
-    return normalized.endsWith('.md') ? normalized : `${normalized}.md`;
-  }
-
-  async createAndOpenFile(filePath, displayName) {
-    try {
-      const response = await fetch('/api/file', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: filePath, content: `# ${displayName}\n\n` }),
-      });
-      const data = await response.json();
-      if (data.ok) {
-        await this.fileExplorer.refresh();
-        navigateToFile(filePath);
-        this.toastController.show(`Created ${displayName}`);
-      } else {
-        this.toastController.show(data.error || 'Failed to create file');
-      }
-    } catch (error) {
-      this.toastController.show(`Failed to create file: ${error.message}`);
-    }
-  }
-
-  // Sidebar
-
-  handleFileSelection(filePath, { closeSidebarOnMobile = false } = {}) {
-    if (closeSidebarOnMobile) {
-      this.closeSidebarOnMobile();
-    }
-    navigateToFile(filePath);
-  }
-
-  handleGitDiffSelection(filePath, { closeSidebarOnMobile = false, scope = 'working-tree' } = {}) {
-    if (closeSidebarOnMobile) {
-      this.closeSidebarOnMobile();
-    }
-
-    navigateToGitDiff({ filePath, scope });
-  }
-
-  isMobileViewport() {
-    return window.matchMedia('(max-width: 768px)').matches;
-  }
-
-  closeSidebarOnMobile() {
-    const sidebar = this.elements.sidebar;
-    if (!sidebar || !this.isMobileViewport()) return;
-    if (sidebar.classList.contains('collapsed')) return;
-
-    this.setSidebarVisibility(false);
-  }
-
-  toggleSidebar() {
-    const sidebar = this.elements.sidebar;
-    if (!sidebar) return;
-    const isHidden = sidebar.classList.contains('collapsed');
-    this.setSidebarVisibility(isHidden);
-  }
-
-  restoreSidebarState() {
-    const sidebar = this.elements.sidebar;
-    if (!sidebar) return;
-
-    const isMobile = this.isMobileViewport();
-
-    let showSidebar = true;
-    try {
-      const stored = localStorage.getItem(this.sidebarVisibleKey);
-      if (stored === 'true') {
-        showSidebar = true;
-      } else if (stored === 'false') {
-        showSidebar = false;
-      } else if (isMobile) {
-        // Default to a collapsed drawer on mobile so toolbar controls remain usable.
-        showSidebar = false;
-      }
-    } catch {
-      if (isMobile) {
-        showSidebar = false;
-      }
-    }
-
-    this.applySidebarVisibility(showSidebar);
-  }
-
-  setSidebarVisibility(showSidebar) {
-    this.applySidebarVisibility(showSidebar);
-
-    try {
-      localStorage.setItem(this.sidebarVisibleKey, showSidebar ? 'true' : 'false');
-    } catch {
-      // Ignore storage errors in private browsing modes.
-    }
-  }
-
-  applySidebarVisibility(showSidebar) {
-    const sidebar = this.elements.sidebar;
-    if (!sidebar) return;
-
-    const isCollapsed = !showSidebar;
-    const hideForMobile = isCollapsed && this.isMobileViewport();
-
-    sidebar.classList.toggle('collapsed', isCollapsed);
-    sidebar.toggleAttribute('hidden', hideForMobile);
-    sidebar.setAttribute('aria-hidden', hideForMobile ? 'true' : 'false');
-    sidebar.inert = isCollapsed;
-  }
-
-  setSidebarTab(tab) {
-    const nextTab = tab === 'git' && this.gitRepoAvailable ? 'git' : 'files';
-    this.activeSidebarTab = nextTab;
-
-    this.elements.filesSidebarTab?.classList.toggle('active', nextTab === 'files');
-    this.elements.gitSidebarTab?.classList.toggle('active', nextTab === 'git');
-    document.getElementById('fileTree')?.classList.toggle('hidden', nextTab !== 'files');
-    this.elements.fileSearch?.classList.toggle('hidden', nextTab !== 'files');
-    this.elements.gitSearch?.classList.toggle('hidden', nextTab !== 'git');
-    document.getElementById('gitPanel')?.classList.toggle('active', nextTab === 'git');
-    document.getElementById('gitPanel')?.classList.toggle('hidden', nextTab !== 'git');
-    this.gitPanel.setActive(nextTab === 'git');
-  }
-
-  handleGitRepoChange(isGitRepo, status = null) {
-    this.gitRepoAvailable = Boolean(isGitRepo);
-    this.elements.sidebarTabs?.classList.toggle('hidden', !this.gitRepoAvailable);
-    this.elements.gitSidebarTab?.classList.toggle('hidden', !this.gitRepoAvailable);
-    this.gitDiffView.setRepoStatus(this.gitRepoAvailable ? status : null);
-
-    if (!this.gitRepoAvailable && this.activeSidebarTab === 'git') {
-      this.setSidebarTab('files');
-      return;
-    }
-
-    if (this.gitRepoAvailable && getHashRoute().type === 'git-diff' && this.activeSidebarTab !== 'git') {
-      this.setSidebarTab('git');
-    }
-  }
-
-  syncMainChrome({ mode, title = null } = {}) {
-    const isDiffMode = mode === 'diff';
-    this.elements.toolbarCenter?.classList.toggle('hidden', isDiffMode);
-    this.elements.mobileViewToggle?.classList.toggle('hidden', isDiffMode);
-    this.elements.userCount?.classList.toggle('hidden', isDiffMode);
-    this.elements.toolbarDiffBadge?.classList.toggle('hidden', !isDiffMode);
-
-    if (title && this.elements.activeFileName) {
-      this.elements.activeFileName.textContent = title;
-    }
-  }
-
-  async showGitDiff({ filePath = null, scope = 'all' } = {}) {
-    this.gitPanel.setSelection(filePath ? { path: filePath, scope } : {});
-    this.workspaceSession.showDiffState();
-    this.syncMainChrome({
-      mode: 'diff',
-      title: this.gitDiffView.getToolbarTitle({ filePath, scope }),
-    });
-    await this.gitDiffView.open({ filePath, scope });
-  }
-
-  async postGitAction(endpoint, payload) {
-    const response = await fetch(endpoint, {
-      body: JSON.stringify(payload),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      method: 'POST',
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || 'Git action failed');
-    }
-    return data;
-  }
-
-  async refreshGitAfterAction({ filePath = null, preferredScope = null } = {}) {
-    await this.gitPanel.refresh({ force: true });
-
-    const route = getHashRoute();
-    if (route.type !== 'git-diff') {
-      return;
-    }
-
-    const nextFilePath = filePath ?? route.filePath;
-    const nextScope = preferredScope ?? route.scope;
-    if (nextScope !== route.scope || nextFilePath !== route.filePath) {
-      navigateToGitDiff({ filePath: nextFilePath, scope: nextScope });
-      return;
-    }
-
-    await this.showGitDiff({ filePath: route.filePath, scope: route.scope });
-  }
-
-  async stageGitFile(filePath, { scope = 'working-tree' } = {}) {
-    if (!filePath) {
-      return;
-    }
-
-    await this.postGitAction('/api/git/stage', { path: filePath });
-    this.toastController.show(`Staged ${this.getDisplayName(filePath)}`);
-    await this.refreshGitAfterAction({
-      filePath,
-      preferredScope: scope === 'all' ? 'all' : 'staged',
-    });
-  }
-
-  async unstageGitFile(filePath, { scope = 'staged' } = {}) {
-    if (!filePath) {
-      return;
-    }
-
-    await this.postGitAction('/api/git/unstage', { path: filePath });
-    this.toastController.show(`Unstaged ${this.getDisplayName(filePath)}`);
-    await this.refreshGitAfterAction({
-      filePath,
-      preferredScope: scope === 'all' ? 'all' : 'working-tree',
-    });
-  }
-
-  async pushGitBranch() {
-    try {
-      await this.postGitAction('/api/git/push', {});
-      this.toastController.show('Pushed branch');
-      await this.refreshGitAfterAction();
-    } catch (error) {
-      this.toastController.show(error.message || 'Failed to push branch');
-    }
-  }
-
-  async pullGitBranch() {
-    try {
-      await this.postGitAction('/api/git/pull', {});
-      this.toastController.show('Pulled branch');
-      await this.refreshGitAfterAction();
-    } catch (error) {
-      this.toastController.show(error.message || 'Failed to pull branch');
-    }
-  }
-
-  openGitCommitDialog() {
-    if (!this.isTabActive) {
-      return;
-    }
-
-    const dialog = this.elements.gitCommitDialog;
-    const input = this.elements.gitCommitInput;
-    if (!dialog || !input) {
-      return;
-    }
-
-    if (this.elements.gitCommitTitle) {
-      this.elements.gitCommitTitle.textContent = 'Commit staged changes';
-    }
-    if (this.elements.gitCommitCopy) {
-      const stagedCount = Number(this.gitPanel.status?.summary?.staged || 0);
-      this.elements.gitCommitCopy.textContent = stagedCount > 0
-        ? `${stagedCount} staged file${stagedCount === 1 ? '' : 's'} will be included.`
-        : 'All staged changes will be included.';
-    }
-    input.value = '';
-
-    if (dialog.open) {
-      return;
-    }
-    if (typeof dialog.showModal === 'function') {
-      dialog.showModal();
-    } else {
-      dialog.setAttribute('open', 'true');
-    }
-    requestAnimationFrame(() => {
-      input.focus();
-      input.select();
-    });
-  }
-
-  async handleGitCommitSubmit() {
-    const dialog = this.elements.gitCommitDialog;
-    const input = this.elements.gitCommitInput;
-    const submit = this.elements.gitCommitSubmit;
-    const message = String(input?.value ?? '').trim();
-    if (!dialog || !input) {
-      return;
-    }
-    if (!message) {
-      input.focus();
-      this.toastController.show('Commit message cannot be empty');
-      return;
-    }
-
-    submit?.toggleAttribute('disabled', true);
-    try {
-      const result = await this.postGitAction('/api/git/commit', {
-        message,
-      });
-      dialog.close();
-      const shortHash = result.commit?.shortHash ? ` (${result.commit.shortHash})` : '';
-      this.toastController.show(`Committed staged changes${shortHash}`);
-      await this.refreshGitAfterAction();
-    } catch (error) {
-      this.toastController.show(error.message || 'Failed to commit staged changes');
-    } finally {
-      submit?.toggleAttribute('disabled', false);
-    }
-  }
-
-  // Line wrapping
-
-  toggleLineWrapping() {
-    const currentState = this.session?.isLineWrappingEnabled() ?? this.getStoredLineWrapping();
-    const nextState = !currentState;
-
-    this.session?.setLineWrapping(nextState);
-    this.storeLineWrapping(nextState);
-    this.syncWrapToggle(nextState);
-    this.session?.requestMeasure();
-    this.scrollSyncController.syncPreviewToEditor();
-  }
-
-  supportsComments(filePath = this.currentFilePath) {
-    return supportsCommentsForFilePath(filePath);
-  }
-
-  startCommentFromEditorSelection() {
-    if (!this.session || !this.supportsComments()) {
-      return;
-    }
-
-    const range = this.session.getCurrentSelectionLineRange();
-    if (!range) {
-      this.toastController.show('Cannot anchor a comment without an editor selection');
-      return;
-    }
-
-    if (this.layoutController.currentView === 'preview' || this.isMobileViewport()) {
-      this.layoutController.setView('preview');
-    } else if (this.layoutController.currentView === 'editor') {
-      this.layoutController.setView('split');
-    }
-
-    this.commentsPanel.openComposerForRange(range);
-  }
-
-  applyMarkdownToolbarAction(action) {
-    if (!this.session || !isMarkdownFilePath(this.currentFilePath)) {
-      return;
-    }
-
-    const applied = this.session.applyMarkdownToolbarAction(action);
-    if (!applied) {
-      this.toastController.show('Formatting action is unavailable');
-    }
-  }
-
-  navigateToCommentLine(lineNumber) {
-    if (!Number.isFinite(lineNumber)) {
-      return;
-    }
-
-    if (this.layoutController.currentView === 'preview' || this.isMobileViewport()) {
-      this.layoutController.setView('split');
-    }
-
-    this.scrollSyncController.suspendSync(250);
-    this.session?.scrollToLine(lineNumber, 0.2);
-  }
-
-  handleCommentThreadCreate(payload) {
-    const threadId = this.session?.createCommentThread(payload);
-    if (!threadId) {
-      this.toastController.show('Comment cannot be empty');
-    }
-
-    return threadId;
-  }
-
-  handleCommentReply(threadId, body) {
-    const messageId = this.session?.replyToCommentThread(threadId, body);
-    if (!messageId) {
-      this.toastController.show('Reply cannot be empty');
-    }
-
-    return messageId;
-  }
-
-  handleCommentResolution(threadId, resolved) {
-    if (!resolved) {
-      return false;
-    }
-
-    const didUpdate = this.session?.deleteCommentThread(threadId);
-    if (!didUpdate) {
-      this.toastController.show('Failed to resolve comment');
-      return false;
-    }
-
-    return true;
-  }
-
-  updateCommentThreads(threads = []) {
-    this.commentThreads = Array.isArray(threads) ? threads : [];
-    this.commentsPanel.setThreads(this.commentThreads);
-  }
-
-  // Theme
-
-  handleThemeChange(theme) {
-    this.previewRenderer.applyTheme(theme);
-    if (!this.isExcalidrawFile(this.currentFilePath)) {
-      this.previewRenderer.queueRender();
-    }
-    this.session?.applyTheme(theme);
-    this.excalidrawEmbed.updateTheme(theme);
-  }
-
-  // Connection
-
-  handleConnectionChange(state) {
-    this.connectionState = state;
-    this.renderPresence();
-
-    if (state.firstConnection) {
-      this.toastController.show('Connected');
-    }
-
-    if (state.unreachable && !this.connectionHelpShown) {
-      this.connectionHelpShown = true;
-      this.toastController.show(`Cannot reach server at ${state.wsBaseUrl}`, 6000);
-    }
-  }
-
-  // Chat
-
-  updateChatMessages(messages, { initial = false } = {}) {
-    const previousIds = new Set(this.chatMessageIds);
-    const localPeerId = this.lobby.getLocalUser()?.peerId ?? null;
-
-    this.chatMessages = messages;
-    this.chatMessageIds = new Set(messages.map((message) => message.id));
-
-    if (!this.chatInitialSyncComplete) {
-      if (initial) {
-        this.chatInitialSyncComplete = true;
-      }
-
-      this.renderChat();
-      return;
-    }
-
-    const newRemoteMessages = messages.filter((message) => (
-      !previousIds.has(message.id)
-      && message.peerId
-      && message.peerId !== localPeerId
-    ));
-
-    if (this.chatIsOpen) {
-      this.chatUnreadCount = 0;
-    } else if (newRemoteMessages.length > 0) {
-      this.chatUnreadCount += newRemoteMessages.length;
-    }
-
-    for (const message of newRemoteMessages) {
-      this.maybeNotifyChatMessage(message);
-    }
-
-    this.renderChat();
-  }
-
-  toggleChatPanel() {
-    if (this.chatIsOpen) {
-      this.closeChatPanel();
-      return;
-    }
-
-    this.openChatPanel();
-  }
-
-  openChatPanel() {
-    this.chatIsOpen = true;
-    this.chatUnreadCount = 0;
-    this.renderChat();
-    requestAnimationFrame(() => {
-      this.elements.chatInput?.focus();
-      this.scrollChatToBottom();
-    });
-  }
-
-  closeChatPanel() {
-    if (!this.chatIsOpen) {
-      return;
-    }
-
-    this.chatIsOpen = false;
-    this.renderChat();
-  }
-
-  handleChatSubmit() {
-    if (!this.isTabActive) {
-      return;
-    }
-
-    const input = this.elements.chatInput;
-    if (!input) {
-      return;
-    }
-
-    const sentMessage = this.lobby.sendChatMessage(input.value);
-    if (!sentMessage) {
-      input.focus();
-      return;
-    }
-
-    input.value = '';
-    if (!this.chatIsOpen) {
-      this.openChatPanel();
-      return;
-    }
-
-    this.renderChat();
-  }
-
-  renderChat() {
-    this.elements.chatContainer?.classList.toggle('is-open', this.chatIsOpen);
-    this.elements.chatPanel?.classList.toggle('hidden', !this.chatIsOpen);
-
-    this.syncChatToggleButton();
-    this.syncChatNotificationButton();
-
-    const list = this.elements.chatMessages;
-    const emptyState = this.elements.chatEmptyState;
-
-    if (this.elements.chatStatus) {
-      this.elements.chatStatus.textContent = this.chatInitialSyncComplete
-        ? `${this.globalUsers.length} online`
-        : 'Syncing...';
-    }
-
-    if (!list) {
-      return;
-    }
-
-    list.replaceChildren();
-
-    if (this.chatMessages.length === 0) {
-      emptyState?.classList.remove('hidden');
-      list.classList.add('hidden');
-      return;
-    }
-
-    emptyState?.classList.add('hidden');
-    list.classList.remove('hidden');
-
-    const fragment = document.createDocumentFragment();
-    this.chatMessages.forEach((message) => {
-      fragment.appendChild(this.createChatMessageElement(message));
-    });
-    list.appendChild(fragment);
-
-    if (this.chatIsOpen) {
-      this.scrollChatToBottom();
-    }
-  }
-
-  createChatMessageElement(message) {
-    const item = document.createElement('article');
-    const isLocal = message.peerId === this.lobby.getLocalUser()?.peerId;
-    item.className = 'chat-message';
-    item.classList.toggle('is-local', isLocal);
-
-    const avatar = document.createElement('div');
-    avatar.className = 'chat-message-avatar';
-    avatar.style.backgroundColor = message.userColor || 'var(--color-primary)';
-    avatar.textContent = (message.userName || '?').charAt(0).toUpperCase();
-    avatar.setAttribute('aria-hidden', 'true');
-
-    const body = document.createElement('div');
-    body.className = 'chat-message-body';
-
-    const meta = document.createElement('div');
-    meta.className = 'chat-message-meta';
-
-    const author = document.createElement('span');
-    author.className = 'chat-message-author';
-    author.textContent = isLocal ? `${message.userName} (you)` : message.userName;
-
-    const time = document.createElement('span');
-    time.className = 'chat-message-time';
-    time.textContent = this.formatChatTimestamp(message.createdAt);
-
-    meta.append(author, time);
-
-    const fileLabel = this.getChatMessageFileLabel(message.filePath);
-    if (fileLabel) {
-      const file = document.createElement('span');
-      file.className = 'chat-message-file';
-      file.textContent = fileLabel;
-      meta.append(file);
-    }
-
-    const text = document.createElement('p');
-    text.className = 'chat-message-text';
-    text.textContent = message.text;
-
-    body.append(meta, text);
-    item.append(avatar, body);
-    return item;
-  }
-
-  scrollChatToBottom() {
-    const list = this.elements.chatMessages;
-    if (!list) {
-      return;
-    }
-
-    requestAnimationFrame(() => {
-      list.scrollTop = list.scrollHeight;
-    });
-  }
-
-  formatChatTimestamp(value) {
-    if (!Number.isFinite(value)) {
-      return '';
-    }
-
-    try {
-      return this.chatTimeFormatter.format(new Date(value));
-    } catch {
-      return '';
-    }
-  }
-
-  getChatMessageFileLabel(filePath) {
-    if (!filePath) {
-      return '';
-    }
-
-    return this.getDisplayName(filePath);
-  }
-
-  syncChatToggleButton() {
-    const button = this.elements.chatToggleButton;
-    const badge = this.elements.chatToggleBadge;
-    if (!button) {
-      return;
-    }
-
-    button.classList.toggle('is-active', this.chatIsOpen);
-    button.setAttribute('aria-expanded', String(this.chatIsOpen));
-    button.title = this.chatUnreadCount > 0
-      ? `Team chat (${this.chatUnreadCount} unread)`
-      : 'Team chat';
-
-    if (!badge) {
-      return;
-    }
-
-    const hasUnread = this.chatUnreadCount > 0;
-    badge.classList.toggle('hidden', !hasUnread);
-    badge.textContent = this.chatUnreadCount > 9 ? '9+' : String(this.chatUnreadCount);
-  }
-
-  getNotificationPermission() {
-    if (typeof Notification !== 'function') {
-      return 'unsupported';
-    }
-
-    return Notification.permission;
-  }
-
-  syncChatNotificationButton() {
-    const button = this.elements.chatNotificationButton;
-    if (!button) {
-      return;
-    }
-
-    const permission = this.getNotificationPermission();
-    this.chatNotificationPermission = permission;
-
-    let label = 'Enable alerts';
-    let title = 'Enable browser notifications for new chat messages';
-    let pressed = false;
-
-    if (permission === 'unsupported') {
-      label = 'No alerts';
-      title = 'Browser notifications are unavailable here';
-    } else if (permission === 'denied') {
-      label = 'Alerts blocked';
-      title = 'Browser notifications are blocked for this site';
-    } else if (permission === 'granted') {
-      pressed = this.chatNotificationsEnabled;
-      label = pressed ? 'Alerts on' : 'Alerts off';
-      title = pressed
-        ? 'Disable browser notifications for chat'
-        : 'Enable browser notifications for chat';
-    }
-
-    button.textContent = label;
-    button.title = title;
-    button.setAttribute('aria-pressed', String(pressed));
-    button.classList.toggle('is-enabled', pressed);
-    button.classList.toggle('is-blocked', permission === 'denied');
-  }
-
-  async handleChatNotificationToggle() {
-    const permission = this.getNotificationPermission();
-    this.chatNotificationPermission = permission;
-
-    if (permission === 'unsupported') {
-      this.toastController.show('Browser notifications are unavailable here');
-      this.syncChatNotificationButton();
-      return;
-    }
-
-    if (permission === 'denied') {
-      this.chatNotificationsEnabled = false;
-      this.storeChatNotificationsEnabled(false);
-      this.toastController.show('Browser notifications are blocked for this site');
-      this.syncChatNotificationButton();
-      return;
-    }
-
-    if (permission === 'default') {
-      const nextPermission = await Notification.requestPermission();
-      this.chatNotificationPermission = nextPermission;
-
-      if (nextPermission !== 'granted') {
-        this.chatNotificationsEnabled = false;
-        this.storeChatNotificationsEnabled(false);
-        this.toastController.show(
-          nextPermission === 'denied'
-            ? 'Browser notifications were blocked'
-            : 'Notification permission was dismissed',
-        );
-        this.syncChatNotificationButton();
-        return;
-      }
-
-      this.chatNotificationsEnabled = true;
-      this.storeChatNotificationsEnabled(true);
-      this.toastController.show('Chat alerts enabled');
-      this.syncChatNotificationButton();
-      return;
-    }
-
-    this.chatNotificationsEnabled = !this.chatNotificationsEnabled;
-    this.storeChatNotificationsEnabled(this.chatNotificationsEnabled);
-    this.toastController.show(this.chatNotificationsEnabled ? 'Chat alerts enabled' : 'Chat alerts disabled');
-    this.syncChatNotificationButton();
-  }
-
-  maybeNotifyChatMessage(message) {
-    if (!this.chatInitialSyncComplete) {
-      return;
-    }
-
-    if (!this.chatNotificationsEnabled || this.getNotificationPermission() !== 'granted') {
-      return;
-    }
-
-    if (!document.hidden) {
-      return;
-    }
-
-    const title = `CollabMD chat • ${message.userName}`;
-    const fileLabel = this.getChatMessageFileLabel(message.filePath);
-    const body = fileLabel ? `${fileLabel}: ${message.text}` : message.text;
-
-    try {
-      const notification = new Notification(title, {
-        body,
-        tag: `collabmd-chat-${message.id}`,
-      });
-
-      notification.addEventListener('click', () => {
-        window.focus?.();
-        if (message.filePath) {
-          navigateToFile(message.filePath);
-        }
-        notification.close?.();
-      });
-
-      setTimeout(() => {
-        notification.close?.();
-      }, 6000);
-    } catch {
-      // Ignore notification delivery failures.
-    }
-  }
-
-  // Presence — global (lobby) + per-file awareness
-
-  /** Called by the lobby whenever the global user list changes. */
-  updateGlobalUsers(users) {
-    this.globalUsers = users;
-    this.syncFollowedUser();
-    this.renderAvatars();
-    this.renderChat();
-    this.renderPresence();
-    this.syncCurrentUserName();
-  }
-
-  /** Called by the per-file EditorSession awareness (cursor data only). */
-  updateFileAwareness(_users) {
-    // Cursor positions from the file-level awareness are used by followUserCursor.
-    // Re-check the followed user whenever cursors update.
-    this.syncFollowedUser();
-  }
-
-  renderPresence() {
-    const badge = this.elements.userCount;
-    if (!badge) return;
-
-    if (this.connectionState.status === 'connected') {
-      badge.textContent = `${this.globalUsers.length} online`;
-      badge.style.opacity = '1';
-      return;
-    }
-
-    if (this.connectionState.status === 'connecting') {
-      badge.textContent = this.connectionState.unreachable ? 'Unreachable' : 'Connecting...';
-      badge.style.opacity = '0.6';
-      return;
-    }
-
-    badge.textContent = 'Offline';
-    badge.style.opacity = '0.6';
-  }
-
-  renderAvatars() {
-    const avatars = this.elements.userAvatars;
-    if (!avatars) return;
-
-    avatars.innerHTML = '';
-    const visibleUsers = [...this.globalUsers];
-    const localIndex = visibleUsers.findIndex((u) => u.isLocal);
-    if (localIndex > 0) {
-      const [localUser] = visibleUsers.splice(localIndex, 1);
-      visibleUsers.unshift(localUser);
-    }
-
-    const followedIndex = visibleUsers.findIndex((u) => !u.isLocal && u.clientId === this.followedUserClientId);
-    const followedInsertIndex = visibleUsers[0]?.isLocal ? 1 : 0;
-    if (followedIndex > followedInsertIndex) {
-      const [followed] = visibleUsers.splice(followedIndex, 1);
-      visibleUsers.splice(followedInsertIndex, 0, followed);
-    }
-
-    visibleUsers.slice(0, 5).forEach((user) => {
-      const avatar = document.createElement(user.isLocal ? 'div' : 'button');
-      avatar.className = 'user-avatar';
-      avatar.classList.toggle('is-local', user.isLocal);
-      avatar.style.backgroundColor = user.color;
-      avatar.classList.toggle('is-following', user.clientId === this.followedUserClientId);
-
-      const initial = document.createElement('span');
-      initial.className = 'user-avatar-initial';
-      initial.textContent = user.name.charAt(0).toUpperCase();
-      avatar.appendChild(initial);
-
-      // Show which file the user is in, and whether they're on the same file
-      const sameFile = user.currentFile && user.currentFile === this.currentFilePath;
-      const fileLabel = user.currentFile
-        ? this.getDisplayName(user.currentFile)
-        : 'No file';
-
-      if (user.isLocal) {
-        const selfLabel = document.createElement('span');
-        selfLabel.className = 'user-avatar-self-label';
-        selfLabel.textContent = 'You';
-        avatar.appendChild(selfLabel);
-        avatar.title = `${user.name} (you) — ${fileLabel}`;
-        avatar.setAttribute('role', 'img');
-        avatar.setAttribute('aria-label', `${user.name} (you) — ${fileLabel}`);
-      } else {
-        avatar.type = 'button';
-        avatar.classList.add('user-avatar-button');
-        if (!sameFile) {
-          avatar.classList.add('different-file');
-        }
-        const avatarLabel = user.clientId === this.followedUserClientId
-          ? `Stop following ${user.name}`
-          : sameFile
-            ? `Follow ${user.name}`
-            : `Follow ${user.name} — ${fileLabel}`;
-        avatar.title = avatarLabel;
-        avatar.setAttribute('aria-label', avatarLabel);
-        avatar.addEventListener('click', () => this.toggleFollowUser(user.clientId));
-      }
-
-      avatars.appendChild(avatar);
-    });
-
-    if (visibleUsers.length > 5) {
-      const overflow = document.createElement('div');
-      overflow.className = 'user-avatar';
-      overflow.style.backgroundColor = 'var(--color-surface-dynamic)';
-      overflow.style.color = 'var(--color-text-muted)';
-      const overflowLabel = document.createElement('span');
-      overflowLabel.className = 'user-avatar-initial';
-      overflowLabel.textContent = `+${visibleUsers.length - 5}`;
-      overflow.appendChild(overflowLabel);
-      avatars.appendChild(overflow);
-    }
-  }
-
-  // Follow user
-
-  toggleFollowUser(clientId) {
-    if (!clientId) return;
-
-    if (this.followedUserClientId === clientId) {
-      this.stopFollowingUser();
-      return;
-    }
-
-    const user = this.globalUsers.find((u) => u.clientId === clientId && !u.isLocal);
-    if (!user) return;
-
-    this.followedUserClientId = clientId;
-    this.followedCursorSignature = '';
-    this.renderAvatars();
-
-    // If the followed user is on a different file, navigate there first
-    if (user.currentFile && user.currentFile !== this.currentFilePath) {
-      navigateToFile(user.currentFile);
-      this.toastController.show(`Following ${user.name} — switching to ${this.getDisplayName(user.currentFile)}`);
-      return;
-    }
-
-    // Same file — scroll to their cursor
-    requestAnimationFrame(() => {
-      if (this.followedUserClientId === clientId) {
-        this.followUserCursor(user, { force: true });
-      }
-    });
-
-    this.toastController.show(`Following ${user.name}`);
-  }
-
-  stopFollowingUser(showToast = true) {
-    if (!this.followedUserClientId) return;
-    const name = this.globalUsers.find((u) => u.clientId === this.followedUserClientId)?.name ?? 'collaborator';
-    this.followedUserClientId = null;
-    this.followedCursorSignature = '';
-    this.renderAvatars();
-    if (showToast) this.toastController.show(`Stopped following ${name}`);
-  }
-
-  syncFollowedUser() {
-    if (!this.followedUserClientId) return;
-    const user = this.globalUsers.find((u) => u.clientId === this.followedUserClientId);
-    if (!user || user.isLocal) {
-      this.stopFollowingUser(false);
-      return;
-    }
-
-    // If the followed user switched to a different file, follow them there
-    if (user.currentFile && user.currentFile !== this.currentFilePath) {
-      navigateToFile(user.currentFile);
-      this.toastController.show(`${user.name} switched to ${this.getDisplayName(user.currentFile)}`);
-      return;
-    }
-
-    // Same file — scroll to their cursor
-    this.followUserCursor(user);
-  }
-
-  followUserCursor(user, { force = false } = {}) {
-    // The lobby user has a different clientId from the per-file awareness.
-    // Use peerId to find the matching per-file awareness entry.
-    const fileClientId = this._resolveFileClientId(user.peerId);
-    const liveCursor = fileClientId != null ? this.session?.getUserCursor(fileClientId) : null;
-    const cursorHead = liveCursor?.cursorHead ?? null;
-    const cursorLine = liveCursor?.cursorLine ?? null;
-    const cursorAnchor = liveCursor?.cursorAnchor ?? null;
-
-    if (!user || cursorHead == null || cursorLine == null) {
-      this.followedCursorSignature = '';
-      return;
-    }
-
-    const nextSig = `${user.clientId}:${cursorAnchor}:${cursorHead}`;
-    if (!force && nextSig === this.followedCursorSignature) return;
-
-    const didScroll = (fileClientId != null && this.session?.scrollToUserCursor(fileClientId, 'center'))
-      || this.session?.scrollToPosition(cursorHead, 'center')
-      || this.session?.scrollToLine(cursorLine);
-    if (didScroll) this.followedCursorSignature = nextSig;
-  }
-
-  /**
-   * Given a peerId from the lobby, find the matching clientId in the
-   * current per-file EditorSession awareness.
-   */
-  _resolveFileClientId(peerId) {
-    if (!peerId || !this.session?.awareness) return null;
-    for (const [clientId, state] of this.session.awareness.getStates()) {
-      if (state.user?.peerId === peerId) return clientId;
-    }
-    return null;
-  }
-
-  // Display name dialog
-
-  openDisplayNameDialog({ mode = 'edit' } = {}) {
-    if (!this.isTabActive) {
-      return;
-    }
-
-    const dialog = this.elements.displayNameDialog;
-    const input = this.elements.displayNameInput;
-    const title = this.elements.displayNameTitle;
-    const copy = this.elements.displayNameCopy;
-    const cancel = this.elements.displayNameCancel;
-    const submit = this.elements.displayNameSubmit;
-    if (!dialog || !input) return;
-
-    const isOnboarding = mode === 'onboarding';
-    if (title) {
-      title.textContent = isOnboarding ? 'Choose your display name' : 'Update display name';
-    }
-    if (copy) {
-      copy.textContent = isOnboarding
-        ? 'Pick a name collaborators will see. You can skip for now and continue as a guest.'
-        : 'Your name will be visible to everyone editing this vault.';
-    }
-    if (cancel) {
-      cancel.textContent = isOnboarding ? 'Skip for now' : 'Cancel';
-    }
-    if (submit) {
-      submit.textContent = isOnboarding ? 'Continue' : 'Save name';
-    }
-
-    input.value = isOnboarding ? '' : this.getCurrentUserName();
-    if (dialog.open) {
-      return;
-    }
-    if (typeof dialog.showModal === 'function') {
-      dialog.showModal();
-    } else {
-      dialog.setAttribute('open', 'true');
-    }
-    requestAnimationFrame(() => { input.focus(); input.select(); });
-  }
-
-  promptForDisplayNameIfNeeded() {
-    if (!this.isTabActive || this._hasPromptedForDisplayName || this.getStoredUserName()) {
-      return;
-    }
-
-    this._hasPromptedForDisplayName = true;
-    requestAnimationFrame(() => {
-      this.openDisplayNameDialog({ mode: 'onboarding' });
-    });
-  }
-
-  handleDisplayNameSubmit() {
-    const input = this.elements.displayNameInput;
-    const dialog = this.elements.displayNameDialog;
-    if (!input || !dialog) return;
-
-    const normalizedName = this.session
-      ? this.session.setUserName(input.value)
-      : normalizeUserName(input.value);
-    if (!normalizedName) {
-      input.focus();
-      this.toastController.show(`Name must be 1-${USER_NAME_MAX_LENGTH} characters`);
-      return;
-    }
-
-    this.storeUserName(normalizedName);
-    this.lobby.setUserName(normalizedName);
-    this.excalidrawEmbed.updateLocalUser(this.lobby.getLocalUser());
-    this.syncCurrentUserName();
-    this.renderChat();
-    dialog.close();
-    this.toastController.show(`Display name: ${normalizedName}`);
-  }
-
-  // Share
-
-  async copyCurrentLink() {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      this.toastController.show('Link copied');
-    } catch {
-      this.toastController.show('Failed to copy link');
-    }
-  }
-
-  // User name storage
-
-  getCurrentUser() {
-    return this.globalUsers.find((u) => u.isLocal)
-      ?? this.session?.getLocalUser()
-      ?? this.lobby?.getLocalUser()
-      ?? null;
-  }
-
-  getCurrentUserName() {
-    return this.getCurrentUser()?.name ?? this.getStoredUserName() ?? '';
-  }
-
-  getStoredUserName() {
-    try { return localStorage.getItem(this.userNameStorageKey) || ''; } catch { return ''; }
-  }
-
-  storeUserName(name) {
-    try { localStorage.setItem(this.userNameStorageKey, name); } catch { /* ignore */ }
-  }
-
-  getStoredChatNotificationsEnabled() {
-    try { return localStorage.getItem(this.chatNotificationsPreferenceKey) === 'true'; } catch { return false; }
-  }
-
-  storeChatNotificationsEnabled(enabled) {
-    try { localStorage.setItem(this.chatNotificationsPreferenceKey, String(enabled)); } catch { /* ignore */ }
-  }
-
-  syncCurrentUserName() {
-    const el = this.elements.currentUserName;
-    if (!el) return;
-    const name = this.getCurrentUserName();
-    el.textContent = name || 'Set name';
-    el.classList.toggle('has-name', Boolean(name));
-    this.elements.editNameButton?.setAttribute(
-      'aria-label',
-      `${name || 'Set name'}. Change display name`,
-    );
-  }
-
-  // Line wrapping storage
-
-  getStoredLineWrapping() {
-    try { return localStorage.getItem(this.lineWrappingStorageKey) !== 'false'; } catch { return true; }
-  }
-
-  storeLineWrapping(enabled) {
-    try { localStorage.setItem(this.lineWrappingStorageKey, String(enabled)); } catch { /* ignore */ }
-  }
-
-  handleTabTakeover() {
-    this.tabActivityLock.tryActivate({ takeover: true });
-  }
-
-  handleTabActivated({ takeover = false } = {}) {
-    const wasInactive = !this.isTabActive;
-    this.isTabActive = true;
-    this.hideTabLockOverlay();
-
-    if (!this.lobby.provider) {
-      this.lobby.connect();
-    }
-
-    if (wasInactive) {
-      if (this.fileExplorerReady) {
-        void this.handleHashChange();
-      }
-      this.promptForDisplayNameIfNeeded();
-    }
-
-    if (takeover) {
-      this.toastController.show('This tab is now active');
-    }
-  }
-
-  handleTabBlocked({ reason } = {}) {
-    const wasActive = this.isTabActive;
-    this.isTabActive = false;
-    if (this.elements.displayNameDialog?.open) {
-      this.elements.displayNameDialog.close();
-    }
-    this.lobby.disconnect();
-    this.globalUsers = [];
-    this.chatMessages = [];
-    this.chatMessageIds.clear();
-    this.chatUnreadCount = 0;
-    this.chatInitialSyncComplete = false;
-    this.followedUserClientId = null;
-    this.followedCursorSignature = '';
-    this.connectionState = { status: 'disconnected', unreachable: false };
-    this.showEmptyState();
-    this.renderChat();
-    this.showTabLockOverlay({ reason });
-
-    if (wasActive && reason === 'taken-over') {
-      this.toastController.show('Another tab took over this session');
-    }
-  }
-
-  showTabLockOverlay({ reason } = {}) {
-    const overlay = this.elements.tabLockOverlay;
-    const title = this.elements.tabLockTitle;
-    const copy = this.elements.tabLockCopy;
-    if (!overlay) return;
-
-    if (title) {
-      title.textContent = reason === 'taken-over'
-        ? 'This tab is no longer active'
-        : 'This vault is active in another tab';
-    }
-
-    if (copy) {
-      copy.textContent = reason === 'taken-over'
-        ? 'Another tab took over the live session. This tab is now disconnected until you explicitly take over here again.'
-        : 'To avoid duplicate presence and chat, only one tab can stay connected at a time. Use the other tab, or take over the session here.';
-    }
-
-    overlay.classList.remove('hidden');
-  }
-
-  hideTabLockOverlay() {
-    this.elements.tabLockOverlay?.classList.add('hidden');
-  }
-
-  syncWrapToggle(state) {
-    const enabled = state ?? this.session?.isLineWrappingEnabled() ?? this.getStoredLineWrapping();
-    const label = this.elements.wrapToggleLabel;
-    const button = this.elements.toggleWrapButton;
-    const nextLabel = enabled ? 'Wrap on' : 'Wrap off';
-    if (label) label.textContent = nextLabel;
-    if (button) {
-      button.setAttribute('aria-label', `${nextLabel}. ${enabled ? 'Disable line wrap' : 'Enable line wrap'}`);
-    }
-  }
-
-  // Backlinks
-
-  /**
-   * Schedule a debounced backlinks refresh.
-   * Called on every content change — the server index updates on persist
-   * (500ms debounce), so we wait a bit longer before re-fetching.
-   */
-  scheduleBacklinkRefresh() {
-    clearTimeout(this._backlinkRefreshTimer);
-    this._backlinkRefreshTimer = setTimeout(() => {
-      if (supportsBacklinksForFilePath(this.currentFilePath)) {
-        this.backlinksPanel.load(this.currentFilePath);
-      }
-    }, 2000);
-  }
-
-  // Editor loading states
-
-  showEditorLoading() {
-    if (!this.elements.editorContainer) return;
-    this.elements.editorContainer.classList.add('is-loading-editor');
-    this.elements.editorContainer.innerHTML = `
-      <div class="editor-loading" id="editorLoading">
-        <div class="loading-spinner"></div>
-        <span class="loading-text">Loading file...</span>
-      </div>`;
-  }
-
-  hideEditorLoading() {
-    if (!this.elements.editorContainer) return;
-    this.elements.editorContainer.classList.remove('is-loading-editor');
-    this.elements.editorContainer.querySelector('#editorLoading')?.remove();
-  }
-
-  showEditorLoadError() {
-    if (!this.elements.editorContainer) return;
-    this.elements.editorContainer.classList.remove('is-loading-editor');
-    this.elements.editorContainer.innerHTML = `
-      <div class="editor-loading" id="editorLoading">
-        <span class="loading-text">Failed to load file</span>
-      </div>`;
-  }
-
-  clearInitialFileBootstrap() {
-    document.documentElement.removeAttribute('data-initial-file-requested');
-  }
 }
+
+Object.assign(
+  CollabMdApp.prototype,
+  workspaceFeature,
+  gitFeature,
+  chatFeature,
+  presenceFeature,
+  uiFeature,
+);
