@@ -149,6 +149,38 @@ test('CollaborationRoom primes a collaboration snapshot after content hydration 
   assert.equal(snapshotWrites[0].snapshot instanceof Uint8Array, true);
 });
 
+test('CollaborationRoom reuses cached initial sync payload until the document changes', async () => {
+  const room = new CollaborationRoom({
+    maxBufferedAmountBytes: 1024,
+    name: 'cached-sync-room',
+    onEmpty: () => {},
+    vaultFileStore: {
+      async readMarkdownFile() {
+        return '# Cached\n';
+      },
+      async writeMarkdownFile() {},
+    },
+  });
+
+  const socketA = createSocket();
+  const socketB = createSocket();
+  const socketC = createSocket();
+
+  await room.addClient(socketA);
+  await room.addClient(socketB);
+  assert.equal(socketA.sent.length, 1);
+  assert.equal(socketB.sent.length, 1);
+  assert.equal(socketA.sent[0], socketB.sent[0]);
+
+  room.doc.transact(() => {
+    room.doc.getText('codemirror').insert(room.doc.getText('codemirror').length, 'updated');
+  }, 'test-cache-invalidate');
+
+  await room.addClient(socketC);
+  assert.equal(socketC.sent.length, 1);
+  assert.notEqual(socketA.sent[0], socketC.sent[0]);
+});
+
 test('CollaborationRoom hydrates and persists markdown comment threads', async () => {
   const writes = [];
   const commentWrites = [];

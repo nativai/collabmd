@@ -1,4 +1,7 @@
 import { WebSocketServer } from 'ws';
+import * as decoding from 'lib0/decoding';
+
+import { MSG_SYNC } from '../../domain/collaboration/protocol.js';
 
 function rejectUpgrade(socket, statusCode, statusMessage, {
   body = '',
@@ -20,6 +23,16 @@ function rejectUpgrade(socket, statusCode, statusMessage, {
 function extractRoomName(pathname, wsBasePath) {
   const roomSegment = pathname.slice(wsBasePath.length + 1);
   return decodeURIComponent(roomSegment || 'default');
+}
+
+function isSyncMessage(payload) {
+  try {
+    const data = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
+    const decoder = decoding.createDecoder(data);
+    return decoding.readVarUint(decoder) === MSG_SYNC;
+  } catch {
+    return false;
+  }
 }
 
 export function attachCollaborationGateway({
@@ -75,7 +88,20 @@ export function attachCollaborationGateway({
       const pendingMessages = [];
       let initialized = false;
       let closedBeforeReady = false;
+      let initialSyncTimer = null;
+      let hasReceivedClientSync = false;
+      const clearInitialSyncTimer = () => {
+        if (initialSyncTimer) {
+          clearTimeout(initialSyncTimer);
+          initialSyncTimer = null;
+        }
+      };
       const handleMessage = (payload) => {
+        if (isSyncMessage(payload)) {
+          hasReceivedClientSync = true;
+          clearInitialSyncTimer();
+        }
+
         if (!initialized) {
           pendingMessages.push(payload);
           return;
@@ -86,10 +112,12 @@ export function attachCollaborationGateway({
       const handleClose = () => {
         if (!initialized) {
           closedBeforeReady = true;
+          clearInitialSyncTimer();
           pendingMessages.length = 0;
           return;
         }
 
+        clearInitialSyncTimer();
         room.removeClient(ws);
         const remaining = roomRegistry.rooms.get(roomName)?.clients.size ?? 0;
         console.log(`[ws] "${roomName}" disconnected (${remaining} active client(s))`);
@@ -103,11 +131,12 @@ export function attachCollaborationGateway({
       ws.on('error', handleError);
 
       try {
-        await room.addClient(ws);
+        await room.addClient(ws, { sendInitialSync: false });
       } catch (error) {
         ws.off('message', handleMessage);
         ws.off('close', handleClose);
         ws.off('error', handleError);
+        clearInitialSyncTimer();
         console.error(`[ws] Failed to initialize room "${roomName}":`, error.message);
         ws.close(1011, 'Room initialization failed');
         return;
@@ -118,7 +147,19 @@ export function attachCollaborationGateway({
         room.handleMessage(ws, pendingMessages.shift());
       }
 
+      if (!hasReceivedClientSync) {
+        initialSyncTimer = setTimeout(() => {
+          initialSyncTimer = null;
+          if (hasReceivedClientSync || ws.readyState !== ws.OPEN) {
+            return;
+          }
+          room.sendInitialSync(ws);
+        }, 0);
+        initialSyncTimer.unref?.();
+      }
+
       if (closedBeforeReady) {
+        clearInitialSyncTimer();
         room.removeClient(ws);
         const remaining = roomRegistry.rooms.get(roomName)?.clients.size ?? 0;
         console.log(`[ws] "${roomName}" disconnected (${remaining} active client(s))`);

@@ -71,6 +71,49 @@ function waitForMessage(socket, predicate, timeoutMs = 5000) {
   });
 }
 
+function collectMessages(socket, predicate, {
+  idleMs = 50,
+  timeoutMs = 1000,
+} = {}) {
+  return new Promise((resolve, reject) => {
+    const matches = [];
+    let idleTimer = null;
+    const timeoutTimer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timed out after ${timeoutMs}ms while collecting websocket messages`));
+    }, timeoutMs);
+
+    function cleanup() {
+      clearTimeout(timeoutTimer);
+      clearTimeout(idleTimer);
+      socket.off('message', handleMessage);
+    }
+
+    function finish() {
+      cleanup();
+      resolve(matches);
+    }
+
+    function scheduleFinish() {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(finish, idleMs);
+    }
+
+    function handleMessage(payload) {
+      const data = payload instanceof Buffer ? new Uint8Array(payload) : new Uint8Array(payload);
+      if (!predicate(data)) {
+        return;
+      }
+
+      matches.push(data);
+      scheduleFinish();
+    }
+
+    socket.on('message', handleMessage);
+    scheduleFinish();
+  });
+}
+
 function getMessageType(data) {
   const decoder = decoding.createDecoder(data);
   return decoding.readVarUint(decoder);
@@ -356,6 +399,27 @@ test('WebSocket collaboration preserves Yjs history across short reconnect gaps'
   }, { timeoutMs: 5_000 });
 
   assert.equal(diskContent, '# Test\n\nHello from test vault.\n\nReconnect-safe edit.\n');
+});
+
+test('WebSocket collaboration does not duplicate initial sync when client immediately sends SyncStep1', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  const ws = new WebSocket(app.wsUrl('test.md'));
+  t.after(async () => {
+    ws.close();
+    await Promise.allSettled([waitForClose(ws)]);
+  });
+
+  await waitForOpen(ws);
+  ws.send(encodeSyncStep1Message(new Y.Doc()));
+
+  const syncMessages = await collectMessages(ws, (data) => getMessageType(data) === MSG_SYNC, {
+    idleMs: 100,
+    timeoutMs: 2000,
+  });
+
+  assert.equal(syncMessages.length, 1);
 });
 
 test('Renaming an active room keeps persistence on the new path', async (t) => {

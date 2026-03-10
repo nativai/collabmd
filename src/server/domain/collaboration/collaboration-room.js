@@ -100,6 +100,7 @@ export class CollaborationRoom {
     this.shutdownGeneration = 0;
     this.finalizePromise = null;
     this.destroyTimer = null;
+    this.cachedInitialSyncMessage = null;
 
     this.awareness.setLocalState(null);
     this.registerDocListeners();
@@ -152,6 +153,8 @@ export class CollaborationRoom {
 
   registerDocListeners() {
     this.doc.on('update', (update, origin) => {
+      this.cachedInitialSyncMessage = null;
+
       if (origin !== 'hydrate') {
         this.schedulePersist();
       }
@@ -243,7 +246,24 @@ export class CollaborationRoom {
     this.deleted = false;
   }
 
-  async addClient(ws) {
+  getInitialSyncMessage() {
+    if (this.cachedInitialSyncMessage) {
+      return this.cachedInitialSyncMessage;
+    }
+
+    const syncEncoder = encoding.createEncoder();
+    encoding.writeVarUint(syncEncoder, MSG_SYNC);
+    encoding.writeVarUint(syncEncoder, syncProtocol.messageYjsSyncStep2);
+    encoding.writeVarUint8Array(syncEncoder, Y.encodeStateAsUpdate(this.doc));
+    this.cachedInitialSyncMessage = encoding.toUint8Array(syncEncoder);
+    return this.cachedInitialSyncMessage;
+  }
+
+  sendInitialSync(ws) {
+    return sendMessage(ws, this.getInitialSyncMessage(), this);
+  }
+
+  async addClient(ws, { sendInitialSync: shouldSendInitialSync = true } = {}) {
     this.shutdownGeneration += 1;
     clearTimeout(this.destroyTimer);
     this.destroyTimer = null;
@@ -252,10 +272,9 @@ export class CollaborationRoom {
     ws.controlledClientIds = new Set();
     this.clients.add(ws);
 
-    const syncEncoder = encoding.createEncoder();
-    encoding.writeVarUint(syncEncoder, MSG_SYNC);
-    syncProtocol.writeSyncStep2(syncEncoder, this.doc);
-    sendMessage(ws, encoding.toUint8Array(syncEncoder), this);
+    if (shouldSendInitialSync) {
+      this.sendInitialSync(ws);
+    }
 
     const awarenessStates = this.awareness.getStates();
     if (awarenessStates.size > 0) {
