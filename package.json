@@ -55,7 +55,7 @@
     "@codemirror/state": "^6.5.0",
     "@codemirror/theme-one-dark": "^6.1.3",
     "@codemirror/view": "^6.38.0",
-    "@excalidraw/excalidraw": "^0.18.0",
+    "@excalidraw/excalidraw": "0.18.0-c1dbbdf",
     "highlight.js": "^11.11.1",
     "lib0": "^0.2.0",
     "markdown-it": "^14.1.0",
