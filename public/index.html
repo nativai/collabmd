@@ -149,12 +149,14 @@
       <!-- Empty state (no file selected) -->
       <div id="emptyState" class="empty-state">
         <div class="empty-state-content">
-          <svg width="48" height="48" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <rect x="6" y="8" width="28" height="38" rx="4" stroke="var(--color-primary)" stroke-width="2" fill="var(--color-primary)" fill-opacity="0.12"/>
-            <rect x="22" y="10" width="28" height="38" rx="4" stroke="var(--color-primary)" stroke-width="2" fill="var(--color-primary)" fill-opacity="0.25"/>
-            <path d="M14 20l4 10 1.5-4 4-1.5L14 20z" fill="var(--color-primary)" opacity="0.7"/>
-            <path d="M38 28l-4-10-1.5 4-4 1.5L38 28z" fill="var(--color-primary)"/>
-          </svg>
+          <div class="empty-state-logo" aria-hidden="true">
+            <svg width="48" height="48" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="6" y="8" width="28" height="38" rx="4" stroke="var(--color-primary)" stroke-width="2" fill="var(--color-primary)" fill-opacity="0.12"/>
+              <rect x="22" y="10" width="28" height="38" rx="4" stroke="var(--color-primary)" stroke-width="2" fill="var(--color-primary)" fill-opacity="0.25"/>
+              <path d="M14 20l4 10 1.5-4 4-1.5L14 20z" fill="var(--color-primary)" opacity="0.7"/>
+              <path d="M38 28l-4-10-1.5 4-4 1.5L38 28z" fill="var(--color-primary)"/>
+            </svg>
+          </div>
           <h2 class="empty-state-title">Select a file to start editing</h2>
           <p class="empty-state-desc">Choose a markdown file from the sidebar, or create a new one.</p>
         </div>
