@@ -157,7 +157,7 @@ test('HTTP server exposes git status and diff endpoints for git-backed vaults', 
   assert.match(stageResponse.body, /"ok":true/);
 
   const commitResponse = await httpRequest(`${app.baseUrl}/api/git/commit`, {
-    body: JSON.stringify({ message: 'Commit test file', path: 'test.md' }),
+    body: JSON.stringify({ message: 'Commit staged changes' }),
     headers: {
       'Content-Type': 'application/json',
     },

@@ -130,13 +130,13 @@ function renderSplitRow(leftLine, rightLine) {
 
 export class GitDiffViewController {
   constructor({
-    onCommitFile = null,
+    onCommitStaged = null,
     onOpenFile = null,
     onStageFile = null,
     onUnstageFile = null,
     toastController = null,
   } = {}) {
-    this.onCommitFile = onCommitFile;
+    this.onCommitStaged = onCommitStaged;
     this.onOpenFile = onOpenFile;
     this.onStageFile = onStageFile;
     this.onUnstageFile = onUnstageFile;
@@ -159,6 +159,7 @@ export class GitDiffViewController {
     this.loadingFilePath = null;
     this.requestScope = 'all';
     this.pendingAction = null;
+    this.repoStatus = null;
   }
 
   initialize() {
@@ -213,6 +214,7 @@ export class GitDiffViewController {
     this.fileCache.clear();
     this.loadingFilePath = null;
     this.pendingAction = null;
+    this.repoStatus = null;
     this.syncToolbar();
   }
 
@@ -403,16 +405,17 @@ export class GitDiffViewController {
   getCurrentActionState() {
     const currentFile = this.getCurrentFile();
     const detail = this.getCurrentFileDetail() ?? currentFile;
+    const stagedCount = Number(this.repoStatus?.summary?.staged || 0);
     if (!detail?.path) {
       return {
-        canCommit: false,
+        canCommit: stagedCount > 0,
         canStage: false,
         canUnstage: false,
       };
     }
 
     return {
-      canCommit: Boolean(detail.hasStagedChanges),
+      canCommit: stagedCount > 0,
       canStage: Boolean(detail.hasWorkingTreeChanges || detail.hasUntrackedChanges),
       canUnstage: Boolean(detail.hasStagedChanges),
     };
@@ -453,12 +456,17 @@ export class GitDiffViewController {
       } else if (action === 'unstage') {
         await this.onUnstageFile?.(currentFile.path, { scope: this.requestScope });
       } else if (action === 'commit') {
-        await this.onCommitFile?.(currentFile.path, { scope: this.requestScope });
+        await this.onCommitStaged?.();
       }
     } finally {
       this.pendingAction = null;
       this.syncToolbar();
     }
+  }
+
+  setRepoStatus(status) {
+    this.repoStatus = status;
+    this.syncToolbar();
   }
 
   async loadCurrentFile({ forceFullPatch = false } = {}) {
@@ -601,9 +609,12 @@ export class GitDiffViewController {
         !hasCurrentFile || !primaryAction || Boolean(this.pendingAction),
       );
     }
+    if (this.commitButton) {
+      this.commitButton.textContent = this.pendingAction === 'commit' ? 'Working...' : 'Commit Staged';
+    }
     this.commitButton?.toggleAttribute(
       'disabled',
-      !hasCurrentFile || !actionState.canCommit || Boolean(this.pendingAction),
+      !actionState.canCommit || Boolean(this.pendingAction),
     );
     this.prevButton?.toggleAttribute('disabled', this.currentIndex <= 0);
     this.nextButton?.toggleAttribute('disabled', totalFiles === 0 || this.currentIndex >= totalFiles - 1);

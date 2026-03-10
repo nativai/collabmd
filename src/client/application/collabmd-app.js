@@ -125,7 +125,6 @@ export class CollabMdApp {
     this.fileExplorerReadyPromise = Promise.resolve();
     this.gitRepoAvailable = false;
     this.activeSidebarTab = 'files';
-    this.pendingGitCommitPath = null;
 
     this.lobby = new LobbyPresence({
       preferredUserName: this.getStoredUserName(),
@@ -141,7 +140,7 @@ export class CollabMdApp {
       toastController: this.toastController,
     });
     this.gitPanel = new GitPanelController({
-      onCommitFile: (filePath, { scope }) => this.openGitCommitDialog({ filePath, scope }),
+      onCommitStaged: () => this.openGitCommitDialog(),
       enabled: this.runtimeConfig.gitEnabled !== false,
       onRepoChange: (isGitRepo, status) => this.handleGitRepoChange(isGitRepo, status),
       onSelectDiff: (filePath, { scope }) => this.handleGitDiffSelection(filePath, {
@@ -223,7 +222,7 @@ export class CollabMdApp {
       toastController: this.toastController,
     });
     this.gitDiffView = new GitDiffViewController({
-      onCommitFile: (filePath, { scope }) => this.openGitCommitDialog({ filePath, scope }),
+      onCommitStaged: () => this.openGitCommitDialog(),
       onOpenFile: (filePath) => {
         if (!filePath) {
           return;
@@ -423,7 +422,6 @@ export class CollabMdApp {
     });
 
     this.elements.gitCommitDialog?.addEventListener('close', () => {
-      this.pendingGitCommitPath = null;
       if (this.elements.gitCommitInput) {
         this.elements.gitCommitInput.value = '';
       }
@@ -818,10 +816,11 @@ export class CollabMdApp {
     this.gitPanel.setActive(nextTab === 'git');
   }
 
-  handleGitRepoChange(isGitRepo) {
+  handleGitRepoChange(isGitRepo, status = null) {
     this.gitRepoAvailable = Boolean(isGitRepo);
     this.elements.sidebarTabs?.classList.toggle('hidden', !this.gitRepoAvailable);
     this.elements.gitSidebarTab?.classList.toggle('hidden', !this.gitRepoAvailable);
+    this.gitDiffView.setRepoStatus(this.gitRepoAvailable ? status : null);
 
     if (!this.gitRepoAvailable && this.activeSidebarTab === 'git') {
       this.setSidebarTab('files');
@@ -914,8 +913,8 @@ export class CollabMdApp {
     });
   }
 
-  openGitCommitDialog({ filePath = null } = {}) {
-    if (!this.isTabActive || !filePath) {
+  openGitCommitDialog() {
+    if (!this.isTabActive) {
       return;
     }
 
@@ -925,12 +924,14 @@ export class CollabMdApp {
       return;
     }
 
-    this.pendingGitCommitPath = filePath;
     if (this.elements.gitCommitTitle) {
-      this.elements.gitCommitTitle.textContent = `Commit ${this.getDisplayName(filePath)}`;
+      this.elements.gitCommitTitle.textContent = 'Commit staged changes';
     }
     if (this.elements.gitCommitCopy) {
-      this.elements.gitCommitCopy.textContent = filePath;
+      const stagedCount = Number(this.gitPanel.status?.summary?.staged || 0);
+      this.elements.gitCommitCopy.textContent = stagedCount > 0
+        ? `${stagedCount} staged file${stagedCount === 1 ? '' : 's'} will be included.`
+        : 'All staged changes will be included.';
     }
     input.value = '';
 
@@ -952,9 +953,8 @@ export class CollabMdApp {
     const dialog = this.elements.gitCommitDialog;
     const input = this.elements.gitCommitInput;
     const submit = this.elements.gitCommitSubmit;
-    const filePath = this.pendingGitCommitPath;
     const message = String(input?.value ?? '').trim();
-    if (!dialog || !input || !filePath) {
+    if (!dialog || !input) {
       return;
     }
     if (!message) {
@@ -967,14 +967,13 @@ export class CollabMdApp {
     try {
       const result = await this.postGitAction('/api/git/commit', {
         message,
-        path: filePath,
       });
       dialog.close();
       const shortHash = result.commit?.shortHash ? ` (${result.commit.shortHash})` : '';
-      this.toastController.show(`Committed ${this.getDisplayName(filePath)}${shortHash}`);
-      await this.refreshGitAfterAction({ filePath });
+      this.toastController.show(`Committed staged changes${shortHash}`);
+      await this.refreshGitAfterAction();
     } catch (error) {
-      this.toastController.show(error.message || 'Failed to commit file');
+      this.toastController.show(error.message || 'Failed to commit staged changes');
     } finally {
       submit?.toggleAttribute('disabled', false);
     }

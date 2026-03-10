@@ -119,18 +119,13 @@ export function createGitApiHandler({ gitService = null }) {
     if (requestUrl.pathname === '/api/git/commit' && req.method === 'POST') {
       try {
         const body = await parseJsonBody(req);
-        if (!body?.path) {
-          jsonResponse(req, res, 400, { error: 'Missing path' });
-          return true;
-        }
         if (!body?.message) {
           jsonResponse(req, res, 400, { error: 'Missing commit message' });
           return true;
         }
 
-        const result = await gitService.commitFile({
+        const result = await gitService.commitStaged({
           message: body.message,
-          path: body.path,
         });
         jsonResponse(req, res, 200, result);
       } catch (error) {
@@ -140,8 +135,8 @@ export function createGitApiHandler({ gitService = null }) {
           return true;
         }
 
-        console.error('[api] Failed to commit git file:', error.message);
-        jsonResponse(req, res, 500, { error: 'Failed to commit git file' });
+        console.error('[api] Failed to commit staged changes:', error.message);
+        jsonResponse(req, res, 500, { error: 'Failed to commit staged changes' });
       }
       return true;
     }

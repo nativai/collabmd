@@ -79,7 +79,7 @@ function renderBranchMetrics(summary = {}, branch = {}) {
 export class GitPanelController {
   constructor({
     enabled = true,
-    onCommitFile = () => {},
+    onCommitStaged = () => {},
     onRepoChange = () => {},
     onSelectDiff = () => {},
     onStageFile = () => {},
@@ -89,7 +89,7 @@ export class GitPanelController {
     toastController = null,
   } = {}) {
     this.enabled = enabled;
-    this.onCommitFile = onCommitFile;
+    this.onCommitStaged = onCommitStaged;
     this.onRepoChange = onRepoChange;
     this.onSelectDiff = onSelectDiff;
     this.onStageFile = onStageFile;
@@ -156,6 +156,14 @@ export class GitPanelController {
         : null;
       if (viewAllButton) {
         this.onViewAllDiff();
+        return;
+      }
+
+      const commitStagedButton = event.target instanceof Element
+        ? event.target.closest('[data-git-commit-staged]')
+        : null;
+      if (commitStagedButton) {
+        void this.handleCommitStaged();
       }
     });
 
@@ -266,9 +274,24 @@ export class GitPanelController {
         await this.onStageFile(filePath, { scope });
       } else if (action === 'unstage') {
         await this.onUnstageFile(filePath, { scope });
-      } else if (action === 'commit') {
-        await this.onCommitFile(filePath, { scope });
       }
+    } finally {
+      this.pendingActionKey = null;
+      this.render();
+    }
+  }
+
+  async handleCommitStaged() {
+    const actionKey = 'commit-staged';
+    if (this.pendingActionKey === actionKey) {
+      return;
+    }
+
+    this.pendingActionKey = actionKey;
+    this.render();
+
+    try {
+      await this.onCommitStaged();
     } finally {
       this.pendingActionKey = null;
       this.render();
@@ -307,8 +330,6 @@ export class GitPanelController {
       : { label: 'Stage', value: 'stage' };
     const actionKey = `${stageAction.value}:${file.scope}:${file.path}`;
     const isPending = this.pendingActionKey === actionKey;
-    const commitActionKey = `commit:${file.scope}:${file.path}`;
-    const isCommitPending = this.pendingActionKey === commitActionKey;
 
     return `
       <div class="git-file-row${isActive ? ' active' : ''}">
@@ -338,20 +359,6 @@ export class GitPanelController {
           >
             ${isPending ? '...' : actionIconSvg(stageAction.value)}
           </button>
-          ${file.scope === 'staged' ? `
-            <button
-              class="git-file-action-btn git-file-action-btn-primary"
-              type="button"
-              data-git-file-action="commit"
-              data-git-path="${escapeHtml(file.path)}"
-              data-git-scope="${escapeHtml(file.scope)}"
-              aria-label="Commit ${escapeHtml(displayName)}"
-              title="Commit"
-              ${isCommitPending ? 'disabled' : ''}
-            >
-              ${isCommitPending ? '...' : actionIconSvg('commit')}
-            </button>
-          ` : ''}
         </div>
       </div>
     `;
@@ -386,6 +393,8 @@ export class GitPanelController {
       .filter(Boolean)
       .join('');
     const hasChanges = Boolean(this.status.summary?.changedFiles);
+    const hasStagedChanges = Number(this.status.summary?.staged || 0) > 0;
+    const isCommitPending = this.pendingActionKey === 'commit-staged';
 
     this.panel.innerHTML = `
       <div class="git-branch-bar">
@@ -398,10 +407,20 @@ export class GitPanelController {
       ${sectionMarkup || '<div class="git-panel-empty">No local changes</div>'}
       ${hasChanges ? `
         <div class="git-panel-footer">
-          <button class="git-view-all-btn" type="button" data-git-view-all>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            View Full Diff
-          </button>
+          <div class="git-panel-footer-actions">
+            <button class="git-view-all-btn" type="button" data-git-view-all>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              View Full Diff
+            </button>
+            <button
+              class="git-footer-commit-btn"
+              type="button"
+              data-git-commit-staged
+              ${!hasStagedChanges || isCommitPending ? 'disabled' : ''}
+            >
+              ${isCommitPending ? 'Working...' : 'Commit Staged'}
+            </button>
+          </div>
         </div>
       ` : ''}
     `;

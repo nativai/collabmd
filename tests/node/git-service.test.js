@@ -162,7 +162,7 @@ test('GitService guards large file patches until explicitly requested', async (t
   assert.equal(fullDiff.files[0].hunks.length > 0, true);
 });
 
-test('GitService stages, unstages, and commits a single file without consuming other staged changes', async (t) => {
+test('GitService stages, unstages, and commits all staged changes', async (t) => {
   const repoDir = await mkdtemp(join(tmpdir(), 'collabmd-git-service-actions-'));
   t.after(async () => {
     await rm(repoDir, { force: true, recursive: true });
@@ -192,18 +192,16 @@ test('GitService stages, unstages, and commits a single file without consuming o
   assert.equal(status.sections.find((section) => section.key === 'working-tree')?.files.map((file) => file.path).join(','), 'a.md');
 
   await gitService.stageFile('a.md');
-  const commitResult = await gitService.commitFile({
-    message: 'Commit only a',
-    path: 'a.md',
+  const commitResult = await gitService.commitStaged({
+    message: 'Commit staged changes',
   });
-  assert.equal(commitResult.path, 'a.md');
-  assert.equal(commitResult.commit.message, 'Commit only a');
+  assert.equal(commitResult.commit.message, 'Commit staged changes');
   assert.equal(commitResult.commit.shortHash.length > 0, true);
 
   const headMessage = await execFile('git', ['log', '-1', '--pretty=%s'], { cwd: repoDir });
-  assert.equal(String(headMessage.stdout).trim(), 'Commit only a');
+  assert.equal(String(headMessage.stdout).trim(), 'Commit staged changes');
 
   status = await gitService.getStatus({ force: true });
-  assert.equal(status.sections.find((section) => section.key === 'staged')?.files.map((file) => file.path).join(','), 'b.md');
+  assert.equal((status.sections.find((section) => section.key === 'staged')?.files ?? []).length, 0);
   assert.equal((status.sections.find((section) => section.key === 'working-tree')?.files ?? []).length, 0);
 });

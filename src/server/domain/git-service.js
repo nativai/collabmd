@@ -699,15 +699,18 @@ export class GitService {
     };
   }
 
-  async commitFile({ message, path } = {}) {
-    const normalizedPath = normalizeRelativePath(path);
+  async commitStaged({ message } = {}) {
     const normalizedMessage = String(message ?? '').trim();
     if (!normalizedMessage) {
       throw createRequestError(400, 'Missing commit message');
     }
 
-    await this.execGit(['add', '-A', '--', normalizedPath]);
-    await this.execGit(['commit', '-m', normalizedMessage, '--only', '--', normalizedPath]);
+    const status = await this.getStatus({ force: true });
+    if (Number(status.summary?.staged || 0) === 0) {
+      throw createRequestError(409, 'No staged changes to commit');
+    }
+
+    await this.execGit(['commit', '-m', normalizedMessage]);
     const hash = (await this.execGit(['rev-parse', 'HEAD'])).trim();
     const shortHash = (await this.execGit(['rev-parse', '--short', 'HEAD'])).trim();
     this.invalidateStatusCache();
@@ -718,7 +721,6 @@ export class GitService {
         shortHash,
       },
       ok: true,
-      path: normalizedPath,
     };
   }
 
