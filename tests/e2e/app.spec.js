@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test';
 import { resetE2EVaultSnapshot } from './helpers/vault-snapshot.js';
 
 const E2E_USER_NAME = 'E2E User';
+const ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR = '[data-excalidraw-maximized-root="true"] .excalidraw-embed.is-maximized';
+const ACTIVE_MAXIMIZED_PLANTUML_SELECTOR = '[data-plantuml-maximized-root="true"] .plantuml-shell.is-maximized';
 
 async function seedStoredUserName(page, name = E2E_USER_NAME) {
   await page.addInitScript((storedName) => {
@@ -147,9 +149,11 @@ async function getHeavyPreviewCounts(page) {
 
 async function getPlantUmlZoomMetrics(page) {
   return page.evaluate(() => {
-    const frame = document.querySelector('#previewContent .plantuml-frame');
+    const activeShell = document.querySelector('[data-plantuml-maximized-root="true"] .plantuml-shell.is-maximized')
+      || document.querySelector('#previewContent .plantuml-shell');
+    const frame = activeShell?.querySelector('.plantuml-frame');
     const svg = frame?.querySelector('svg');
-    const label = document.querySelector('#previewContent .plantuml-zoom-label');
+    const label = activeShell?.querySelector('.plantuml-zoom-label');
     if (!frame || !svg || !label) {
       return null;
     }
@@ -654,11 +658,11 @@ test('opens excalidraw files with a direct iframe preview', async ({ page }) => 
   expect(initialWidths.embedWidth).toBeGreaterThan(initialWidths.containerWidth - 48);
 
   await page.locator('#previewContent .excalidraw-embed-btn', { hasText: 'Max' }).click();
-  await expect(page.locator('#previewContent .excalidraw-embed')).toHaveClass(/is-maximized/);
+  await expect(page.locator(ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR)).toHaveClass(/is-maximized/);
 
   const maximizedWidths = await page.evaluate(() => {
     const container = document.getElementById('previewContainer');
-    const embed = document.querySelector('#previewContent .excalidraw-embed.is-maximized');
+    const embed = document.querySelector('[data-excalidraw-maximized-root="true"] .excalidraw-embed.is-maximized');
     if (!container || !embed) {
       return null;
     }
@@ -1135,10 +1139,10 @@ test('embedded excalidraw maximize preserves layout and modal sizing', async ({ 
   await expect(page.locator('#previewContent .excalidraw-embed-btn', { hasText: 'Expand' })).toHaveCount(0);
 
   await page.locator('#previewContent .excalidraw-embed-btn', { hasText: 'Max' }).first().click();
-  await expect(page.locator('#previewContent .excalidraw-embed-btn', { hasText: 'Restore' }).first()).toBeVisible();
+  await expect(page.locator(`${ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR} .excalidraw-embed-btn`, { hasText: 'Restore' }).first()).toBeVisible();
 
   const afterMaximize = await page.evaluate(() => {
-    const embed = document.querySelector('#previewContent .excalidraw-embed.is-maximized');
+    const embed = document.querySelector('[data-excalidraw-maximized-root="true"] .excalidraw-embed.is-maximized');
     const previewContainer = document.getElementById('previewContainer');
     const resizer = document.getElementById('resizer');
     if (!embed || !previewContainer) {
@@ -1594,12 +1598,12 @@ test('refits standalone PlantUML diagrams on maximize, resize, and restore', asy
   const zoomedInlineLabel = await page.locator('#previewContent .plantuml-zoom-label').textContent();
 
   await page.locator('#previewContent .plantuml-tool-btn[aria-label="Maximize diagram"]').click();
-  await expect(page.locator('#previewContent .plantuml-tool-btn[aria-label="Restore diagram size"]')).toBeVisible();
+  await expect(page.locator(`${ACTIVE_MAXIMIZED_PLANTUML_SELECTOR} .plantuml-tool-btn[aria-label="Restore diagram size"]`)).toBeVisible();
   await expect.poll(async () => {
     const metrics = await getPlantUmlZoomMetrics(page);
     return metrics ? metrics.currentLabel === metrics.expectedLabel : false;
   }).toBeTruthy();
-  const maximizedFitLabel = await page.locator('#previewContent .plantuml-zoom-label').textContent();
+  const maximizedFitLabel = await page.locator(`${ACTIVE_MAXIMIZED_PLANTUML_SELECTOR} .plantuml-zoom-label`).textContent();
   expect(maximizedFitLabel).not.toBe(zoomedInlineLabel);
 
   await page.setViewportSize({ width: 900, height: 900 });
@@ -1607,13 +1611,13 @@ test('refits standalone PlantUML diagrams on maximize, resize, and restore', asy
     const metrics = await getPlantUmlZoomMetrics(page);
     return metrics ? metrics.currentLabel === metrics.expectedLabel : false;
   }).toBeTruthy();
-  const resizedMaximizedLabel = await page.locator('#previewContent .plantuml-zoom-label').textContent();
+  const resizedMaximizedLabel = await page.locator(`${ACTIVE_MAXIMIZED_PLANTUML_SELECTOR} .plantuml-zoom-label`).textContent();
   expect(resizedMaximizedLabel).not.toBe(maximizedFitLabel);
 
-  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
-  const zoomedMaximizedLabel = await page.locator('#previewContent .plantuml-zoom-label').textContent();
+  await page.locator(`${ACTIVE_MAXIMIZED_PLANTUML_SELECTOR} .plantuml-tool-btn[aria-label="Zoom in"]`).click();
+  const zoomedMaximizedLabel = await page.locator(`${ACTIVE_MAXIMIZED_PLANTUML_SELECTOR} .plantuml-zoom-label`).textContent();
 
-  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Restore diagram size"]').click();
+  await page.locator(`${ACTIVE_MAXIMIZED_PLANTUML_SELECTOR} .plantuml-tool-btn[aria-label="Restore diagram size"]`).click();
   await expect(page.locator('#previewContent .plantuml-tool-btn[aria-label="Maximize diagram"]')).toBeVisible();
   await expect.poll(async () => {
     const metrics = await getPlantUmlZoomMetrics(page);
