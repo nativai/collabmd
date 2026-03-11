@@ -4,6 +4,9 @@ import assert from 'node:assert/strict';
 import { WorkspacePreviewController } from '../../src/client/application/workspace-preview-controller.js';
 
 function createController(overrides = {}) {
+  const getSession = overrides.getSession
+    ?? (() => (Object.hasOwn(overrides, 'session') ? overrides.session : { getText: () => 'graph TD\nA-->B' }));
+
   return new WorkspacePreviewController({
     backlinksPanel: { clear() {}, ...(overrides.backlinksPanel || {}) },
     commentsPanel: { decoratePreviewAnchors() {}, ...(overrides.commentsPanel || {}) },
@@ -16,7 +19,7 @@ function createController(overrides = {}) {
     },
     excalidrawEmbed: { setHydrationPaused() {}, ...(overrides.excalidrawEmbed || {}) },
     getDisplayName: (filePath) => filePath,
-    getSession: () => overrides.session ?? { getText: () => 'graph TD\nA-->B' },
+    getSession,
     isExcalidrawFile: (filePath) => filePath?.endsWith('.excalidraw'),
     isMermaidFile: (filePath) => filePath?.endsWith('.mmd'),
     isPlantUmlFile: (filePath) => filePath?.endsWith('.puml'),
@@ -88,4 +91,55 @@ test('WorkspacePreviewController pauses preview hydration during editor scroll a
     ['preview', true],
     ['embed', true],
   ]);
+});
+
+test('WorkspacePreviewController still syncs Excalidraw preview layout without an editor session', async () => {
+  const events = [];
+  const previewContent = {
+    classList: {
+      add() {},
+      contains(token) {
+        return token === 'is-excalidraw-file-preview';
+      },
+      remove() {},
+      toggle() {},
+    },
+    dataset: { renderPhase: 'ready' },
+  };
+  const controller = createController({
+    elements: {
+      commentSelectionButton: { classList: { toggle() {} } },
+      commentsToggle: { classList: { toggle() {} } },
+      markdownToolbar: { classList: { toggle() {} } },
+      outlineToggle: { classList: { toggle() {} } },
+      previewContent,
+    },
+    excalidrawEmbed: {
+      syncLayout() {
+        events.push('sync-layout');
+      },
+    },
+    scrollSyncController: {
+      invalidatePreviewBlocks() {
+        events.push('invalidate-preview');
+      },
+      warmPreviewBlocks() {
+        events.push('warm-preview');
+      },
+    },
+    session: null,
+  });
+
+  await new Promise((resolve) => {
+    controller.schedulePreviewLayoutSync({
+      delayMs: 0,
+      hydrationPaused: false,
+      previewLayoutSyncTimer: null,
+      setPendingPreviewLayoutSync() {},
+      setPreviewLayoutSyncTimer() {},
+    });
+    setTimeout(resolve, 0);
+  });
+
+  assert.deepEqual(events, ['sync-layout']);
 });

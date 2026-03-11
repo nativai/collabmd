@@ -185,3 +185,23 @@ test('WorkspaceCoordinator ensures initial content after sync wait even without 
 
   assert.equal(ensureCalls, 1);
 });
+
+test('WorkspaceCoordinator skips creating an editor session for Excalidraw files', async () => {
+  let createSessionCalls = 0;
+  const { coordinator, events } = createCoordinator({
+    createEditorSession: () => {
+      createSessionCalls += 1;
+      return {
+        destroy() {},
+      };
+    },
+    isExcalidrawFile: (filePath) => filePath?.endsWith('.excalidraw'),
+  });
+
+  await coordinator.openFile('vault/new-diagram.excalidraw');
+
+  assert.equal(createSessionCalls, 0);
+  assert.equal(coordinator.getSession(), null);
+  assert.ok(events.includes('open-ready'));
+  assert.ok(events.includes('render-excalidraw'));
+});

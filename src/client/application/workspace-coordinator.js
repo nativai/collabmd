@@ -129,19 +129,40 @@ export class WorkspaceCoordinator {
       return;
     }
 
-    if (filePath === this.stateStore.get('currentFilePath') && this.session) {
+    const isExcalidraw = this.isExcalidrawFile(filePath);
+    const isMermaid = this.isMermaidFile(filePath);
+    const isPlantUml = this.isPlantUmlFile(filePath);
+
+    if (filePath === this.stateStore.get('currentFilePath') && (this.session || isExcalidraw)) {
       this.onUpdateActiveFile(filePath);
       this.onUpdateLobbyCurrentFile(filePath);
       return;
     }
 
     const loadToken = this.stateStore.nextSessionLoadToken();
-    const isExcalidraw = this.isExcalidrawFile(filePath);
-    const isMermaid = this.isMermaidFile(filePath);
-    const isPlantUml = this.isPlantUmlFile(filePath);
 
     this.cleanupSession();
-    const chromeState = this.chromeController.prepareForFileOpen(filePath);
+    const chromeState = this.chromeController.prepareForFileOpen(filePath, {
+      resetConnectionState: !isExcalidraw,
+    });
+
+    if (isExcalidraw) {
+      this.onSessionAssigned?.(null);
+
+      if (loadToken !== this.stateStore.get('sessionLoadToken')) {
+        return;
+      }
+
+      this.chromeController.markFileOpenReady(null);
+      this.chromeController.finalizeFileOpen({
+        filePath,
+        isExcalidraw: true,
+        session: null,
+        supportsBacklinks: chromeState.supportsBacklinks,
+      });
+      return;
+    }
+
     const session = await this.lifecycle.createSession({
       filePath,
       getFileList: this.getFileList,

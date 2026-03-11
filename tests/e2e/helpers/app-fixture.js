@@ -65,6 +65,9 @@ export async function openHome(page, { userName = E2E_USER_NAME } = {}) {
   await seedStoredUserName(page, userName);
   await page.goto('/');
   await expect(page.locator('#displayNameDialog')).toBeHidden();
+  await expect.poll(async () => (
+    page.locator('#fileTree .file-tree-item').count()
+  ), { timeout: 15000 }).toBeGreaterThan(0);
 }
 
 export async function stubPlantUmlRender(page, label = 'plantuml-stub') {

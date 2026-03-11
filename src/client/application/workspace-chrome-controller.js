@@ -45,13 +45,15 @@ export class WorkspaceChromeController {
     this.stateStore = stateStore;
   }
 
-  prepareForFileOpen(filePath) {
+  prepareForFileOpen(filePath, { resetConnectionState = true } = {}) {
     const supportsComments = supportsCommentsForFilePath(filePath);
 
     this.onViewModeReset();
     this.onBeforeFileOpen();
     this.stateStore.set('connectionHelpShown', false);
-    this.stateStore.set('connectionState', { status: 'connecting', unreachable: false });
+    if (resetConnectionState) {
+      this.stateStore.set('connectionState', { status: 'connecting', unreachable: false });
+    }
     this.stateStore.set('currentFilePath', filePath);
     this.onUpdateCurrentFile(filePath);
     this.onUpdateLobbyCurrentFile(filePath);
@@ -76,13 +78,13 @@ export class WorkspaceChromeController {
     this.onFileOpenReady(session);
   }
 
-  finalizeFileOpen({ filePath, isExcalidraw, session, supportsBacklinks }) {
+  finalizeFileOpen({ filePath, isExcalidraw, session = null, supportsBacklinks }) {
     if (isExcalidraw) {
       this.onRenderExcalidrawPreview(filePath);
     }
     this.onSyncWrapToggle();
-    this.onCommentsChange(session.getCommentThreads());
-    if (supportsBacklinks) {
+    this.onCommentsChange(session?.getCommentThreads() ?? []);
+    if (supportsBacklinks && session) {
       this.loadBacklinks(filePath);
     }
   }

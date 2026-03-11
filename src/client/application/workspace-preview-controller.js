@@ -164,7 +164,9 @@ export class WorkspacePreviewController {
     const nextTimer = setTimeout(() => {
       setPreviewLayoutSyncTimer(null);
 
-      if (!this.getSession() || !this.elements.previewContent) {
+      const hasSession = Boolean(this.getSession());
+      const isExcalidrawPreview = this.elements.previewContent?.classList?.contains?.('is-excalidraw-file-preview') ?? false;
+      if ((!hasSession && !isExcalidrawPreview) || !this.elements.previewContent) {
         return;
       }
 
@@ -178,6 +180,10 @@ export class WorkspacePreviewController {
       }
 
       this.excalidrawEmbed.syncLayout();
+      if (isExcalidrawPreview && !hasSession) {
+        return;
+      }
+
       this.scrollSyncController.invalidatePreviewBlocks();
       this.scrollSyncController.warmPreviewBlocks({
         onReady: () => {
