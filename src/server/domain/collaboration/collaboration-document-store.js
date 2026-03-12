@@ -114,6 +114,14 @@ export class CollaborationDocumentStore {
     await this.vaultFileStore.writeCollaborationSnapshot(this.name, snapshot);
   }
 
+  async deleteSnapshot() {
+    if (!this.vaultFileStore || typeof this.vaultFileStore.deleteCollaborationSnapshot !== 'function') {
+      return;
+    }
+
+    await this.vaultFileStore.deleteCollaborationSnapshot(this.name);
+  }
+
   async writeCommentThreads(threads) {
     if (!this.vaultFileStore || typeof this.vaultFileStore.writeCommentThreads !== 'function') {
       return;

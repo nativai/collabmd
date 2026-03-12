@@ -177,6 +177,48 @@ test('CollaborationRoom primes a collaboration snapshot after content hydration 
   assert.equal(snapshotWrites[0].snapshot instanceof Uint8Array, true);
 });
 
+test('CollaborationRoom discards an invalid snapshot and rebuilds from persisted content', async () => {
+  const snapshotWrites = [];
+  let deletedSnapshotPath = null;
+  const room = new CollaborationRoom({
+    maxBufferedAmountBytes: 1024,
+    name: 'broken-snapshot.excalidraw',
+    onEmpty: () => {},
+    vaultFileStore: {
+      async readCollaborationSnapshot() {
+        return Uint8Array.from([1]);
+      },
+      async deleteCollaborationSnapshot(path) {
+        deletedSnapshotPath = path;
+        return { ok: true };
+      },
+      async readCommentThreads() {
+        return [];
+      },
+      async readExcalidrawFile() {
+        return '{"type":"excalidraw","version":2,"source":"collabmd","elements":[],"appState":{"gridSize":20,"viewBackgroundColor":"#ffffff"},"files":{}}';
+      },
+      async writeCollaborationSnapshot(path, snapshot) {
+        snapshotWrites.push({ path, snapshot });
+        return { ok: true };
+      },
+      async writeExcalidrawFile() {},
+    },
+  });
+
+  await room.hydrate();
+  await Promise.resolve();
+
+  assert.equal(deletedSnapshotPath, 'broken-snapshot.excalidraw');
+  assert.equal(
+    room.doc.getText('codemirror').toString(),
+    '{"type":"excalidraw","version":2,"source":"collabmd","elements":[],"appState":{"gridSize":20,"viewBackgroundColor":"#ffffff"},"files":{}}',
+  );
+  assert.equal(snapshotWrites.length, 1);
+  assert.equal(snapshotWrites[0].path, 'broken-snapshot.excalidraw');
+  assert.equal(snapshotWrites[0].snapshot instanceof Uint8Array, true);
+});
+
 test('CollaborationRoom reloads live room content from disk without scheduling a persist', async () => {
   let readCount = 0;
   const writes = [];

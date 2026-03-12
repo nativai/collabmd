@@ -2702,7 +2702,9 @@ body.plantuml-maximized-open::before {
   width: min(300px, 34vw);
   min-width: 240px;
   border-left: 1px solid var(--color-divider);
-  background: var(--color-surface);
+  background:
+    linear-gradient(180deg, oklch(from var(--color-comment) l c h / 0.035), transparent 120px),
+    color-mix(in srgb, var(--color-surface) 96%, var(--color-comment) 4%);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -2710,15 +2712,15 @@ body.plantuml-maximized-open::before {
 }
 
 .comments-drawer-header {
-  padding: var(--space-4) var(--space-4) var(--space-3);
+  padding: var(--space-4);
   border-bottom: 1px solid var(--color-divider);
-  background: color-mix(in srgb, var(--color-surface) 92%, var(--color-comment) 8%);
+  background: color-mix(in srgb, var(--color-surface) 97%, var(--color-comment) 3%);
 }
 
 .comments-drawer-title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--color-comment);
 }
@@ -2732,7 +2734,7 @@ body.plantuml-maximized-open::before {
 .comments-drawer-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   overflow: auto;
   padding: var(--space-3);
 }
@@ -2740,24 +2742,30 @@ body.plantuml-maximized-open::before {
 .comments-drawer-item {
   width: 100%;
   text-align: left;
-  border: 1px solid var(--color-divider);
-  border-radius: var(--radius-lg);
-  padding: var(--space-3);
-  background: color-mix(in srgb, var(--color-surface-2) 90%, var(--color-comment) 10%);
+  border: 1px solid color-mix(in srgb, var(--color-divider) 90%, var(--color-comment) 10%);
+  border-radius: calc(var(--radius-lg) + 4px);
+  padding: var(--space-4);
+  background:
+    linear-gradient(180deg, oklch(from var(--color-comment) l c h / 0.028), transparent 70%),
+    color-mix(in srgb, var(--color-surface-2) 95%, var(--color-comment) 5%);
   transition: transform 140ms ease, border-color var(--transition-interactive), background var(--transition-interactive), box-shadow var(--transition-interactive);
 }
 
 .comments-drawer-item:hover {
   transform: translateY(-1px);
-  border-color: oklch(from var(--color-comment) l c h / 0.22);
-  background: color-mix(in srgb, var(--color-surface-2) 85%, var(--color-comment) 15%);
-  box-shadow: var(--shadow-sm);
+  border-color: oklch(from var(--color-comment) l c h / 0.18);
+  background:
+    linear-gradient(180deg, oklch(from var(--color-comment) l c h / 0.042), transparent 70%),
+    color-mix(in srgb, var(--color-surface-2) 92%, var(--color-comment) 8%);
+  box-shadow: var(--shadow-md);
 }
 
 .comments-drawer-item.is-active {
-  border-color: oklch(from var(--color-comment) l c h / 0.28);
-  background: color-mix(in srgb, var(--color-surface-2) 82%, var(--color-comment) 18%);
-  box-shadow: inset 2px 0 0 var(--color-comment);
+  border-color: color-mix(in srgb, var(--color-border) 78%, var(--color-comment) 22%);
+  background:
+    linear-gradient(180deg, oklch(from var(--color-comment) l c h / 0.055), transparent 72%),
+    color-mix(in srgb, var(--color-surface-2) 90%, var(--color-comment) 10%);
+  box-shadow: 0 0 0 1px oklch(from var(--color-comment) l c h / 0.14);
 }
 
 .comments-drawer-item-header,
@@ -2769,9 +2777,11 @@ body.plantuml-maximized-open::before {
 }
 
 .comments-drawer-item-title {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  color: var(--color-text);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-comment);
 }
 
 .comments-drawer-item-count {
@@ -2789,15 +2799,29 @@ body.plantuml-maximized-open::before {
 }
 
 .comments-drawer-item-quote {
-  margin: var(--space-2) 0;
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--color-divider) 90%, var(--color-comment) 10%);
+  background: color-mix(in srgb, var(--color-surface-offset) 90%, var(--color-comment) 10%);
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.65;
+  white-space: pre;
+  overflow-x: auto;
+  overflow-y: hidden;
+  word-break: normal;
+  text-wrap: nowrap;
+  scrollbar-width: thin;
+  padding-bottom: calc(var(--space-2) + 2px);
 }
 
 .comments-drawer-item-footer {
   font-size: 11px;
-  color: var(--color-comment);
+  color: var(--color-text-muted);
   font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .comment-editor-layer,

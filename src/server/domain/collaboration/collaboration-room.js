@@ -131,9 +131,16 @@ export class CollaborationRoom {
         if (this.documentStore?.hasPersistence()) {
           const snapshot = await this.documentStore.readSnapshot();
           if (snapshot) {
-            Y.applyUpdate(this.doc, snapshot, 'hydrate');
-            this.hydrated = true;
-            return;
+            try {
+              Y.applyUpdate(this.doc, snapshot, 'hydrate');
+              this.hydrated = true;
+              return;
+            } catch (error) {
+              console.warn(
+                `[room:${this.name}] Discarding invalid collaboration snapshot: ${error.message}`,
+              );
+              await this.documentStore.deleteSnapshot?.();
+            }
           }
 
           const [content, commentThreads] = await Promise.all([
