@@ -36,14 +36,19 @@ export function normalizeScene(raw) {
 }
 
 export function parseSceneJson(rawJson) {
+  const parsed = tryParseSceneJson(rawJson);
+  return parsed || createEmptyScene();
+}
+
+export function tryParseSceneJson(rawJson) {
   if (!rawJson) {
-    return createEmptyScene();
+    return null;
   }
 
   try {
     return normalizeScene(JSON.parse(rawJson));
   } catch {
-    return createEmptyScene();
+    return null;
   }
 }
 
@@ -65,6 +70,17 @@ export function buildStoredScene(elements, appState, files) {
     appState: {
       gridSize: appState.gridSize ?? null,
       viewBackgroundColor: appState.viewBackgroundColor ?? '#ffffff',
+    },
+    files: files || {},
+  });
+}
+
+export function buildLiveCollaborationScene(elements, appState, files) {
+  return normalizeScene({
+    elements: Array.isArray(elements) ? elements : [],
+    appState: {
+      gridSize: appState?.gridSize ?? null,
+      viewBackgroundColor: appState?.viewBackgroundColor ?? '#ffffff',
     },
     files: files || {},
   });

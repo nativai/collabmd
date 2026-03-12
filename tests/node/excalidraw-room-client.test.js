@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import * as Y from 'yjs';
 
+import { buildExcalidrawRoomScene } from '../../src/domain/excalidraw-room-codec.js';
 import { ExcalidrawRoomClient } from '../../src/client/infrastructure/excalidraw-room-client.js';
 
 function createFakeAwareness() {
@@ -146,7 +147,7 @@ test('ExcalidrawRoomClient seeds and appends shared history during local scene s
     {},
   );
 
-  assert.match(ydoc.getText('codemirror').toString(), /shape-1/);
+  assert.deepEqual(buildExcalidrawRoomScene(ydoc).elements.map((element) => element.id), ['shape-1']);
   assert.match(client.getLastSceneJson(), /shape-1/);
   assert.deepEqual(remoteScenes, []);
   assert.deepEqual(client.getHistoryState(), {
@@ -440,4 +441,22 @@ test('ExcalidrawRoomClient still allows an empty scene commit after the guard wi
   timers.shift().callback();
 
   assert.deepEqual(parseElements(client.getLastSceneJson()), []);
+});
+
+test('ExcalidrawRoomClient ignores malformed legacy room text when structured state is authoritative', async () => {
+  const remoteScenes = [];
+  const { client, ydoc } = await createConnectedClient({
+    onRemoteSceneJson: (sceneJson) => remoteScenes.push(sceneJson),
+  });
+
+  client.commitSceneJson(createScene('shape-1'), { origin: 'seed-shape' });
+  const before = client.getLastSceneJson();
+
+  ydoc.transact(() => {
+    const legacyText = ydoc.getText('codemirror');
+    legacyText.insert(0, '{"broken":');
+  }, 'test-invalid-legacy');
+
+  assert.equal(client.getLastSceneJson(), before);
+  assert.equal(remoteScenes.length, 0);
 });

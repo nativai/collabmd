@@ -1,6 +1,11 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { CaptureUpdateAction, Excalidraw } from '@excalidraw/excalidraw';
+import {
+  CaptureUpdateAction,
+  Excalidraw,
+  reconcileElements,
+  restore,
+} from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
 
 import {
@@ -164,6 +169,30 @@ function applyLocalUserPatch(nextUser = {}) {
 
 if (isTestMode) {
   window.__COLLABMD_EXCALIDRAW_TEST__ = {
+    getElementBounds: (elementId) => {
+      const element = excalidrawAPI?.getSceneElementsIncludingDeleted?.()?.find((entry) => entry.id === elementId && !entry.isDeleted);
+      if (!element) {
+        return null;
+      }
+
+      return {
+        centerX: element.x + (element.width / 2),
+        centerY: element.y + (element.height / 2),
+        height: element.height,
+        width: element.width,
+        x: element.x,
+        y: element.y,
+      };
+    },
+    getElementCount: () => (
+      excalidrawAPI?.getSceneElementsIncludingDeleted?.()?.filter((element) => !element.isDeleted).length ?? 0
+    ),
+    getElementIds: () => (
+      excalidrawAPI?.getSceneElementsIncludingDeleted?.()
+        ?.filter((element) => !element.isDeleted)
+        .map((element) => element.id)
+        .sort() ?? []
+    ),
     getHistoryState: () => roomClient.getHistoryState(),
     getLocalUserName: () => localAwarenessUser?.name || '',
     getSceneJson: () => roomClient.getLastSceneJson(),
@@ -264,19 +293,26 @@ function updateApiScene(scene, {
   captureUpdate = CaptureUpdateAction.NEVER,
   trackedSharedSnapshot = true,
 } = {}) {
+  const currentAppState = excalidrawAPI.getAppState();
+  const currentElements = excalidrawAPI.getSceneElementsIncludingDeleted?.() || excalidrawAPI.getSceneElements();
+  const restoredScene = restore(scene, currentAppState, currentElements, {
+    repairBindings: true,
+  });
+  const reconciledElements = reconcileElements(currentElements, restoredScene.elements, currentAppState);
+
   suppressOnChange = true;
   if (trackedSharedSnapshot) {
     roomClient.beginApplyingSharedSnapshot();
   }
   try {
     excalidrawAPI.updateScene({
-      elements: scene.elements,
+      elements: reconciledElements,
       appState: {
         theme: currentTheme,
-        viewBackgroundColor: scene.appState.viewBackgroundColor ?? '#ffffff',
-        gridSize: scene.appState.gridSize ?? null,
+        viewBackgroundColor: restoredScene.appState.viewBackgroundColor ?? '#ffffff',
+        gridSize: restoredScene.appState.gridSize ?? null,
       },
-      files: scene.files || {},
+      files: restoredScene.files || {},
       captureUpdate,
     });
   } finally {

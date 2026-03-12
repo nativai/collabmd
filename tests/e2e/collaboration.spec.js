@@ -16,6 +16,291 @@ import {
   waitForExcalidrawTestHarness,
 } from './helpers/app-fixture.js';
 
+function createSeededMultiplayerScene() {
+  const timestamp = 1_710_000_000_000;
+
+  return {
+    type: 'excalidraw',
+    version: 2,
+    source: 'collabmd',
+    appState: {
+      gridSize: 20,
+      viewBackgroundColor: '#ffffff',
+    },
+    files: {},
+    elements: [
+      {
+        id: 'table-shell',
+        type: 'rectangle',
+        x: 160,
+        y: 120,
+        width: 420,
+        height: 220,
+        angle: 0,
+        strokeColor: '#1f2937',
+        backgroundColor: '#f8fafc',
+        fillStyle: 'solid',
+        strokeWidth: 2,
+        strokeStyle: 'solid',
+        roundness: { type: 3 },
+        roughness: 0,
+        opacity: 100,
+        seed: 101,
+        version: 11,
+        versionNonce: 1001,
+        index: 'a0',
+        isDeleted: false,
+        groupIds: [],
+        frameId: null,
+        boundElements: null,
+        updated: timestamp,
+        link: null,
+        locked: false,
+      },
+      {
+        id: 'table-divider-1',
+        type: 'line',
+        x: 300,
+        y: 120,
+        width: 0,
+        height: 220,
+        angle: 0,
+        strokeColor: '#94a3b8',
+        backgroundColor: 'transparent',
+        fillStyle: 'solid',
+        strokeWidth: 2,
+        strokeStyle: 'solid',
+        roundness: null,
+        roughness: 0,
+        opacity: 100,
+        seed: 102,
+        version: 11,
+        versionNonce: 1002,
+        index: 'a1',
+        isDeleted: false,
+        groupIds: [],
+        frameId: null,
+        points: [[0, 0], [0, 220]],
+        lastCommittedPoint: null,
+        startBinding: null,
+        endBinding: null,
+        startArrowhead: null,
+        endArrowhead: null,
+        boundElements: null,
+        updated: timestamp,
+        link: null,
+        locked: false,
+      },
+      {
+        id: 'table-divider-2',
+        type: 'line',
+        x: 440,
+        y: 120,
+        width: 0,
+        height: 220,
+        angle: 0,
+        strokeColor: '#94a3b8',
+        backgroundColor: 'transparent',
+        fillStyle: 'solid',
+        strokeWidth: 2,
+        strokeStyle: 'solid',
+        roundness: null,
+        roughness: 0,
+        opacity: 100,
+        seed: 103,
+        version: 11,
+        versionNonce: 1003,
+        index: 'a2',
+        isDeleted: false,
+        groupIds: [],
+        frameId: null,
+        points: [[0, 0], [0, 220]],
+        lastCommittedPoint: null,
+        startBinding: null,
+        endBinding: null,
+        startArrowhead: null,
+        endArrowhead: null,
+        boundElements: null,
+        updated: timestamp,
+        link: null,
+        locked: false,
+      },
+      {
+        id: 'table-divider-3',
+        type: 'line',
+        x: 160,
+        y: 193,
+        width: 420,
+        height: 0,
+        angle: 0,
+        strokeColor: '#94a3b8',
+        backgroundColor: 'transparent',
+        fillStyle: 'solid',
+        strokeWidth: 2,
+        strokeStyle: 'solid',
+        roundness: null,
+        roughness: 0,
+        opacity: 100,
+        seed: 104,
+        version: 11,
+        versionNonce: 1004,
+        index: 'a3',
+        isDeleted: false,
+        groupIds: [],
+        frameId: null,
+        points: [[0, 0], [420, 0]],
+        lastCommittedPoint: null,
+        startBinding: null,
+        endBinding: null,
+        startArrowhead: null,
+        endArrowhead: null,
+        boundElements: null,
+        updated: timestamp,
+        link: null,
+        locked: false,
+      },
+      {
+        id: 'table-divider-4',
+        type: 'line',
+        x: 160,
+        y: 266,
+        width: 420,
+        height: 0,
+        angle: 0,
+        strokeColor: '#94a3b8',
+        backgroundColor: 'transparent',
+        fillStyle: 'solid',
+        strokeWidth: 2,
+        strokeStyle: 'solid',
+        roundness: null,
+        roughness: 0,
+        opacity: 100,
+        seed: 105,
+        version: 11,
+        versionNonce: 1005,
+        index: 'a4',
+        isDeleted: false,
+        groupIds: [],
+        frameId: null,
+        points: [[0, 0], [420, 0]],
+        lastCommittedPoint: null,
+        startBinding: null,
+        endBinding: null,
+        startArrowhead: null,
+        endArrowhead: null,
+        boundElements: null,
+        updated: timestamp,
+        link: null,
+        locked: false,
+      },
+      {
+        id: 'table-note',
+        type: 'text',
+        x: 205,
+        y: 145,
+        width: 154.078125,
+        height: 25,
+        angle: 0,
+        strokeColor: '#0f172a',
+        backgroundColor: 'transparent',
+        fillStyle: 'solid',
+        strokeWidth: 2,
+        strokeStyle: 'solid',
+        roundness: null,
+        roughness: 0,
+        opacity: 100,
+        seed: 106,
+        version: 11,
+        versionNonce: 1006,
+        index: 'a5',
+        isDeleted: false,
+        groupIds: [],
+        frameId: null,
+        boundElements: null,
+        updated: timestamp,
+        link: null,
+        locked: false,
+        fontSize: 20,
+        fontFamily: 1,
+        text: 'Quarterly pipeline',
+        textAlign: 'left',
+        verticalAlign: 'top',
+        containerId: null,
+        originalText: 'Quarterly pipeline',
+        autoResize: true,
+        lineHeight: 1.25,
+      },
+      {
+        id: 'status-pill',
+        type: 'ellipse',
+        x: 640,
+        y: 175,
+        width: 84,
+        height: 84,
+        angle: 0,
+        strokeColor: '#2563eb',
+        backgroundColor: '#bfdbfe',
+        fillStyle: 'solid',
+        strokeWidth: 2,
+        strokeStyle: 'solid',
+        roundness: null,
+        roughness: 0,
+        opacity: 100,
+        seed: 107,
+        version: 11,
+        versionNonce: 1007,
+        index: 'a6',
+        isDeleted: false,
+        groupIds: [],
+        frameId: null,
+        boundElements: null,
+        updated: timestamp,
+        link: null,
+        locked: false,
+      },
+    ],
+  };
+}
+
+async function seedExcalidrawMultiplayerScene(page) {
+  const scene = createSeededMultiplayerScene();
+  await page.evaluate((nextScene) => {
+    window.__COLLABMD_EXCALIDRAW_TEST__.setScene(nextScene);
+  }, scene);
+  return scene;
+}
+
+async function getSceneElementIds(page) {
+  return page.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds());
+}
+
+async function getSceneElementCount(page) {
+  return page.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementCount());
+}
+
+async function getViewportElementCenter(page, elementId) {
+  const bounds = await page.evaluate((id) => window.__COLLABMD_EXCALIDRAW_TEST__.getElementBounds(id), elementId);
+  if (!bounds) {
+    throw new Error(`Missing bounds for element ${elementId}`);
+  }
+
+  return {
+    x: bounds.centerX ?? (bounds.x + (bounds.width / 2)),
+    y: bounds.centerY ?? (bounds.y + (bounds.height / 2)),
+  };
+}
+
+async function readExcalidrawFile(page, filePath) {
+  return page.evaluate(async (path) => {
+    const response = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
+    if (!response.ok) {
+      throw new Error(`Failed to read ${path}`);
+    }
+
+    return response.json();
+  }, filePath);
+}
+
 test('allows explicit session takeover between tabs in the same browser context', async ({ browser }) => {
   const context = await browser.newContext();
   const pageA = await context.newPage();
@@ -292,6 +577,72 @@ test('shared Excalidraw history is ephemeral after the room fully closes', async
   )).toBe('#222222');
 
   await reopenContext.close();
+});
+
+test('keeps multiplayer Excalidraw scenes stable while one user drags and another user edits', async ({ browser }) => {
+  const context = await browser.newContext();
+  const pageA = await context.newPage();
+  const pageB = await context.newPage();
+  const expectedIds = [
+    'table-shell',
+    'table-divider-1',
+    'table-divider-2',
+    'table-divider-3',
+    'table-divider-4',
+    'table-note',
+    'status-pill',
+  ].sort();
+
+  await pageA.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
+  await pageB.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
+  await waitForExcalidrawTestHarness(pageA);
+  await waitForExcalidrawTestHarness(pageB);
+
+  await seedExcalidrawMultiplayerScene(pageA);
+
+  await expect.poll(async () => getSceneElementIds(pageB)).toEqual(expectedIds);
+  await expect.poll(async () => getSceneElementCount(pageA)).toBe(expectedIds.length);
+  await expect.poll(async () => getSceneElementCount(pageB)).toBe(expectedIds.length);
+
+  const dragStart = await getViewportElementCenter(pageA, 'table-shell');
+  await pageA.mouse.move(dragStart.x, dragStart.y);
+  await pageA.mouse.down();
+  await pageA.mouse.move(dragStart.x + 160, dragStart.y + 90, { steps: 8 });
+
+  await pageB.evaluate(() => {
+    const scene = JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson());
+    scene.appState = {
+      ...(scene.appState || {}),
+      viewBackgroundColor: '#dbeafe',
+    };
+    window.__COLLABMD_EXCALIDRAW_TEST__.setScene(scene);
+  });
+
+  await expect.poll(async () => ({
+    countA: await getSceneElementCount(pageA),
+    countB: await getSceneElementCount(pageB),
+    idsA: await getSceneElementIds(pageA),
+    idsB: await getSceneElementIds(pageB),
+  })).toEqual({
+    countA: expectedIds.length,
+    countB: expectedIds.length,
+    idsA: expectedIds,
+    idsB: expectedIds,
+  });
+
+  await pageA.mouse.up();
+
+  await expect.poll(async () => (
+    pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
+  )).toBe('#dbeafe');
+
+  await expect.poll(async () => (
+    (await readExcalidrawFile(pageA, 'sample-excalidraw.excalidraw')).content
+  )).toContain('table-shell');
+  const persistedScene = JSON.parse((await readExcalidrawFile(pageA, 'sample-excalidraw.excalidraw')).content);
+  expect(persistedScene.elements.map((element) => element.id).sort()).toEqual(expectedIds);
+
+  await context.close();
 });
 
 test('renaming in the app updates the mounted Excalidraw iframe user name', async ({ page }) => {

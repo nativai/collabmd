@@ -8,6 +8,10 @@ import * as Y from 'yjs';
 import { CollaborationRoom } from '../../src/server/domain/collaboration/collaboration-room.js';
 import { RoomRegistry } from '../../src/server/domain/collaboration/room-registry.js';
 import { createCommentThreadSharedType } from '../../src/domain/comment-threads.js';
+import {
+  buildExcalidrawRoomScene,
+  replaceExcalidrawRoomScene,
+} from '../../src/domain/excalidraw-room-codec.js';
 
 function createSocket({ bufferedAmount = 0 } = {}) {
   return {
@@ -210,10 +214,14 @@ test('CollaborationRoom discards an invalid snapshot and rebuilds from persisted
   await Promise.resolve();
 
   assert.equal(deletedSnapshotPath, 'broken-snapshot.excalidraw');
-  assert.equal(
-    room.doc.getText('codemirror').toString(),
-    '{"type":"excalidraw","version":2,"source":"collabmd","elements":[],"appState":{"gridSize":20,"viewBackgroundColor":"#ffffff"},"files":{}}',
-  );
+  assert.deepEqual(buildExcalidrawRoomScene(room.doc), {
+    appState: { gridSize: 20, viewBackgroundColor: '#ffffff' },
+    elements: [],
+    files: {},
+    source: 'collabmd',
+    type: 'excalidraw',
+    version: 2,
+  });
   assert.equal(snapshotWrites.length, 1);
   assert.equal(snapshotWrites[0].path, 'broken-snapshot.excalidraw');
   assert.equal(snapshotWrites[0].snapshot instanceof Uint8Array, true);
@@ -396,6 +404,14 @@ test('CollaborationRoom hydrates and persists excalidraw rooms via excalidraw fi
     type: 'excalidraw',
     version: 2,
   });
+  const updatedScene = JSON.stringify({
+    appState: { gridSize: null, viewBackgroundColor: '#ffffff' },
+    elements: [{ id: 'shape-updated', isDeleted: false, type: 'rectangle', x: 0, y: 0, width: 100, height: 80 }],
+    files: {},
+    source: 'collabmd',
+    type: 'excalidraw',
+    version: 2,
+  });
   let readExcalidrawCount = 0;
   const writes = [];
   let backlinkUpdates = 0;
@@ -430,19 +446,17 @@ test('CollaborationRoom hydrates and persists excalidraw rooms via excalidraw fi
 
   await room.hydrate();
   assert.equal(readExcalidrawCount, 1);
-  assert.equal(room.doc.getText('codemirror').toString(), initialScene);
+  assert.deepEqual(buildExcalidrawRoomScene(room.doc).elements.map((element) => element.id), ['shape-1']);
 
   room.doc.transact(() => {
-    const text = room.doc.getText('codemirror');
-    text.delete(0, text.length);
-    text.insert(0, `${initialScene}-updated`);
+    replaceExcalidrawRoomScene(room.doc, JSON.parse(updatedScene));
   }, 'test');
 
   await room.persist();
 
   assert.equal(writes.length, 1);
   assert.equal(writes[0].path, 'diagram.excalidraw');
-  assert.equal(writes[0].content, `${initialScene}-updated`);
+  assert.deepEqual(JSON.parse(writes[0].content), JSON.parse(updatedScene));
   assert.equal(backlinkUpdates, 0);
 });
 
@@ -505,12 +519,10 @@ test('CollaborationRoom keeps the latest excalidraw state available while final 
 
   const room = roomRegistry.getOrCreate('diagram.excalidraw');
   await room.hydrate();
-  assert.equal(room.doc.getText('codemirror').toString(), initialScene);
+  assert.deepEqual(buildExcalidrawRoomScene(room.doc).elements, []);
 
   room.doc.transact(() => {
-    const ytext = room.doc.getText('codemirror');
-    ytext.delete(0, ytext.length);
-    ytext.insert(0, updatedScene);
+    replaceExcalidrawRoomScene(room.doc, JSON.parse(updatedScene));
   }, 'test-live-update');
 
   const socketA = createSocket();
@@ -526,7 +538,7 @@ test('CollaborationRoom keeps the latest excalidraw state available while final 
 
   const socketB = createSocket();
   await reconnectingRoom.addClient(socketB);
-  assert.equal(reconnectingRoom.doc.getText('codemirror').toString(), updatedScene);
+  assert.deepEqual(buildExcalidrawRoomScene(reconnectingRoom.doc).elements.map((element) => element.id), ['shape-live']);
   assert.equal(persistedScene, initialScene);
 
   releaseFirstPersist();
@@ -535,6 +547,36 @@ test('CollaborationRoom keeps the latest excalidraw state available while final 
 
   reconnectingRoom.removeClient(socketB);
   await Promise.resolve();
+});
+
+test('CollaborationRoom does not persist malformed legacy excalidraw room text over a valid file', async () => {
+  const writes = [];
+  const room = new CollaborationRoom({
+    maxBufferedAmountBytes: 1024,
+    name: 'broken-room.excalidraw',
+    onEmpty: () => {},
+    vaultFileStore: {
+      async readExcalidrawFile() {
+        return JSON.stringify({
+          appState: { gridSize: null, viewBackgroundColor: '#ffffff' },
+          elements: [{ id: 'shape-live', type: 'ellipse' }],
+          files: {},
+          source: 'collabmd',
+          type: 'excalidraw',
+          version: 2,
+        });
+      },
+      async writeExcalidrawFile(path, content) {
+        writes.push({ path, content });
+      },
+    },
+  });
+
+  room.doc.getText('codemirror').insert(0, '{"broken":');
+
+  await room.persist();
+
+  assert.deepEqual(writes, []);
 });
 
 test('CollaborationRoom clears ephemeral Excalidraw history after the last client disconnects', async () => {
@@ -569,7 +611,7 @@ test('CollaborationRoom clears ephemeral Excalidraw history after the last clien
   await room.addClient(socket);
   room.removeClient(socket);
 
-  assert.equal(room.doc.getText('codemirror').toString(), scene);
+  assert.deepEqual(buildExcalidrawRoomScene(room.doc).elements.map((element) => element.id), ['shape-live']);
   assert.equal(room.doc.getArray('excalidraw-history').length, 0);
   assert.equal(room.doc.getMap('excalidraw-history-state').size, 0);
 });

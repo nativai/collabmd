@@ -9,6 +9,7 @@ import * as awarenessProtocol from 'y-protocols/awareness';
 import * as decoding from 'lib0/decoding';
 import { WebsocketProvider } from 'y-websocket';
 
+import { replaceExcalidrawRoomScene } from '../../src/domain/excalidraw-room-codec.js';
 import { MSG_AWARENESS, MSG_SYNC } from '../../src/server/domain/collaboration/protocol.js';
 import { startTestServer, waitForCondition } from './helpers/test-server.js';
 import {
@@ -397,12 +398,8 @@ test('WebSocket collaboration persists excalidraw room content to .excalidraw fi
     ws.send(syncReply);
   }
 
-  const ytext = clientDoc.getText('codemirror');
   clientDoc.transact(() => {
-    if (ytext.length > 0) {
-      ytext.delete(0, ytext.length);
-    }
-    ytext.insert(0, syncedSceneJson);
+    replaceExcalidrawRoomScene(clientDoc, JSON.parse(syncedSceneJson));
   }, 'test-replace-scene');
   ws.send(encodeSyncUpdateMessage(Y.encodeStateAsUpdate(clientDoc)));
 

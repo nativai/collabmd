@@ -9,6 +9,14 @@ import { CollaborationDocumentStore } from './collaboration-document-store.js';
 import { RoomClientStateStore } from './room-client-state-store.js';
 import { RoomPersistenceController } from './room-persistence-controller.js';
 import { populateCommentThreads, serializeCommentThreads } from '../../../domain/comment-threads.js';
+import {
+  isExcalidrawRoomDocStructured,
+  migrateLegacyExcalidrawRoomData,
+  readLegacyExcalidrawRoomScene,
+  replaceExcalidrawRoomScene,
+  serializeExcalidrawRoomScene,
+  tryParseExcalidrawSceneJson,
+} from '../../../domain/excalidraw-room-codec.js';
 
 function closeSlowClient(ws, clientState, { maxBufferedAmountBytes, name }) {
   if (!clientState || clientState.backpressureCloseIssued) {
@@ -132,7 +140,22 @@ export class CollaborationRoom {
           const snapshot = await this.documentStore.readSnapshot();
           if (snapshot) {
             try {
-              Y.applyUpdate(this.doc, snapshot, 'hydrate');
+              if (isExcalidrawRoom(this.name)) {
+                const validationDoc = new Y.Doc({ gc: true });
+                try {
+                  Y.applyUpdate(validationDoc, snapshot, 'hydrate');
+                  if (!this.ensureStructuredExcalidrawState(validationDoc)) {
+                    throw new Error('snapshot did not contain a valid structured Excalidraw scene');
+                  }
+
+                  Y.applyUpdate(this.doc, Y.encodeStateAsUpdate(validationDoc), 'hydrate');
+                } finally {
+                  validationDoc.destroy();
+                }
+              } else {
+                Y.applyUpdate(this.doc, snapshot, 'hydrate');
+              }
+
               this.hydrated = true;
               return;
             } catch (error) {
@@ -151,7 +174,14 @@ export class CollaborationRoom {
             const ytext = this.doc.getText('codemirror');
             const comments = this.doc.getArray('comments');
             this.doc.transact(() => {
-              if (content !== null) {
+              if (isExcalidrawRoom(this.name)) {
+                const parsedScene = tryParseExcalidrawSceneJson(content);
+                if (parsedScene) {
+                  migrateLegacyExcalidrawRoomData(this.doc, parsedScene);
+                } else if (content !== null) {
+                  ytext.insert(0, content);
+                }
+              } else if (content !== null) {
                 ytext.insert(0, content);
               }
               populateCommentThreads(comments, commentThreads);
@@ -259,7 +289,11 @@ export class CollaborationRoom {
     }
 
     const persistPromise = (async () => {
-      const content = this.doc.getText('codemirror').toString();
+      const content = this.getPersistedContent();
+      if (content === null) {
+        console.warn(`[room:${this.name}] Skipping persist because the Excalidraw scene is invalid`);
+        return;
+      }
       const commentThreads = serializeCommentThreads(this.doc.getArray('comments'));
       await this.documentStore.persistState({
         commentThreads,
@@ -294,12 +328,26 @@ export class CollaborationRoom {
 
     const ytext = this.doc.getText('codemirror');
     const comments = this.doc.getArray('comments');
+    const parsedExcalidrawScene = isExcalidrawRoom(this.name)
+      ? tryParseExcalidrawSceneJson(content)
+      : null;
+    if (isExcalidrawRoom(this.name) && !parsedExcalidrawScene) {
+      return false;
+    }
+
     this.doc.transact(() => {
-      if (ytext.length > 0) {
-        ytext.delete(0, ytext.length);
-      }
-      if (content) {
-        ytext.insert(0, content);
+      if (isExcalidrawRoom(this.name)) {
+        if (ytext.length > 0) {
+          ytext.delete(0, ytext.length);
+        }
+        replaceExcalidrawRoomScene(this.doc, parsedExcalidrawScene);
+      } else {
+        if (ytext.length > 0) {
+          ytext.delete(0, ytext.length);
+        }
+        if (content) {
+          ytext.insert(0, content);
+        }
       }
       if (comments.length > 0) {
         comments.delete(0, comments.length);
@@ -460,6 +508,43 @@ export class CollaborationRoom {
         historyState.delete(key);
       });
     }, 'excalidraw-history-reset');
+  }
+
+  ensureStructuredExcalidrawState(doc = this.doc) {
+    if (!isExcalidrawRoom(this.name)) {
+      return true;
+    }
+
+    if (isExcalidrawRoomDocStructured(doc)) {
+      return true;
+    }
+
+    const legacyScene = readLegacyExcalidrawRoomScene(doc);
+    if (!legacyScene) {
+      return false;
+    }
+
+    doc.transact(() => {
+      migrateLegacyExcalidrawRoomData(doc, legacyScene);
+    }, 'hydrate');
+    return true;
+  }
+
+  getPersistedContent() {
+    if (!isExcalidrawRoom(this.name)) {
+      return this.doc.getText('codemirror').toString();
+    }
+
+    if (isExcalidrawRoomDocStructured(this.doc)) {
+      return serializeExcalidrawRoomScene(this.doc);
+    }
+
+    const legacyScene = readLegacyExcalidrawRoomScene(this.doc);
+    if (!legacyScene) {
+      return null;
+    }
+
+    return JSON.stringify(legacyScene);
   }
 
   handleMessage(ws, rawData) {

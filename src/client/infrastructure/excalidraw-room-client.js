@@ -1,14 +1,27 @@
 import { Doc } from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
+import {
+  EXCALIDRAW_APP_STATE_KEY,
+  EXCALIDRAW_ELEMENTS_KEY,
+  EXCALIDRAW_FILES_KEY,
+  EXCALIDRAW_META_KEY,
+  applySceneDiffToExcalidrawRoom,
+  buildExcalidrawRoomScene,
+  ensureExcalidrawRoomSchema,
+  isExcalidrawRoomDocStructured,
+  readLegacyExcalidrawRoomScene,
+  replaceExcalidrawRoomScene,
+} from '../../domain/excalidraw-room-codec.js';
 
 import {
   buildCollaboratorsMap,
   mergeAwarenessUserPatch,
 } from '../domain/excalidraw-collaboration.js';
 import {
-  buildStoredScene,
+  buildLiveCollaborationScene,
   createEmptyScene,
   parseSceneJson,
+  tryParseSceneJson,
 } from '../domain/excalidraw-scene.js';
 import { resolveWsBaseUrl } from '../domain/runtime-paths.js';
 
@@ -17,7 +30,6 @@ const DEFAULT_HISTORY_CAPTURE_WINDOW_MS = 500;
 const DEFAULT_HISTORY_LIMIT = 100;
 const DEFAULT_HISTORY_STATE_KEY = 'excalidraw-history-state';
 const DEFAULT_EMPTY_SCENE_GUARD_MS = 250;
-const DEFAULT_ROOM_TEXT_KEY = 'codemirror';
 const DEFAULT_SAVE_THROTTLE_MS = 48;
 const DEFAULT_SYNC_TIMEOUT_MS = 4000;
 const HISTORY_HEAD_KEY = 'head';
@@ -38,7 +50,6 @@ export class ExcalidrawRoomClient {
     onRemoteSceneJson = () => {},
     requestAnimationFrameFn = (callback) => requestAnimationFrame(callback),
     resolveWsBaseUrlFn = resolveWsBaseUrl,
-    roomTextKey = DEFAULT_ROOM_TEXT_KEY,
     saveThrottleMs = DEFAULT_SAVE_THROTTLE_MS,
     setTimeoutFn = (callback, delay) => window.setTimeout(callback, delay),
     syncTimeoutMs = DEFAULT_SYNC_TIMEOUT_MS,
@@ -60,7 +71,6 @@ export class ExcalidrawRoomClient {
     this.onRemoteSceneJson = onRemoteSceneJson;
     this.requestAnimationFrameFn = requestAnimationFrameFn;
     this.resolveWsBaseUrlFn = resolveWsBaseUrlFn;
-    this.roomTextKey = roomTextKey;
     this.saveThrottleMs = saveThrottleMs;
     this.setTimeoutFn = setTimeoutFn;
     this.syncTimeoutMs = syncTimeoutMs;
@@ -70,7 +80,10 @@ export class ExcalidrawRoomClient {
     this.ydoc = null;
     this.historySnapshots = null;
     this.historyState = null;
-    this.ytext = null;
+    this.roomMeta = null;
+    this.roomElements = null;
+    this.roomFiles = null;
+    this.roomAppState = null;
     this.provider = null;
     this.awareness = null;
     this.localUser = null;
@@ -101,12 +114,12 @@ export class ExcalidrawRoomClient {
       this.handleRoomHistoryUpdate();
     };
 
-    this.handleRoomTextUpdate = () => {
-      if (!this.ytext) {
+    this.handleStructuredSceneUpdate = () => {
+      if (!this.ydoc) {
         return;
       }
 
-      const remoteJson = this.ytext.toString();
+      const remoteJson = this.getStructuredSceneJson();
       if (!remoteJson || remoteJson === this.lastSceneJson) {
         return;
       }
@@ -195,7 +208,10 @@ export class ExcalidrawRoomClient {
     this.ydoc = this.ydocFactory();
     this.historySnapshots = this.ydoc.getArray(this.historyArrayKey);
     this.historyState = this.ydoc.getMap(this.historyStateKey);
-    this.ytext = this.ydoc.getText(this.roomTextKey);
+    this.roomMeta = this.ydoc.getMap(EXCALIDRAW_META_KEY);
+    this.roomElements = this.ydoc.getMap(EXCALIDRAW_ELEMENTS_KEY);
+    this.roomFiles = this.ydoc.getMap(EXCALIDRAW_FILES_KEY);
+    this.roomAppState = this.ydoc.getMap(EXCALIDRAW_APP_STATE_KEY);
     this.provider = this.websocketProviderFactory(this.resolveWsBaseUrlFn(), this.filePath, this.ydoc, {
       disableBc: true,
       maxBackoffTime: 5000,
@@ -215,17 +231,17 @@ export class ExcalidrawRoomClient {
       }
 
       this.unlockRoomWrites();
-      this.handleRoomTextUpdate();
+      this.handleStructuredSceneUpdate();
     };
     this.provider.on('sync', this.handleProviderSync);
 
     const didInitialSyncFinish = await this.waitForSync(this.provider, this.syncTimeoutMs);
 
-    let initialJson = this.ytext.toString();
+    let initialJson = this.getStructuredSceneJson();
     let usedApiFallback = false;
     if (!initialJson) {
       const sceneFromApi = await this.loadSceneFromApi();
-      const syncedJson = this.ytext.toString();
+      const syncedJson = this.getStructuredSceneJson();
       if (syncedJson) {
         initialJson = syncedJson;
       } else {
@@ -241,12 +257,27 @@ export class ExcalidrawRoomClient {
     this.waitingForAuthoritativeSync = usedApiFallback && !didInitialSyncFinish;
     this.canWriteToRoom = !this.waitingForAuthoritativeSync;
     this.lastSceneJson = JSON.stringify(parseSceneJson(initialJson));
+    if (!usedApiFallback && this.canWriteToRoom && !isExcalidrawRoomDocStructured(this.ydoc)) {
+      this.ydoc.transact(() => {
+        this.replaceStructuredSceneWithinTransaction(this.lastSceneJson);
+      }, 'excalidraw-legacy-migrate');
+    }
     this.historySnapshots.observe(this.handleSharedHistoryUpdate);
     this.historyState.observe(this.handleSharedHistoryUpdate);
-    this.ytext.observe(this.handleRoomTextUpdate);
-    this.ensureSharedHistoryInitialized(this.lastSceneJson);
+    this.roomMeta.observe(this.handleStructuredSceneUpdate);
+    this.roomElements.observeDeep(this.handleStructuredSceneUpdate);
+    this.roomFiles.observeDeep(this.handleStructuredSceneUpdate);
+    this.roomAppState.observe(this.handleStructuredSceneUpdate);
+    if (usedApiFallback && this.canWriteToRoom) {
+      this.commitSceneJson(this.lastSceneJson, {
+        allowCoalesce: false,
+        origin: 'excalidraw-api-fallback',
+      });
+    } else {
+      this.ensureSharedHistoryInitialized(this.lastSceneJson);
+    }
     this.handleRoomHistoryUpdate();
-    this.handleRoomTextUpdate();
+    this.handleStructuredSceneUpdate();
     this.handleAwarenessChange();
 
     return parseSceneJson(this.lastSceneJson);
@@ -327,6 +358,14 @@ export class ExcalidrawRoomClient {
   unlockRoomWrites() {
     this.waitingForAuthoritativeSync = false;
     this.canWriteToRoom = true;
+    if (!this.getStructuredSceneJson() && this.lastSceneJson) {
+      this.commitSceneJson(this.lastSceneJson, {
+        allowCoalesce: false,
+        origin: 'excalidraw-authoritative-seed',
+      });
+      return;
+    }
+
     this.ensureSharedHistoryInitialized(this.lastSceneJson);
 
     if (this.pendingSceneSyncPayload) {
@@ -334,27 +373,31 @@ export class ExcalidrawRoomClient {
     }
   }
 
-  replaceRoomContentWithinTransaction(nextJson) {
-    if (!this.ytext) {
-      return;
+  getStructuredSceneJson() {
+    if (!this.ydoc) {
+      return '';
     }
 
-    if (this.ytext.length > 0) {
-      this.ytext.delete(0, this.ytext.length);
+    if (isExcalidrawRoomDocStructured(this.ydoc)) {
+      return JSON.stringify(buildExcalidrawRoomScene(this.ydoc));
     }
-    if (nextJson) {
-      this.ytext.insert(0, nextJson);
-    }
+
+    const legacyScene = readLegacyExcalidrawRoomScene(this.ydoc);
+    return legacyScene ? JSON.stringify(legacyScene) : '';
   }
 
-  replaceRoomContent(nextJson, origin = 'excalidraw-room-write') {
-    if (!this.ydoc || !this.ytext) {
+  replaceStructuredSceneWithinTransaction(nextJson) {
+    if (!this.ydoc) {
       return;
     }
 
-    this.ydoc.transact(() => {
-      this.replaceRoomContentWithinTransaction(nextJson);
-    }, origin);
+    const nextScene = tryParseSceneJson(nextJson);
+    if (!nextScene) {
+      return;
+    }
+
+    ensureExcalidrawRoomSchema(this.ydoc);
+    replaceExcalidrawRoomScene(this.ydoc, nextScene);
   }
 
   scheduleSceneSync(elements, appState, files) {
@@ -380,14 +423,14 @@ export class ExcalidrawRoomClient {
   }
 
   flushSceneSync() {
-    if (!this.ytext || !this.pendingSceneSyncPayload) {
+    if (!this.ydoc || !this.pendingSceneSyncPayload) {
       return;
     }
 
     const { elements, appState, files } = this.pendingSceneSyncPayload;
     this.pendingSceneSyncPayload = null;
 
-    const sceneData = buildStoredScene(elements, appState, files);
+    const sceneData = buildLiveCollaborationScene(elements, appState, files);
     const json = JSON.stringify(sceneData);
     if (this.shouldDelayEmptySceneCommit(json)) {
       this.pendingSceneSyncPayload = { appState, elements, files };
@@ -437,7 +480,7 @@ export class ExcalidrawRoomClient {
       return false;
     }
 
-    const previousScene = parseSceneJson(this.lastSceneJson || this.ytext?.toString());
+    const previousScene = parseSceneJson(this.lastSceneJson || this.getStructuredSceneJson());
     if (previousScene.elements.length === 0) {
       this.pendingEmptySceneCandidate = null;
       return false;
@@ -578,25 +621,37 @@ export class ExcalidrawRoomClient {
     captureTime = this.now(),
     origin = 'excalidraw-room-write',
   } = {}) {
-    if (!this.ydoc || !this.ytext || !this.historySnapshots || !this.historyState) {
+    if (!this.ydoc || !this.historySnapshots || !this.historyState) {
       this.lastSceneJson = JSON.stringify(parseSceneJson(nextJson));
       return false;
     }
 
     const normalizedJson = JSON.stringify(parseSceneJson(nextJson));
-    const previousSceneJson = this.lastSceneJson || JSON.stringify(parseSceneJson(this.ytext.toString()));
+    const roomSceneJson = this.getStructuredSceneJson();
+    const previousSceneJson = this.lastSceneJson || roomSceneJson || normalizedJson;
     this.lastSceneJson = normalizedJson;
 
     this.ydoc.transact(() => {
       let head = this.getResolvedHistoryHead();
+      let seededWithCurrentScene = false;
       if (this.historySnapshots.length === 0) {
-        this.historySnapshots.insert(0, [previousSceneJson]);
-        head = 0;
-        this.historyState.set(HISTORY_HEAD_KEY, head);
+        const seedJson = roomSceneJson || previousSceneJson;
+        if (!roomSceneJson) {
+          this.historySnapshots.insert(0, [normalizedJson]);
+          head = 0;
+          this.historyState.set(HISTORY_HEAD_KEY, head);
+          seededWithCurrentScene = true;
+        } else {
+          this.historySnapshots.insert(0, [seedJson]);
+          head = 0;
+          this.historyState.set(HISTORY_HEAD_KEY, head);
+        }
       }
 
       const shouldCoalesce = allowCoalesce && this.canCoalesceWithLocalHistory(head, captureTime);
-      if (shouldCoalesce) {
+      if (seededWithCurrentScene) {
+        this.historyState.set(HISTORY_HEAD_KEY, head);
+      } else if (shouldCoalesce) {
         this.replaceSharedHistorySnapshot(head, normalizedJson);
       } else {
         if (head < this.historySnapshots.length - 1) {
@@ -615,9 +670,14 @@ export class ExcalidrawRoomClient {
         this.historyState.set(HISTORY_HEAD_KEY, head);
       }
 
-      this.replaceRoomContentWithinTransaction(normalizedJson);
-      this.lastLocallyUpdatedHistoryHead = head;
-      this.lastLocallyUpdatedHistoryAt = captureTime;
+      applySceneDiffToExcalidrawRoom(this.ydoc, parseSceneJson(normalizedJson));
+      if (seededWithCurrentScene) {
+        this.lastLocallyUpdatedHistoryHead = -1;
+        this.lastLocallyUpdatedHistoryAt = 0;
+      } else {
+        this.lastLocallyUpdatedHistoryHead = head;
+        this.lastLocallyUpdatedHistoryAt = captureTime;
+      }
     }, origin);
 
     this.emitHistoryStateChange();
@@ -650,7 +710,7 @@ export class ExcalidrawRoomClient {
 
     this.ydoc.transact(() => {
       this.historyState.set(HISTORY_HEAD_KEY, nextHead);
-      this.replaceRoomContentWithinTransaction(nextJson);
+      this.replaceStructuredSceneWithinTransaction(nextJson);
     }, origin);
 
     this.lastLocallyUpdatedHistoryHead = -1;
@@ -720,7 +780,7 @@ export class ExcalidrawRoomClient {
       return false;
     }
 
-    const normalizedJson = JSON.stringify(parseSceneJson(sceneJson || this.lastSceneJson || this.ytext?.toString()));
+    const normalizedJson = JSON.stringify(parseSceneJson(sceneJson || this.lastSceneJson || this.getStructuredSceneJson()));
     this.ydoc.transact(() => {
       if (this.historySnapshots.length > 0) {
         return;
@@ -735,17 +795,6 @@ export class ExcalidrawRoomClient {
 
   handleRoomHistoryUpdate() {
     this.emitHistoryStateChange();
-
-    const historySceneJson = this.getActiveSharedHistorySnapshot();
-    if (!historySceneJson || historySceneJson === this.lastSceneJson) {
-      return;
-    }
-
-    this.unlockRoomWrites();
-    this.lastLocallyUpdatedHistoryHead = -1;
-    this.lastLocallyUpdatedHistoryAt = 0;
-    this.lastSceneJson = historySceneJson;
-    this.onRemoteSceneJson(historySceneJson);
   }
 
   emitHistoryStateChange() {
@@ -774,11 +823,12 @@ export class ExcalidrawRoomClient {
     this.lastSelectedIdsSignature = '';
     this.pendingEmptySceneCandidate = null;
 
-    if (this.ytext) {
-      this.ytext.unobserve(this.handleRoomTextUpdate);
-    }
     this.historySnapshots?.unobserve(this.handleSharedHistoryUpdate);
     this.historyState?.unobserve(this.handleSharedHistoryUpdate);
+    this.roomMeta?.unobserve(this.handleStructuredSceneUpdate);
+    this.roomElements?.unobserveDeep(this.handleStructuredSceneUpdate);
+    this.roomFiles?.unobserveDeep(this.handleStructuredSceneUpdate);
+    this.roomAppState?.unobserve(this.handleStructuredSceneUpdate);
 
     if (this.awareness) {
       this.awareness.off('change', this.handleAwarenessChange);
@@ -798,7 +848,10 @@ export class ExcalidrawRoomClient {
     this.ydoc = null;
     this.historySnapshots = null;
     this.historyState = null;
-    this.ytext = null;
+    this.roomMeta = null;
+    this.roomElements = null;
+    this.roomFiles = null;
+    this.roomAppState = null;
     this.localUser = null;
     this.canWriteToRoom = false;
     this.waitingForAuthoritativeSync = false;
