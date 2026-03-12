@@ -402,7 +402,7 @@ test('taking over an Excalidraw file tab preserves the live scene', async ({ bro
   await context.close();
 });
 
-test('shared Excalidraw undo and redo replay the room history across two users', async ({ browser }) => {
+test('local Excalidraw undo and redo sync the resulting scene to collaborators', async ({ browser }) => {
   const context = await browser.newContext();
   const pageA = await context.newPage();
   const pageB = await context.newPage();
@@ -438,89 +438,131 @@ test('shared Excalidraw undo and redo replay the room history across two users',
     pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
   )).toBe('#222222');
 
-  await pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.undoShared());
-
   await expect.poll(async () => (
-    pageA.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#111111');
+    pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canUndo)
+  )).toBe(true);
   await expect.poll(async () => (
-    pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#111111');
-
-  await pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.redoShared());
-
-  await expect.poll(async () => (
-    pageA.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#222222');
-  await expect.poll(async () => (
-    pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#222222');
-
-  await context.close();
-});
-
-test('shared Excalidraw history drops redo after undo followed by a new edit', async ({ browser }) => {
-  const context = await browser.newContext();
-  const pageA = await context.newPage();
-  const pageB = await context.newPage();
-
-  await pageA.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
-  await pageB.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
-  await waitForExcalidrawTestHarness(pageA);
-  await waitForExcalidrawTestHarness(pageB);
-
-  await pageA.evaluate(() => {
-    const first = JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson());
-    first.appState = {
-      ...(first.appState || {}),
-      viewBackgroundColor: '#111111',
-    };
-    window.__COLLABMD_EXCALIDRAW_TEST__.setScene(first);
-
-    const second = JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson());
-    second.appState = {
-      ...(second.appState || {}),
-      viewBackgroundColor: '#222222',
-    };
-    window.__COLLABMD_EXCALIDRAW_TEST__.setScene(second);
-  });
-
-  await expect.poll(async () => (
-    pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#222222');
-
-  await pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.undoShared());
-
-  await expect.poll(async () => (
-    pageA.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#111111');
-
-  await pageA.evaluate(() => {
-    const scene = JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson());
-    scene.appState = {
-      ...(scene.appState || {}),
-      viewBackgroundColor: '#333333',
-    };
-    window.__COLLABMD_EXCALIDRAW_TEST__.setScene(scene);
-  });
-
-  await expect.poll(async () => (
-    pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#333333');
-  await expect.poll(async () => (
-    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canRedo)
+    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canUndo)
   )).toBe(false);
 
-  await pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.redoShared());
+  await pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.undoShared());
 
   await expect.poll(async () => (
     pageA.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#333333');
+  )).toBe('#111111');
+  await expect.poll(async () => (
+    pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
+  )).toBe('#111111');
+  await expect.poll(async () => (
+    pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canRedo)
+  )).toBe(true);
+
+  await pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.redoShared());
+
+  await expect.poll(async () => (
+    pageA.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
+  )).toBe('#222222');
+  await expect.poll(async () => (
+    pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
+  )).toBe('#222222');
 
   await context.close();
 });
 
-test('shared Excalidraw history is ephemeral after the room fully closes', async ({ browser }) => {
+test('local Excalidraw redo is dropped after local undo followed by a new local edit', async ({ browser }) => {
+  const context = await browser.newContext();
+  const pageA = await context.newPage();
+  const pageB = await context.newPage();
+
+  await pageA.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
+  await pageB.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
+  await waitForExcalidrawTestHarness(pageA);
+  await waitForExcalidrawTestHarness(pageB);
+
+  await pageA.evaluate(() => {
+    const base = {
+      appState: { gridSize: null, viewBackgroundColor: '#ffffff' },
+      elements: [{
+        id: 'shape-1',
+        isDeleted: false,
+        type: 'rectangle',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 80,
+      }],
+      files: {},
+      source: 'collabmd',
+      type: 'excalidraw',
+      version: 2,
+    };
+    window.__COLLABMD_EXCALIDRAW_TEST__.setScene(base);
+
+    const withSecondShape = {
+      ...base,
+      elements: [
+        ...base.elements,
+        {
+          id: 'shape-2',
+          isDeleted: false,
+          type: 'ellipse',
+          x: 180,
+          y: 0,
+          width: 100,
+          height: 80,
+        },
+      ],
+    };
+    window.__COLLABMD_EXCALIDRAW_TEST__.setScene(withSecondShape);
+  });
+
+  await expect.poll(async () => (
+    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
+  )).toEqual(['shape-1', 'shape-2']);
+
+  await pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.undoShared());
+
+  await expect.poll(async () => (
+    pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
+  )).toEqual(['shape-1']);
+
+  await pageA.evaluate(() => {
+    const scene = JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson());
+    scene.elements = [
+      ...(scene.elements || []),
+      {
+        id: 'shape-3',
+        isDeleted: false,
+        type: 'diamond',
+        x: 320,
+        y: 0,
+        width: 100,
+        height: 80,
+      },
+    ];
+    window.__COLLABMD_EXCALIDRAW_TEST__.setScene(scene);
+  });
+
+  await expect.poll(async () => (
+    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
+  )).toEqual(['shape-1', 'shape-3']);
+  await expect.poll(async () => (
+    pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canRedo)
+  )).toBe(false);
+  await expect.poll(async () => (
+    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canUndo)
+  )).toBe(false);
+
+  await pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.redoShared());
+
+  await expect.poll(async () => (
+    pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
+  )).toEqual(['shape-1', 'shape-3']);
+
+  await context.close();
+});
+
+test('local Excalidraw history resets after the room fully closes', async ({ browser }) => {
   const editContext = await browser.newContext();
   const pageA = await editContext.newPage();
   const pageB = await editContext.newPage();
@@ -547,8 +589,11 @@ test('shared Excalidraw history is ephemeral after the room fully closes', async
   });
 
   await expect.poll(async () => (
-    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canUndo)
+    pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canUndo)
   )).toBe(true);
+  await expect.poll(async () => (
+    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canUndo)
+  )).toBe(false);
 
   await editContext.close();
 
@@ -566,8 +611,8 @@ test('shared Excalidraw history is ephemeral after the room fully closes', async
   )).toEqual({
     canRedo: false,
     canUndo: false,
-    head: 0,
-    length: 1,
+    head: null,
+    length: null,
   });
 
   await pageC.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.undoShared());

@@ -123,22 +123,15 @@ test('ExcalidrawRoomClient uses an empty scene when no file path is configured',
   assert.deepEqual(client.getHistoryState(), {
     canRedo: false,
     canUndo: false,
-    head: -1,
-    length: 0,
+    head: null,
+    length: null,
   });
 });
 
-test('ExcalidrawRoomClient seeds and appends shared history during local scene sync', async () => {
+test('ExcalidrawRoomClient syncs local scene updates into the structured room state', async () => {
   const remoteScenes = [];
   const { client, ydoc } = await createConnectedClient({
     onRemoteSceneJson: (sceneJson) => remoteScenes.push(sceneJson),
-  });
-
-  assert.deepEqual(client.getHistoryState(), {
-    canRedo: false,
-    canUndo: false,
-    head: 0,
-    length: 1,
   });
 
   client.scheduleSceneSync(
@@ -152,122 +145,36 @@ test('ExcalidrawRoomClient seeds and appends shared history during local scene s
   assert.deepEqual(remoteScenes, []);
   assert.deepEqual(client.getHistoryState(), {
     canRedo: false,
-    canUndo: true,
-    head: 1,
-    length: 2,
-  });
-});
-
-test('ExcalidrawRoomClient coalesces rapid local edits into one shared history entry', async () => {
-  let currentTime = 1000;
-  const { client } = await createConnectedClient({
-    historyCaptureWindowMs: 500,
-    now: () => currentTime,
-  });
-
-  client.commitSceneJson(createScene('shape-1'), {
-    allowCoalesce: true,
-    captureTime: currentTime,
-    origin: 'test-1',
-  });
-  currentTime += 250;
-  client.commitSceneJson(createScene('shape-2'), {
-    allowCoalesce: true,
-    captureTime: currentTime,
-    origin: 'test-2',
-  });
-
-  assert.deepEqual(client.getHistoryState(), {
-    canRedo: false,
-    canUndo: true,
-    head: 1,
-    length: 2,
-  });
-  assert.deepEqual(parseElements(client.getLastSceneJson()), ['shape-2']);
-
-  const didUndo = client.undoShared();
-  assert.equal(didUndo, true);
-  assert.deepEqual(client.getHistoryState(), {
-    canRedo: true,
     canUndo: false,
-    head: 0,
-    length: 2,
+    head: null,
+    length: null,
   });
-  assert.deepEqual(parseElements(client.getActiveSharedHistorySnapshot()), []);
 });
 
-test('ExcalidrawRoomClient undo and redo move the shared history head without adding entries', async () => {
-  const remoteScenes = [];
-  const { client } = await createConnectedClient({
-    onRemoteSceneJson: (sceneJson) => remoteScenes.push(sceneJson),
-  });
+test('ExcalidrawRoomClient commitSceneJson writes the latest scene without tracking room history', async () => {
+  const { client, ydoc } = await createConnectedClient();
 
-  client.commitSceneJson(createScene('shape-1', { color: '#111111' }), { origin: 'test-1' });
-  client.commitSceneJson(createScene('shape-2', { color: '#222222' }), { origin: 'test-2' });
-  assert.equal(client.getHistoryState().length, 3);
+  assert.equal(client.commitSceneJson(createScene('shape-1', { color: '#111111' }), { origin: 'test-1' }), true);
+  assert.equal(client.commitSceneJson(createScene('shape-2', { color: '#222222' }), { origin: 'test-2' }), true);
 
-  assert.equal(client.undoShared(), true);
-  assert.deepEqual(client.getHistoryState(), {
-    canRedo: true,
-    canUndo: true,
-    head: 1,
-    length: 3,
-  });
-  assert.deepEqual(parseElements(client.getLastSceneJson()), ['shape-1']);
-
-  assert.equal(client.redoShared(), true);
-  assert.deepEqual(client.getHistoryState(), {
-    canRedo: false,
-    canUndo: true,
-    head: 2,
-    length: 3,
-  });
   assert.deepEqual(parseElements(client.getLastSceneJson()), ['shape-2']);
-  assert.equal(remoteScenes.length >= 2, true);
-  assert.equal(client.getHistoryState().length, 3);
-});
-
-test('ExcalidrawRoomClient drops redo history after undo followed by a new edit', async () => {
-  const { client } = await createConnectedClient();
-
-  client.commitSceneJson(createScene('shape-1'), { origin: 'test-1' });
-  client.commitSceneJson(createScene('shape-2'), { origin: 'test-2' });
-
-  assert.equal(client.undoShared(), true);
-  assert.equal(client.canRedo(), true);
-
-  client.commitSceneJson(createScene('shape-3'), { origin: 'test-3' });
-
+  assert.deepEqual(buildExcalidrawRoomScene(ydoc).elements.map((element) => element.id), ['shape-2']);
   assert.deepEqual(client.getHistoryState(), {
     canRedo: false,
-    canUndo: true,
-    head: 2,
-    length: 3,
+    canUndo: false,
+    head: null,
+    length: null,
   });
-  assert.deepEqual(parseElements(client.getLastSceneJson()), ['shape-3']);
-  assert.equal(client.redoShared(), false);
 });
 
-test('ExcalidrawRoomClient evicts old snapshots when the shared history reaches its limit', async () => {
-  const { client } = await createConnectedClient({ historyLimit: 3 });
+test('ExcalidrawRoomClient avoids rewriting the room when the scene is unchanged', async () => {
+  const { client, ydoc } = await createConnectedClient();
 
-  client.commitSceneJson(createScene('shape-1'), { origin: 'test-1' });
-  client.commitSceneJson(createScene('shape-2'), { origin: 'test-2' });
-  client.commitSceneJson(createScene('shape-3'), { origin: 'test-3' });
+  assert.equal(client.commitSceneJson(createScene('shape-1'), { origin: 'test-1' }), true);
+  const updateBaseline = Y.encodeStateAsUpdate(ydoc);
 
-  assert.deepEqual(client.getHistoryState(), {
-    canRedo: false,
-    canUndo: true,
-    head: 2,
-    length: 3,
-  });
-  assert.deepEqual(parseElements(client.getLastSceneJson()), ['shape-3']);
-
-  assert.equal(client.undoShared(), true);
-  assert.deepEqual(parseElements(client.getLastSceneJson()), ['shape-2']);
-  assert.equal(client.undoShared(), true);
-  assert.deepEqual(parseElements(client.getLastSceneJson()), ['shape-1']);
-  assert.equal(client.canUndo(), false);
+  assert.equal(client.commitSceneJson(createScene('shape-1'), { origin: 'test-1-repeat' }), false);
+  assert.deepEqual(Array.from(Y.encodeStateAsUpdate(ydoc)), Array.from(updateBaseline));
 });
 
 test('ExcalidrawRoomClient updates awareness fields for local user, pointer, and selection state', async () => {

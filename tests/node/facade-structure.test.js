@@ -67,4 +67,6 @@ test('CollabMdAppShell remains the composition root', async () => {
   assert.equal(specifiers.some((specifier) => specifier === 'ws'), false);
   assert.equal(specifiers.includes('../application/workspace-coordinator.js'), true);
   assert.equal(specifiers.includes('../presentation/file-explorer-controller.js'), true);
+  assert.equal(source.includes('Object.assign('), false);
+  assert.equal(source.includes('installAppShellFeatures(this);'), true);
 });

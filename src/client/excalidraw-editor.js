@@ -68,96 +68,31 @@ const roomClient = new ExcalidrawRoomClient({
   vaultClient: vaultApiClient,
 });
 
-function SharedHistoryControls({ roomClient: connectedRoomClient, isMobile = false }) {
-  const [historyState, setHistoryState] = React.useState(() => connectedRoomClient.getHistoryState());
-
-  React.useEffect(() => connectedRoomClient.subscribeHistoryState(setHistoryState), [connectedRoomClient]);
-
-  return React.createElement(
-    'div',
-    {
-      className: `collabmd-excalidraw-history-controls${isMobile ? ' is-mobile' : ''}`,
-    },
-    React.createElement(
-      'button',
-      {
-        type: 'button',
-        className: 'collabmd-excalidraw-history-btn',
-        disabled: !historyState.canUndo,
-        onClick: () => {
-          connectedRoomClient.undoShared();
-        },
-      },
-      'Undo',
-    ),
-    React.createElement(
-      'button',
-      {
-        type: 'button',
-        className: 'collabmd-excalidraw-history-btn',
-        disabled: !historyState.canRedo,
-        onClick: () => {
-          connectedRoomClient.redoShared();
-        },
-      },
-      'Redo',
-    ),
-  );
+function getNativeHistoryButton(type) {
+  const button = document.querySelector(`[data-testid="button-${type}"]`);
+  return button instanceof HTMLButtonElement ? button : null;
 }
 
-function ensureSharedHistoryStyles() {
-  if (document.getElementById('collabmd-excalidraw-history-styles')) {
-    return;
+function getNativeHistoryState() {
+  const undoButton = getNativeHistoryButton('undo');
+  const redoButton = getNativeHistoryButton('redo');
+
+  return {
+    canRedo: Boolean(redoButton) && !redoButton.disabled,
+    canUndo: Boolean(undoButton) && !undoButton.disabled,
+    head: null,
+    length: null,
+  };
+}
+
+function triggerNativeHistory(type) {
+  const button = getNativeHistoryButton(type);
+  if (!button || button.disabled) {
+    return false;
   }
 
-  const style = document.createElement('style');
-  style.id = 'collabmd-excalidraw-history-styles';
-  style.textContent = `
-    .excalidraw .undo-redo-buttons {
-      display: none !important;
-    }
-
-    .collabmd-excalidraw-history-controls {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .collabmd-excalidraw-history-controls.is-mobile {
-      margin-left: 8px;
-    }
-
-    .collabmd-excalidraw-history-btn {
-      appearance: none;
-      border: 1px solid rgba(148, 163, 184, 0.35);
-      background: rgba(15, 23, 42, 0.74);
-      color: #f8fafc;
-      border-radius: 10px;
-      padding: 0 12px;
-      min-height: 36px;
-      font: 600 13px/1 "Helvetica Neue", Helvetica, Arial, sans-serif;
-      cursor: pointer;
-    }
-
-    .collabmd-excalidraw-history-btn:hover:not(:disabled) {
-      background: rgba(30, 41, 59, 0.92);
-    }
-
-    .collabmd-excalidraw-history-btn:disabled {
-      cursor: default;
-      opacity: 0.4;
-    }
-
-    .excalidraw.theme--light .collabmd-excalidraw-history-btn {
-      background: rgba(255, 255, 255, 0.92);
-      color: #0f172a;
-    }
-
-    .excalidraw.theme--light .collabmd-excalidraw-history-btn:hover:not(:disabled) {
-      background: rgba(248, 250, 252, 1);
-    }
-  `;
-  document.head.append(style);
+  button.click();
+  return true;
 }
 
 function applyLocalUserPatch(nextUser = {}) {
@@ -194,20 +129,17 @@ if (isTestMode) {
         .map((element) => element.id)
         .sort() ?? []
     ),
-    getHistoryState: () => roomClient.getHistoryState(),
+    getHistoryState: () => getNativeHistoryState(),
     getLocalUserName: () => localAwarenessUser?.name || '',
     getSceneJson: () => roomClient.getLastSceneJson(),
-    isReady: () => collabReady && Boolean(excalidrawAPI),
-    redoShared: () => roomClient.redoShared(),
+    isReady: () => collabReady && Boolean(excalidrawAPI) && Boolean(getNativeHistoryButton('undo')) && Boolean(getNativeHistoryButton('redo')),
+    redoShared: () => triggerNativeHistory('redo'),
     setScene: (scene) => {
-      const json = JSON.stringify(normalizeScene(scene));
-      applySceneFromJson(json);
-      roomClient.commitSceneJson(json, {
-        allowCoalesce: false,
-        origin: 'excalidraw-test',
+      applyLocalScene(normalizeScene(scene), {
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
       });
     },
-    undoShared: () => roomClient.undoShared(),
+    undoShared: () => triggerNativeHistory('undo'),
   };
 }
 
@@ -290,10 +222,7 @@ function releaseViewportBroadcastSuppressionAfterPaint() {
   });
 }
 
-function updateApiScene(scene, {
-  captureUpdate = CaptureUpdateAction.NEVER,
-  trackedSharedSnapshot = true,
-} = {}) {
+function buildApiSceneUpdate(scene) {
   const currentAppState = excalidrawAPI.getAppState();
   const currentElements = excalidrawAPI.getSceneElementsIncludingDeleted?.() || excalidrawAPI.getSceneElements();
   const restoredElements = restoreElements(scene?.elements || [], currentElements, {
@@ -302,24 +231,54 @@ function updateApiScene(scene, {
   const restoredAppState = restoreAppState(scene?.appState || {}, currentAppState);
   const reconciledElements = reconcileElements(currentElements, restoredElements, currentAppState);
 
+  return {
+    appState: {
+      theme: currentTheme,
+      viewBackgroundColor: restoredAppState.viewBackgroundColor ?? '#ffffff',
+      gridSize: restoredAppState.gridSize ?? null,
+    },
+    elements: reconciledElements,
+    files: scene?.files || {},
+  };
+}
+
+function updateApiScene(scene, {
+  captureUpdate = CaptureUpdateAction.NEVER,
+  trackedSharedSnapshot = true,
+} = {}) {
+  const nextSceneUpdate = buildApiSceneUpdate(scene);
+
   suppressOnChange = true;
   if (trackedSharedSnapshot) {
     roomClient.beginApplyingSharedSnapshot();
   }
   try {
     excalidrawAPI.updateScene({
-      elements: reconciledElements,
-      appState: {
-        theme: currentTheme,
-        viewBackgroundColor: restoredAppState.viewBackgroundColor ?? '#ffffff',
-        gridSize: restoredAppState.gridSize ?? null,
-      },
-      files: scene?.files || {},
+      ...nextSceneUpdate,
       captureUpdate,
     });
   } finally {
     releaseOnChangeSuppressionAfterPaint({ trackedSharedSnapshot });
   }
+}
+
+function applyLocalScene(scene, {
+  captureUpdate = CaptureUpdateAction.IMMEDIATELY,
+} = {}) {
+  const normalizedScene = normalizeScene(scene);
+  const normalizedJson = JSON.stringify(normalizedScene);
+
+  appliedSceneJson = normalizedJson;
+
+  if (!excalidrawAPI) {
+    pendingRemoteSceneJson = normalizedJson;
+    return;
+  }
+
+  excalidrawAPI.updateScene({
+    ...buildApiSceneUpdate(normalizedScene),
+    captureUpdate,
+  });
 }
 
 function onRoomTextUpdate() {
@@ -438,42 +397,9 @@ function disconnectRealtimeRoom() {
   roomClient.disconnect();
 }
 
-function handleSharedHistoryKeydown(event) {
-  if (!collabReady || !excalidrawAPI || event.altKey) {
-    return;
-  }
-
-  const key = String(event.key || '').toLowerCase();
-  const isPrimaryModifier = event.metaKey || event.ctrlKey;
-  const isUndo = isPrimaryModifier && key === 'z' && !event.shiftKey;
-  const isRedo = (
-    isPrimaryModifier
-    && ((key === 'z' && event.shiftKey) || (key === 'y' && event.ctrlKey && !event.metaKey && !event.shiftKey))
-  );
-
-  if (!isUndo && !isRedo) {
-    return;
-  }
-
-  event.preventDefault();
-  event.stopPropagation();
-
-  if (typeof event.stopImmediatePropagation === 'function') {
-    event.stopImmediatePropagation();
-  }
-
-  if (isUndo) {
-    roomClient.undoShared();
-    return;
-  }
-
-  roomClient.redoShared();
-}
-
 window.addEventListener('pagehide', () => {
   disconnectRealtimeRoom();
 });
-document.addEventListener('keydown', handleSharedHistoryKeydown, true);
 
 window.addEventListener('message', (event) => {
   if (event.origin !== parentOrigin) {
@@ -513,6 +439,11 @@ function scheduleSyncToRoom(elements, appState, files) {
     return;
   }
 
+  appliedSceneJson = JSON.stringify(normalizeScene({
+    elements,
+    appState,
+    files,
+  }));
   roomClient.scheduleSceneSync(elements, appState, files);
 }
 
@@ -523,7 +454,6 @@ async function init() {
     await ensureClientAuthenticated();
     const initialScene = await roomClient.connect({ initialUser: localAwarenessUser });
     const initialData = sceneToInitialData(initialScene, { theme: currentTheme });
-    ensureSharedHistoryStyles();
 
     loadingElement?.remove();
 
@@ -574,10 +504,6 @@ async function init() {
       onPointerUpdate: (payload) => {
         roomClient.scheduleLocalPointerAwareness(payload);
       },
-      renderTopRightUI: (isMobile) => React.createElement(SharedHistoryControls, {
-        isMobile,
-        roomClient,
-      }),
       theme: currentTheme,
       UIOptions: {
         canvasActions: {

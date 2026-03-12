@@ -30,8 +30,57 @@ import { ScrollSyncController } from '../presentation/scroll-sync-controller.js'
 import { ThemeController } from '../presentation/theme-controller.js';
 import { ToastController } from '../presentation/toast-controller.js';
 
+const APP_SHELL_FEATURES = Object.freeze({
+  chat: chatFeature,
+  comments: commentsFeature,
+  git: gitFeature,
+  presence: presenceFeature,
+  ui: uiFeature,
+  workspace: workspaceFeature,
+});
+
+function installAppShellFeatures(appShell) {
+  const featureMethodOwners = {};
+
+  Object.entries(APP_SHELL_FEATURES).forEach(([featureName, feature]) => {
+    Object.entries(feature).forEach(([methodName, method]) => {
+      if (typeof method !== 'function') {
+        return;
+      }
+
+      if (Object.hasOwn(featureMethodOwners, methodName)) {
+        throw new Error(
+          `CollabMdAppShell feature method "${methodName}" is declared by both "${featureMethodOwners[methodName]}" and "${featureName}".`,
+        );
+      }
+
+      if (methodName in appShell) {
+        throw new Error(
+          `CollabMdAppShell feature method "${methodName}" conflicts with an existing app shell member.`,
+        );
+      }
+
+      Object.defineProperty(appShell, methodName, {
+        configurable: true,
+        enumerable: false,
+        value: method.bind(appShell),
+        writable: false,
+      });
+      featureMethodOwners[methodName] = featureName;
+    });
+  });
+
+  Object.defineProperty(appShell, 'featureMethodOwners', {
+    configurable: false,
+    enumerable: false,
+    value: Object.freeze(featureMethodOwners),
+    writable: false,
+  });
+}
+
 export class CollabMdAppShell {
   constructor() {
+    installAppShellFeatures(this);
     this.elements = bindAppShellElements(document);
     this.runtimeConfig = getRuntimeConfig();
     this.stateStore = new WorkspaceStateStore();
@@ -409,13 +458,3 @@ export class CollabMdAppShell {
     quickSwitcher.toggle();
   }
 }
-
-Object.assign(
-  CollabMdAppShell.prototype,
-  workspaceFeature,
-  gitFeature,
-  chatFeature,
-  commentsFeature,
-  presenceFeature,
-  uiFeature,
-);
