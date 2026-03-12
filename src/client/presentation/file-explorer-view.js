@@ -122,7 +122,8 @@ export class FileExplorerView {
 
     const button = document.createElement('button');
     button.className = 'file-tree-item file-tree-dir';
-    button.style.paddingLeft = `${8 + depth * 16}px`;
+    button.style.setProperty('--depth', depth);
+    button.dataset.depth = depth;
 
     const isExpanded = expandedDirs.has(node.path);
     button.setAttribute('aria-expanded', String(isExpanded));
@@ -176,7 +177,8 @@ export class FileExplorerView {
       button.classList.add('active');
     }
 
-    button.style.paddingLeft = `${8 + depth * 16 + 14}px`;
+    button.style.setProperty('--depth', depth);
+    button.dataset.depth = depth;
     button.dataset.path = filePath;
     button.innerHTML = `
       ${this.getFileIconSvg({ isExcalidraw, isMermaid, isPlantUml })}

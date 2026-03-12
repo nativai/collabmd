@@ -44,6 +44,10 @@ export const gitFeature = {
     this.gitRepoAvailable = Boolean(isGitRepo);
     this.elements.sidebarTabs?.classList.toggle('hidden', !this.gitRepoAvailable);
     this.elements.gitSidebarTab?.classList.toggle('hidden', !this.gitRepoAvailable);
+    
+    const hasChanges = isGitRepo && status?.summary?.changedFiles > 0;
+    this.elements.gitSidebarTab?.classList.toggle('has-changes', hasChanges);
+    
     this.gitDiffView.setRepoStatus(this.gitRepoAvailable ? status : null);
 
     if (!this.gitRepoAvailable && this.activeSidebarTab === 'git') {

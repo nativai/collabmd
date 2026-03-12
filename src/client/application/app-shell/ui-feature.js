@@ -38,6 +38,14 @@ export const uiFeature = {
   },
 
   bindEvents() {
+    this.elements.emptyStateNewFileBtn?.addEventListener('click', () => {
+      this.fileExplorer.actionController.handleNewFile();
+    });
+
+    this.elements.emptyStateSearchBtn?.addEventListener('click', () => {
+      void this.toggleQuickSwitcher();
+    });
+
     this.elements.chatToggleButton?.addEventListener('click', () => {
       this.toggleChatPanel();
     });
