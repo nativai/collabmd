@@ -12,17 +12,27 @@ import {
 } from '../domain/excalidraw-scene.js';
 import { resolveWsBaseUrl } from '../domain/runtime-paths.js';
 
+const DEFAULT_HISTORY_ARRAY_KEY = 'excalidraw-history';
+const DEFAULT_HISTORY_CAPTURE_WINDOW_MS = 500;
+const DEFAULT_HISTORY_LIMIT = 100;
+const DEFAULT_HISTORY_STATE_KEY = 'excalidraw-history-state';
 const DEFAULT_ROOM_TEXT_KEY = 'codemirror';
 const DEFAULT_SAVE_THROTTLE_MS = 48;
 const DEFAULT_SYNC_TIMEOUT_MS = 4000;
+const HISTORY_HEAD_KEY = 'head';
 
 export class ExcalidrawRoomClient {
   constructor({
     cancelAnimationFrameFn = (frameId) => cancelAnimationFrame(frameId),
     clearTimeoutFn = (timeoutId) => clearTimeout(timeoutId),
     filePath = '',
+    historyArrayKey = DEFAULT_HISTORY_ARRAY_KEY,
+    historyCaptureWindowMs = DEFAULT_HISTORY_CAPTURE_WINDOW_MS,
+    historyLimit = DEFAULT_HISTORY_LIMIT,
+    historyStateKey = DEFAULT_HISTORY_STATE_KEY,
     now = () => Date.now(),
     onCollaboratorsChange = () => {},
+    onHistoryStateChange = () => {},
     onRemoteSceneJson = () => {},
     requestAnimationFrameFn = (callback) => requestAnimationFrame(callback),
     resolveWsBaseUrlFn = resolveWsBaseUrl,
@@ -37,8 +47,13 @@ export class ExcalidrawRoomClient {
     this.cancelAnimationFrameFn = cancelAnimationFrameFn;
     this.clearTimeoutFn = clearTimeoutFn;
     this.filePath = filePath;
+    this.historyArrayKey = historyArrayKey;
+    this.historyCaptureWindowMs = historyCaptureWindowMs;
+    this.historyLimit = historyLimit;
+    this.historyStateKey = historyStateKey;
     this.now = now;
     this.onCollaboratorsChange = onCollaboratorsChange;
+    this.onHistoryStateChange = onHistoryStateChange;
     this.onRemoteSceneJson = onRemoteSceneJson;
     this.requestAnimationFrameFn = requestAnimationFrameFn;
     this.resolveWsBaseUrlFn = resolveWsBaseUrlFn;
@@ -50,6 +65,8 @@ export class ExcalidrawRoomClient {
     this.websocketProviderFactory = websocketProviderFactory;
     this.ydocFactory = ydocFactory;
     this.ydoc = null;
+    this.historySnapshots = null;
+    this.historyState = null;
     this.ytext = null;
     this.provider = null;
     this.awareness = null;
@@ -64,9 +81,17 @@ export class ExcalidrawRoomClient {
     this.lastSelectedIdsSignature = '';
     this.canWriteToRoom = false;
     this.waitingForAuthoritativeSync = false;
+    this.applyingSharedSnapshotDepth = 0;
+    this.historySubscribers = new Set();
+    this.lastLocallyUpdatedHistoryHead = -1;
+    this.lastLocallyUpdatedHistoryAt = 0;
 
     this.handleAwarenessChange = () => {
       this.onCollaboratorsChange(buildCollaboratorsMap(this.awareness));
+    };
+
+    this.handleSharedHistoryUpdate = () => {
+      this.handleRoomHistoryUpdate();
     };
 
     this.handleRoomTextUpdate = () => {
@@ -93,6 +118,49 @@ export class ExcalidrawRoomClient {
     return this.localUser;
   }
 
+  getHistoryState() {
+    const length = this.getSharedHistoryLength();
+    const head = this.getResolvedHistoryHead();
+    return {
+      canRedo: head >= 0 && head < length - 1,
+      canUndo: head > 0,
+      head,
+      length,
+    };
+  }
+
+  canRedo() {
+    return this.getHistoryState().canRedo;
+  }
+
+  canUndo() {
+    return this.getHistoryState().canUndo;
+  }
+
+  isApplyingSharedSnapshot() {
+    return this.applyingSharedSnapshotDepth > 0;
+  }
+
+  beginApplyingSharedSnapshot() {
+    this.applyingSharedSnapshotDepth += 1;
+  }
+
+  endApplyingSharedSnapshot() {
+    this.applyingSharedSnapshotDepth = Math.max(0, this.applyingSharedSnapshotDepth - 1);
+  }
+
+  subscribeHistoryState(listener) {
+    if (typeof listener !== 'function') {
+      return () => {};
+    }
+
+    this.historySubscribers.add(listener);
+    listener(this.getHistoryState());
+    return () => {
+      this.historySubscribers.delete(listener);
+    };
+  }
+
   setLocalUser(nextUser = {}) {
     this.localUser = mergeAwarenessUserPatch({
       currentUser: this.localUser,
@@ -117,6 +185,8 @@ export class ExcalidrawRoomClient {
     }
 
     this.ydoc = this.ydocFactory();
+    this.historySnapshots = this.ydoc.getArray(this.historyArrayKey);
+    this.historyState = this.ydoc.getMap(this.historyStateKey);
     this.ytext = this.ydoc.getText(this.roomTextKey);
     this.provider = this.websocketProviderFactory(this.resolveWsBaseUrlFn(), this.filePath, this.ydoc, {
       disableBc: true,
@@ -163,7 +233,11 @@ export class ExcalidrawRoomClient {
     this.waitingForAuthoritativeSync = usedApiFallback && !didInitialSyncFinish;
     this.canWriteToRoom = !this.waitingForAuthoritativeSync;
     this.lastSceneJson = JSON.stringify(parseSceneJson(initialJson));
+    this.historySnapshots.observe(this.handleSharedHistoryUpdate);
+    this.historyState.observe(this.handleSharedHistoryUpdate);
     this.ytext.observe(this.handleRoomTextUpdate);
+    this.ensureSharedHistoryInitialized(this.lastSceneJson);
+    this.handleRoomHistoryUpdate();
     this.handleRoomTextUpdate();
     this.handleAwarenessChange();
 
@@ -240,9 +314,23 @@ export class ExcalidrawRoomClient {
   unlockRoomWrites() {
     this.waitingForAuthoritativeSync = false;
     this.canWriteToRoom = true;
+    this.ensureSharedHistoryInitialized(this.lastSceneJson);
 
     if (this.pendingSceneSyncPayload) {
       this.scheduleSceneSyncFlush();
+    }
+  }
+
+  replaceRoomContentWithinTransaction(nextJson) {
+    if (!this.ytext) {
+      return;
+    }
+
+    if (this.ytext.length > 0) {
+      this.ytext.delete(0, this.ytext.length);
+    }
+    if (nextJson) {
+      this.ytext.insert(0, nextJson);
     }
   }
 
@@ -252,12 +340,7 @@ export class ExcalidrawRoomClient {
     }
 
     this.ydoc.transact(() => {
-      if (this.ytext.length > 0) {
-        this.ytext.delete(0, this.ytext.length);
-      }
-      if (nextJson) {
-        this.ytext.insert(0, nextJson);
-      }
+      this.replaceRoomContentWithinTransaction(nextJson);
     }, origin);
   }
 
@@ -294,10 +377,13 @@ export class ExcalidrawRoomClient {
     const sceneData = buildStoredScene(elements, appState, files);
     const json = JSON.stringify(sceneData);
 
-    if (json !== this.lastSceneJson) {
-      this.lastSceneJson = json;
+    if (json !== this.lastSceneJson || this.getSharedHistoryLength() === 0) {
       this.lastSceneSyncAt = this.now();
-      this.replaceRoomContent(json, 'excalidraw-local-change');
+      this.commitSceneJson(json, {
+        allowCoalesce: true,
+        captureTime: this.lastSceneSyncAt,
+        origin: 'excalidraw-local-change',
+      });
     }
 
     if (this.pendingSceneSyncPayload) {
@@ -353,6 +439,187 @@ export class ExcalidrawRoomClient {
     this.awareness.setLocalStateField('selectedElementIds', selected);
   }
 
+  commitSceneJson(nextJson, {
+    allowCoalesce = false,
+    captureTime = this.now(),
+    origin = 'excalidraw-room-write',
+  } = {}) {
+    if (!this.ydoc || !this.ytext || !this.historySnapshots || !this.historyState) {
+      this.lastSceneJson = JSON.stringify(parseSceneJson(nextJson));
+      return false;
+    }
+
+    const normalizedJson = JSON.stringify(parseSceneJson(nextJson));
+    const previousSceneJson = this.lastSceneJson || JSON.stringify(parseSceneJson(this.ytext.toString()));
+    this.lastSceneJson = normalizedJson;
+
+    this.ydoc.transact(() => {
+      let head = this.getResolvedHistoryHead();
+      if (this.historySnapshots.length === 0) {
+        this.historySnapshots.insert(0, [previousSceneJson]);
+        head = 0;
+        this.historyState.set(HISTORY_HEAD_KEY, head);
+      }
+
+      const shouldCoalesce = allowCoalesce && this.canCoalesceWithLocalHistory(head, captureTime);
+      if (shouldCoalesce) {
+        this.replaceSharedHistorySnapshot(head, normalizedJson);
+      } else {
+        if (head < this.historySnapshots.length - 1) {
+          this.historySnapshots.delete(head + 1, this.historySnapshots.length - head - 1);
+        }
+
+        this.historySnapshots.insert(head + 1, [normalizedJson]);
+        head += 1;
+
+        if (this.historySnapshots.length > this.historyLimit) {
+          const overflow = this.historySnapshots.length - this.historyLimit;
+          this.historySnapshots.delete(0, overflow);
+          head -= overflow;
+        }
+
+        this.historyState.set(HISTORY_HEAD_KEY, head);
+      }
+
+      this.replaceRoomContentWithinTransaction(normalizedJson);
+      this.lastLocallyUpdatedHistoryHead = head;
+      this.lastLocallyUpdatedHistoryAt = captureTime;
+    }, origin);
+
+    this.emitHistoryStateChange();
+    return true;
+  }
+
+  undoShared() {
+    return this.navigateSharedHistory(-1, 'excalidraw-shared-undo');
+  }
+
+  redoShared() {
+    return this.navigateSharedHistory(1, 'excalidraw-shared-redo');
+  }
+
+  navigateSharedHistory(step, origin) {
+    if (!this.canWriteToRoom || !this.ydoc || !this.historySnapshots || !this.historyState) {
+      return false;
+    }
+
+    const currentHead = this.getResolvedHistoryHead();
+    const nextHead = currentHead + step;
+    if (nextHead < 0 || nextHead >= this.historySnapshots.length) {
+      return false;
+    }
+
+    const nextJson = this.getSharedHistorySnapshot(nextHead);
+    if (!nextJson) {
+      return false;
+    }
+
+    this.ydoc.transact(() => {
+      this.historyState.set(HISTORY_HEAD_KEY, nextHead);
+      this.replaceRoomContentWithinTransaction(nextJson);
+    }, origin);
+
+    this.lastLocallyUpdatedHistoryHead = -1;
+    this.lastLocallyUpdatedHistoryAt = 0;
+    return true;
+  }
+
+  getSharedHistoryLength() {
+    return this.historySnapshots?.length ?? 0;
+  }
+
+  getResolvedHistoryHead() {
+    const length = this.getSharedHistoryLength();
+    if (length === 0) {
+      return -1;
+    }
+
+    const rawHead = Number(this.historyState?.get(HISTORY_HEAD_KEY));
+    if (Number.isInteger(rawHead) && rawHead >= 0 && rawHead < length) {
+      return rawHead;
+    }
+
+    return length - 1;
+  }
+
+  getSharedHistorySnapshot(index) {
+    if (!this.historySnapshots || index < 0 || index >= this.historySnapshots.length) {
+      return '';
+    }
+
+    const snapshot = this.historySnapshots.get(index);
+    if (typeof snapshot !== 'string') {
+      return '';
+    }
+
+    return JSON.stringify(parseSceneJson(snapshot));
+  }
+
+  getActiveSharedHistorySnapshot() {
+    return this.getSharedHistorySnapshot(this.getResolvedHistoryHead());
+  }
+
+  replaceSharedHistorySnapshot(index, nextJson) {
+    if (!this.historySnapshots || index < 0 || index >= this.historySnapshots.length) {
+      return;
+    }
+
+    this.historySnapshots.delete(index, 1);
+    this.historySnapshots.insert(index, [nextJson]);
+  }
+
+  canCoalesceWithLocalHistory(head, captureTime) {
+    return (
+      head >= 0
+      && head === this.lastLocallyUpdatedHistoryHead
+      && captureTime - this.lastLocallyUpdatedHistoryAt <= this.historyCaptureWindowMs
+    );
+  }
+
+  ensureSharedHistoryInitialized(sceneJson) {
+    if (!this.canWriteToRoom || !this.ydoc || !this.historySnapshots || !this.historyState) {
+      return false;
+    }
+
+    if (this.historySnapshots.length > 0) {
+      this.emitHistoryStateChange();
+      return false;
+    }
+
+    const normalizedJson = JSON.stringify(parseSceneJson(sceneJson || this.lastSceneJson || this.ytext?.toString()));
+    this.ydoc.transact(() => {
+      if (this.historySnapshots.length > 0) {
+        return;
+      }
+
+      this.historySnapshots.insert(0, [normalizedJson]);
+      this.historyState.set(HISTORY_HEAD_KEY, 0);
+    }, 'excalidraw-history-seed');
+    this.emitHistoryStateChange();
+    return true;
+  }
+
+  handleRoomHistoryUpdate() {
+    this.emitHistoryStateChange();
+
+    const historySceneJson = this.getActiveSharedHistorySnapshot();
+    if (!historySceneJson || historySceneJson === this.lastSceneJson) {
+      return;
+    }
+
+    this.unlockRoomWrites();
+    this.lastLocallyUpdatedHistoryHead = -1;
+    this.lastLocallyUpdatedHistoryAt = 0;
+    this.lastSceneJson = historySceneJson;
+    this.onRemoteSceneJson(historySceneJson);
+  }
+
+  emitHistoryStateChange() {
+    const nextState = this.getHistoryState();
+    this.onHistoryStateChange(nextState);
+    this.historySubscribers.forEach((listener) => listener(nextState));
+  }
+
   disconnect() {
     this.flushSceneSync();
     this.clearTimeoutFn(this.sceneSyncTimer);
@@ -369,6 +636,8 @@ export class ExcalidrawRoomClient {
     if (this.ytext) {
       this.ytext.unobserve(this.handleRoomTextUpdate);
     }
+    this.historySnapshots?.unobserve(this.handleSharedHistoryUpdate);
+    this.historyState?.unobserve(this.handleSharedHistoryUpdate);
 
     if (this.awareness) {
       this.awareness.off('change', this.handleAwarenessChange);
@@ -386,9 +655,15 @@ export class ExcalidrawRoomClient {
 
     this.ydoc?.destroy();
     this.ydoc = null;
+    this.historySnapshots = null;
+    this.historyState = null;
     this.ytext = null;
     this.localUser = null;
     this.canWriteToRoom = false;
     this.waitingForAuthoritativeSync = false;
+    this.applyingSharedSnapshotDepth = 0;
+    this.lastLocallyUpdatedHistoryHead = -1;
+    this.lastLocallyUpdatedHistoryAt = 0;
+    this.emitHistoryStateChange();
   }
 }

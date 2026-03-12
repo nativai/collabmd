@@ -1,6 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { Excalidraw } from '@excalidraw/excalidraw';
+import { CaptureUpdateAction, Excalidraw } from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
 
 import {
@@ -34,7 +34,7 @@ let collabReady = false;
 let suppressOnChange = false;
 let pendingRemoteSceneJson = '';
 let pendingCollaborators = null;
-let suppressOnChangeReleaseToken = 0;
+let pendingSuppressionReleases = 0;
 const roomClient = new ExcalidrawRoomClient({
   filePath,
   onCollaboratorsChange: (collaborators) => {
@@ -52,6 +52,98 @@ const roomClient = new ExcalidrawRoomClient({
   vaultClient: vaultApiClient,
 });
 
+function SharedHistoryControls({ roomClient: connectedRoomClient, isMobile = false }) {
+  const [historyState, setHistoryState] = React.useState(() => connectedRoomClient.getHistoryState());
+
+  React.useEffect(() => connectedRoomClient.subscribeHistoryState(setHistoryState), [connectedRoomClient]);
+
+  return React.createElement(
+    'div',
+    {
+      className: `collabmd-excalidraw-history-controls${isMobile ? ' is-mobile' : ''}`,
+    },
+    React.createElement(
+      'button',
+      {
+        type: 'button',
+        className: 'collabmd-excalidraw-history-btn',
+        disabled: !historyState.canUndo,
+        onClick: () => {
+          connectedRoomClient.undoShared();
+        },
+      },
+      'Undo',
+    ),
+    React.createElement(
+      'button',
+      {
+        type: 'button',
+        className: 'collabmd-excalidraw-history-btn',
+        disabled: !historyState.canRedo,
+        onClick: () => {
+          connectedRoomClient.redoShared();
+        },
+      },
+      'Redo',
+    ),
+  );
+}
+
+function ensureSharedHistoryStyles() {
+  if (document.getElementById('collabmd-excalidraw-history-styles')) {
+    return;
+  }
+
+  const style = document.createElement('style');
+  style.id = 'collabmd-excalidraw-history-styles';
+  style.textContent = `
+    .excalidraw .undo-redo-buttons {
+      display: none !important;
+    }
+
+    .collabmd-excalidraw-history-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .collabmd-excalidraw-history-controls.is-mobile {
+      margin-left: 8px;
+    }
+
+    .collabmd-excalidraw-history-btn {
+      appearance: none;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      background: rgba(15, 23, 42, 0.74);
+      color: #f8fafc;
+      border-radius: 10px;
+      padding: 0 12px;
+      min-height: 36px;
+      font: 600 13px/1 "Helvetica Neue", Helvetica, Arial, sans-serif;
+      cursor: pointer;
+    }
+
+    .collabmd-excalidraw-history-btn:hover:not(:disabled) {
+      background: rgba(30, 41, 59, 0.92);
+    }
+
+    .collabmd-excalidraw-history-btn:disabled {
+      cursor: default;
+      opacity: 0.4;
+    }
+
+    .excalidraw.theme--light .collabmd-excalidraw-history-btn {
+      background: rgba(255, 255, 255, 0.92);
+      color: #0f172a;
+    }
+
+    .excalidraw.theme--light .collabmd-excalidraw-history-btn:hover:not(:disabled) {
+      background: rgba(248, 250, 252, 1);
+    }
+  `;
+  document.head.append(style);
+}
+
 function applyLocalUserPatch(nextUser = {}) {
   localAwarenessUser = mergeAwarenessUserPatch({
     currentUser: localAwarenessUser,
@@ -62,14 +154,20 @@ function applyLocalUserPatch(nextUser = {}) {
 
 if (isTestMode) {
   window.__COLLABMD_EXCALIDRAW_TEST__ = {
+    getHistoryState: () => roomClient.getHistoryState(),
     getLocalUserName: () => localAwarenessUser?.name || '',
     getSceneJson: () => roomClient.getLastSceneJson(),
     isReady: () => collabReady && Boolean(excalidrawAPI),
+    redoShared: () => roomClient.redoShared(),
     setScene: (scene) => {
       const json = JSON.stringify(normalizeScene(scene));
       applySceneFromJson(json);
-      roomClient.replaceRoomContent(json, 'excalidraw-test');
+      roomClient.commitSceneJson(json, {
+        allowCoalesce: false,
+        origin: 'excalidraw-test',
+      });
     },
+    undoShared: () => roomClient.undoShared(),
   };
 }
 
@@ -79,7 +177,10 @@ function applyCollaborators(collaborators) {
     return;
   }
 
-  excalidrawAPI.updateScene({ collaborators });
+  excalidrawAPI.updateScene({
+    collaborators,
+    captureUpdate: CaptureUpdateAction.NEVER,
+  });
 }
 
 function applySceneFromJson(rawJson) {
@@ -99,21 +200,29 @@ function applySceneFromJson(rawJson) {
   updateApiScene(scene);
 }
 
-function releaseOnChangeSuppressionAfterPaint() {
-  const releaseToken = ++suppressOnChangeReleaseToken;
+function releaseOnChangeSuppressionAfterPaint({ trackedSharedSnapshot = false } = {}) {
+  pendingSuppressionReleases += 1;
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      if (releaseToken !== suppressOnChangeReleaseToken) {
-        return;
+      pendingSuppressionReleases = Math.max(0, pendingSuppressionReleases - 1);
+      if (trackedSharedSnapshot) {
+        roomClient.endApplyingSharedSnapshot();
       }
-
-      suppressOnChange = false;
+      if (pendingSuppressionReleases === 0) {
+        suppressOnChange = false;
+      }
     });
   });
 }
 
-function updateApiScene(scene) {
+function updateApiScene(scene, {
+  captureUpdate = CaptureUpdateAction.NEVER,
+  trackedSharedSnapshot = true,
+} = {}) {
   suppressOnChange = true;
+  if (trackedSharedSnapshot) {
+    roomClient.beginApplyingSharedSnapshot();
+  }
   try {
     excalidrawAPI.updateScene({
       elements: scene.elements,
@@ -123,9 +232,10 @@ function updateApiScene(scene) {
         gridSize: scene.appState.gridSize ?? null,
       },
       files: scene.files || {},
+      captureUpdate,
     });
   } finally {
-    releaseOnChangeSuppressionAfterPaint();
+    releaseOnChangeSuppressionAfterPaint({ trackedSharedSnapshot });
   }
 }
 
@@ -143,9 +253,42 @@ function disconnectRealtimeRoom() {
   roomClient.disconnect();
 }
 
+function handleSharedHistoryKeydown(event) {
+  if (!collabReady || !excalidrawAPI || event.altKey) {
+    return;
+  }
+
+  const key = String(event.key || '').toLowerCase();
+  const isPrimaryModifier = event.metaKey || event.ctrlKey;
+  const isUndo = isPrimaryModifier && key === 'z' && !event.shiftKey;
+  const isRedo = (
+    isPrimaryModifier
+    && ((key === 'z' && event.shiftKey) || (key === 'y' && event.ctrlKey && !event.metaKey && !event.shiftKey))
+  );
+
+  if (!isUndo && !isRedo) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (typeof event.stopImmediatePropagation === 'function') {
+    event.stopImmediatePropagation();
+  }
+
+  if (isUndo) {
+    roomClient.undoShared();
+    return;
+  }
+
+  roomClient.redoShared();
+}
+
 window.addEventListener('pagehide', () => {
   disconnectRealtimeRoom();
 });
+document.addEventListener('keydown', handleSharedHistoryKeydown, true);
 
 window.addEventListener('message', (event) => {
   if (event.origin !== parentOrigin) {
@@ -161,7 +304,10 @@ window.addEventListener('message', (event) => {
     currentTheme = message.theme || 'dark';
     if (excalidrawAPI) {
       suppressOnChange = true;
-      excalidrawAPI.updateScene({ appState: { theme: currentTheme } });
+      excalidrawAPI.updateScene({
+        appState: { theme: currentTheme },
+        captureUpdate: CaptureUpdateAction.NEVER,
+      });
       releaseOnChangeSuppressionAfterPaint();
     }
     return;
@@ -173,7 +319,7 @@ window.addEventListener('message', (event) => {
 });
 
 function scheduleSyncToRoom(elements, appState, files) {
-  if (!collabReady || suppressOnChange) {
+  if (!collabReady || suppressOnChange || roomClient.isApplyingSharedSnapshot()) {
     return;
   }
 
@@ -187,6 +333,7 @@ async function init() {
     await ensureClientAuthenticated();
     const initialScene = await roomClient.connect({ initialUser: localAwarenessUser });
     const initialData = sceneToInitialData(initialScene, { theme: currentTheme });
+    ensureSharedHistoryStyles();
 
     loadingElement?.remove();
 
@@ -199,7 +346,10 @@ async function init() {
         updateApiScene(parseSceneJson(sceneJson));
 
         if (pendingCollaborators) {
-          excalidrawAPI.updateScene({ collaborators: pendingCollaborators });
+          excalidrawAPI.updateScene({
+            collaborators: pendingCollaborators,
+            captureUpdate: CaptureUpdateAction.NEVER,
+          });
           pendingCollaborators = null;
         }
         collabReady = true;
@@ -217,6 +367,10 @@ async function init() {
       onPointerUpdate: (payload) => {
         roomClient.scheduleLocalPointerAwareness(payload);
       },
+      renderTopRightUI: (isMobile) => React.createElement(SharedHistoryControls, {
+        isMobile,
+        roomClient,
+      }),
       theme: currentTheme,
       UIOptions: {
         canvasActions: {

@@ -493,6 +493,43 @@ test('CollaborationRoom keeps the latest excalidraw state available while final 
   await Promise.resolve();
 });
 
+test('CollaborationRoom clears ephemeral Excalidraw history after the last client disconnects', async () => {
+  const scene = JSON.stringify({
+    appState: { gridSize: null, viewBackgroundColor: '#222222' },
+    elements: [{ id: 'shape-live' }],
+    files: {},
+    source: 'collabmd',
+    type: 'excalidraw',
+    version: 2,
+  });
+
+  const room = new CollaborationRoom({
+    maxBufferedAmountBytes: 1024,
+    name: 'diagram.excalidraw',
+    onEmpty: () => {},
+    vaultFileStore: {
+      async readExcalidrawFile() {
+        return scene;
+      },
+      async writeExcalidrawFile() {},
+    },
+  });
+
+  await room.hydrate();
+  room.doc.transact(() => {
+    room.doc.getArray('excalidraw-history').insert(0, [scene, `${scene}-next`]);
+    room.doc.getMap('excalidraw-history-state').set('head', 1);
+  }, 'test');
+
+  const socket = createSocket();
+  await room.addClient(socket);
+  room.removeClient(socket);
+
+  assert.equal(room.doc.getText('codemirror').toString(), scene);
+  assert.equal(room.doc.getArray('excalidraw-history').length, 0);
+  assert.equal(room.doc.getMap('excalidraw-history-state').size, 0);
+});
+
 test('CollaborationRoom hydrates and persists PlantUML rooms via PlantUML file APIs', async () => {
   const initialDiagram = '@startuml\nAlice -> Bob: Hello\n@enduml\n';
   let readPlantUmlCount = 0;

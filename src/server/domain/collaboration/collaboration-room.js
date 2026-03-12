@@ -74,6 +74,10 @@ function readAwarenessEntries(update) {
   return entries;
 }
 
+function isExcalidrawRoom(name) {
+  return typeof name === 'string' && name.endsWith('.excalidraw');
+}
+
 export class CollaborationRoom {
   constructor({
     documentStore = null,
@@ -384,6 +388,7 @@ export class CollaborationRoom {
       return;
     }
 
+    this.clearEphemeralExcalidrawHistory();
     this.finalizeIfIdle();
   }
 
@@ -423,6 +428,31 @@ export class CollaborationRoom {
         console.error(`[room:${this.name}] Failed to persist final room state:`, error.message);
       },
     });
+  }
+
+  clearEphemeralExcalidrawHistory() {
+    if (!isExcalidrawRoom(this.name)) {
+      return;
+    }
+
+    const historyEntries = this.doc.getArray('excalidraw-history');
+    const historyState = this.doc.getMap('excalidraw-history-state');
+    const hasHistoryEntries = historyEntries.length > 0;
+    const hasHistoryState = historyState.size > 0;
+
+    if (!hasHistoryEntries && !hasHistoryState) {
+      return;
+    }
+
+    this.doc.transact(() => {
+      if (historyEntries.length > 0) {
+        historyEntries.delete(0, historyEntries.length);
+      }
+
+      Array.from(historyState.keys()).forEach((key) => {
+        historyState.delete(key);
+      });
+    }, 'excalidraw-history-reset');
   }
 
   handleMessage(ws, rawData) {
