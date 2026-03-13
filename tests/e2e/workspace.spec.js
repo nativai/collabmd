@@ -52,10 +52,12 @@ test('renders markdown preview when a file is opened', async ({ page }) => {
 test('escapes raw html in markdown preview', async ({ page }) => {
   await openFile(page, 'README.md');
 
-  await replaceEditorContent(page, '# Safe Preview\n\n<script>window.__collabmdXss = true</script>\n<div id="raw-html">inline html</div>');
+  await replaceEditorContent(page, '# Safe Preview\n\nLine one<br>Line two\n\n<script>window.__collabmdXss = true</script>\n<div id="raw-html">inline html</div>');
 
   await expect(page.locator('#previewContent script')).toHaveCount(0);
   await expect(page.locator('#previewContent #raw-html')).toHaveCount(0);
+  await expect(page.locator('#previewContent p').first()).toHaveText('Line oneLine two');
+  await expect(page.locator('#previewContent p').first().locator('br')).toHaveCount(1);
   await expect(page.locator('#previewContent')).toContainText('<script>window.__collabmdXss = true</script>');
 });
 

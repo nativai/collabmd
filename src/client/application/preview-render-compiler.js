@@ -31,6 +31,17 @@ function escapePreviewText(content = '') {
   return escapeHtml(normalizePreviewTypography(content));
 }
 
+function renderSafeInlineBreaks(content = '') {
+  const parts = String(content).split(/<br\s*\/?>/i);
+  if (parts.length === 1) {
+    return escapePreviewText(content);
+  }
+
+  return parts
+    .map((part) => escapePreviewText(part))
+    .join('<br>');
+}
+
 function createMermaidPlaceholder({ key, sourceAttributes, sourceHash, sourceText }) {
   return `<div class="mermaid-shell diagram-preview-shell"${sourceAttributes} data-mermaid-key="${escapeHtml(key)}" data-mermaid-source-hash="${escapeHtml(sourceHash)}"><div class="mermaid-placeholder-card diagram-preview-placeholder-card"><div class="mermaid-placeholder-copy diagram-preview-placeholder-copy"><strong>Mermaid diagram</strong><span>Loads when visible</span></div><button type="button" class="mermaid-placeholder-btn diagram-preview-placeholder-btn" data-mermaid-key="${escapeHtml(key)}">Render</button></div><pre class="mermaid-source" hidden>${escapeHtml(sourceText)}</pre></div>`;
 }
@@ -64,7 +75,7 @@ function renderInlineWikiText(content, {
 
   while ((match = regex.exec(content)) !== null) {
     if (match.index > lastIndex) {
-      html += escapePreviewText(content.slice(lastIndex, match.index));
+      html += renderSafeInlineBreaks(content.slice(lastIndex, match.index));
     }
 
     if (match[1]) {
@@ -109,7 +120,7 @@ function renderInlineWikiText(content, {
   }
 
   if (lastIndex < content.length) {
-    html += escapePreviewText(content.slice(lastIndex));
+    html += renderSafeInlineBreaks(content.slice(lastIndex));
   }
 
   return html;

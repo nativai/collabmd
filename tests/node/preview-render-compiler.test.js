@@ -141,6 +141,22 @@ test('compilePreviewDocument normalizes ASCII arrows in preview text', () => {
   assert.match(html, /<code>Inline -&gt; code<\/code>/);
 });
 
+test('compilePreviewDocument renders inline br tags without enabling arbitrary html', () => {
+  const markdown = [
+    '| Name | Description |',
+    '| --- | --- |',
+    '| BuySellTemplate | Template for BUY/SELL stocks txn <br> `partnerCorporateAccountNo` is defined on the filename |',
+    '',
+    '<div id="unsafe-html">unsafe</div>',
+  ].join('\n');
+
+  const { html } = compilePreviewDocument({ markdownText: markdown });
+
+  assert.match(html, /Template for BUY\/SELL stocks txn <br> <code>partnerCorporateAccountNo<\/code>/);
+  assert.ok(!html.includes('<div id="unsafe-html">unsafe</div>'));
+  assert.match(html, /&lt;div id=.*unsafe-html.*&gt;unsafe&lt;\/div&gt;/);
+});
+
 test('large-document classification triggers on any configured threshold', () => {
   const largeByChars = analyzeMarkdownComplexity('a'.repeat(LARGE_DOCUMENT_CHAR_THRESHOLD));
   assert.equal(isLargeDocumentStats(largeByChars), true);
