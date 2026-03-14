@@ -16,4 +16,5 @@ graph TD
 ## Related
 - [[README]]
 - [[daily/2026-03-05]]
+- [[showcase]]
 - [[]]

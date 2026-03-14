@@ -1,0 +1,19 @@
+@startuml
+title CollabMD workspace handoff
+
+actor Author
+actor Reviewer
+participant "Vault on Disk" as Vault
+participant "CollabMD" as App
+
+Author -> App : open workspace
+Reviewer -> App : join the same room
+App -> Vault : load files
+Author -> App : edit showcase.md
+App --> Reviewer : sync changes in realtime
+Reviewer -> App : open backlink / outline context
+Reviewer -> App : add anchored comment
+App --> Author : show thread marker and preview bubble
+Author -> App : resolve feedback
+App -> Vault : persist final text
+@enduml

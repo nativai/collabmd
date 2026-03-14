@@ -1,0 +1,18 @@
+flowchart LR
+    A["Vault files on disk"] --> B["CollabMD workspace"]
+    B --> C["Markdown editor"]
+    B --> D["Live preview"]
+    B --> E["Diagram files"]
+    C --> F["Source-anchored comments"]
+    D --> G["Wiki links + backlinks"]
+    E --> H{"Diagram type"}
+    H -->|Mermaid| I["SVG preview"]
+    H -->|PlantUML| J["Server-rendered diagram"]
+    H -->|Excalidraw| K["Shared canvas"]
+    F --> L["Review in context"]
+    G --> M["Navigate the vault"]
+    I --> L
+    J --> L
+    K --> L
+    L --> N["Finalize docs without migration"]
+    M --> N
