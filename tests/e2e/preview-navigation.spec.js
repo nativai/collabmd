@@ -104,6 +104,7 @@ test('keeps the clicked parent heading active in the outline after navigation', 
   await expect(page.locator('#outlinePanel')).toBeVisible();
 
   await page.locator('#outlineNav .outline-item', { hasText: 'Embedded Diagram Files' }).click();
+  await page.waitForTimeout(1000);
 
   await expect.poll(async () => {
     const activeItem = page.locator('#outlineNav .outline-item.active').first();

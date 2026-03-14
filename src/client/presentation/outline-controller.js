@@ -7,6 +7,7 @@ export class OutlineController {
     this.activeHeadingFrame = null;
     this.activeHeadingId = null;
     this.headings = [];
+    this.pinnedHeadingId = null;
     this.onNavigateToHeading = onNavigateToHeading;
     this.panel = document.getElementById('outlinePanel');
     this.navigation = document.getElementById('outlineNav');
@@ -83,6 +84,7 @@ export class OutlineController {
     this.navigation.querySelectorAll('.outline-item').forEach((button) => {
       button.addEventListener('click', () => {
         const target = document.getElementById(button.dataset.target);
+        this.pinnedHeadingId = button.dataset.target;
         this.notifyHeadingNavigation(target, button.dataset.target);
         this.scrollHeadingIntoView(target, { behavior: 'auto' });
         this.setActiveItem(button.dataset.target, { behavior: 'auto' });
@@ -104,6 +106,7 @@ export class OutlineController {
 
     this.previewContainer?.removeEventListener('scroll', this.handlePreviewScroll);
     this.headings = [];
+    this.pinnedHeadingId = null;
   }
 
   setActiveItem(id, { scrollIntoView = true, behavior = 'smooth' } = {}) {
@@ -149,7 +152,17 @@ export class OutlineController {
       return;
     }
 
-    const focusLine = this.previewContainer.scrollTop + 12;
+    const pinnedHeading = this.getPinnedHeading();
+    if (pinnedHeading && this.shouldKeepPinnedHeadingActive(pinnedHeading)) {
+      this.setActiveItem(pinnedHeading.id, {
+        behavior: 'auto',
+        scrollIntoView: true,
+      });
+      return;
+    }
+
+    this.pinnedHeadingId = null;
+    const focusLine = this.previewContainer.scrollTop;
     let activeHeading = this.headings[0];
 
     for (const heading of this.headings) {
@@ -177,6 +190,26 @@ export class OutlineController {
     return this.previewContainer.scrollTop + (headingRect.top - previewRect.top);
   }
 
+  getPinnedHeading() {
+    if (!this.pinnedHeadingId) {
+      return null;
+    }
+
+    return this.headings.find((heading) => heading.id === this.pinnedHeadingId) ?? null;
+  }
+
+  shouldKeepPinnedHeadingActive(heading) {
+    if (!this.previewContainer || !heading?.isConnected) {
+      return false;
+    }
+
+    const headingTop = this.getHeadingScrollTop(heading) - this.previewContainer.scrollTop;
+    const headingBottom = headingTop + heading.getBoundingClientRect().height;
+    const activationWindow = this.previewContainer.clientHeight * 0.45;
+
+    return headingBottom > -48 && headingTop < activationWindow;
+  }
+
   notifyHeadingNavigation(target, headingId) {
     if (!target) {
       return;
@@ -196,7 +229,7 @@ export class OutlineController {
 
     const previewRect = this.previewContainer.getBoundingClientRect();
     const targetRect = target.getBoundingClientRect();
-    const nextScrollTop = this.previewContainer.scrollTop + (targetRect.top - previewRect.top) - 12;
+    const nextScrollTop = this.previewContainer.scrollTop + (targetRect.top - previewRect.top);
 
     this.previewContainer.scrollTo({
       behavior,
