@@ -12,19 +12,38 @@ Realtime collaboration for Markdown folders, diagrams, and git-backed docs, with
 
 CollabMD turns a local Markdown folder, Obsidian-style vault, or docs repo into a collaborative workspace you can open in the browser.
 
+Throughout this guide, **vault** simply means a regular folder on your computer that contains Markdown files.
+
 - No migration: your files stay on disk
+- Your filesystem stays the source of truth: CollabMD does not move, rename, or delete files unless you explicitly do that in the app
 - Realtime editing with Yjs
 - Mermaid, PlantUML, and Excalidraw support
 - Source-anchored comments, chat, and presence
 - Works with plain folders, Obsidian-style vaults, and git-backed docs
 
+Requirements for the fastest first run:
+
+- Node.js 24 for `npx` and source installs
+- Homebrew only if you want the `brew install` path
+
 ## Quick start
 
 ```bash
+# Run locally first, no Cloudflare tunnel required
 npx collabmd@latest ~/my-vault --no-tunnel
 ```
 
 Open `http://localhost:1234`.
+
+Expected startup output:
+
+```text
+CollabMD v0.x.y
+Vault:  /path/to/your-vault
+Local:  http://localhost:1234
+Tunnel: disabled
+Ready for collaboration. Press Ctrl+C to stop.
+```
 
 Prefer Homebrew or source install? Jump to [Installation options](#installation-options).
 
@@ -32,7 +51,7 @@ Prefer Homebrew or source install? Jump to [Installation options](#installation-
 
 See CollabMD editing the same workspace from two browsers in realtime:
 
-![CollabMD live demo](https://raw.githubusercontent.com/andes90/collabmd/master/docs/assets/collabmd-demo.gif)
+![Two browser windows editing the same markdown workspace in realtime](https://raw.githubusercontent.com/andes90/collabmd/master/docs/assets/collabmd-demo.gif)
 
 Prefer video? [Open the WebM demo](https://raw.githubusercontent.com/andes90/collabmd/master/docs/assets/collabmd-demo.webm).
 
@@ -58,12 +77,10 @@ Prefer video? [Open the WebM demo](https://raw.githubusercontent.com/andes90/col
 
 ## Installation options
 
-*(Note: Throughout this guide, we use the term **vault** to simply mean any standard folder on your computer that contains markdown files.)*
-
 ### Requirements
 
 - macOS, Linux, or Windows (via WSL2)
-- Node.js 24 if installing from source
+- Node.js 24 for `npx` and source installs
 
 ### Run via npx (Node.js)
 
@@ -118,6 +135,16 @@ collabmd ~/my-vault --auth password
 ```
 
 If `cloudflared` is installed, CollabMD starts a quick tunnel by default unless you pass `--no-tunnel`.
+
+## Share with a collaborator
+
+If you want to share the workspace over the internet, start with password auth:
+
+```bash
+collabmd ~/my-vault --auth password
+```
+
+Then share the printed URL and password with your collaborator. If `cloudflared` is installed, CollabMD will start a quick tunnel automatically unless you pass `--no-tunnel`.
 
 ## Safety first
 
@@ -174,7 +201,7 @@ collabmd [directory] [options]
 |--------|-------------|---------|
 | `-p, --port` | Port to listen on | `1234` |
 | `--host` | Host to bind to | `127.0.0.1` |
-| `--auth` | Auth strategy: `none`, `password`, `oidc` | `none` |
+| `--auth` | Auth strategy: `none`, `password`, `oidc` (`oidc` is reserved and not yet available) | `none` |
 | `--auth-password` | Password for `--auth password` | generated per run |
 | `--local-plantuml` | Start the bundled local docker-compose PlantUML service | off |
 | `--no-tunnel` | Don't start Cloudflare Tunnel | tunnel on |
@@ -241,6 +268,8 @@ For the full runtime env var reference, see the `Environment variables` details 
 
 ## Docker / Coolify deployment
 
+Published image: `ghcr.io/andes90/collabmd:latest`
+
 ```bash
 docker build -t collabmd .
 docker run -p 1234:1234 -v /path/to/vault:/data collabmd
@@ -298,7 +327,7 @@ Open `http://localhost:1234`.
 By default, compose uses `COLLABMD_IMAGE=collabmd:local`. To run the published GitHub Container Registry image instead:
 
 ```bash
-COLLABMD_IMAGE=ghcr.io/<owner>/<repo>:latest docker compose up
+COLLABMD_IMAGE=ghcr.io/andes90/collabmd:latest docker compose up
 ```
 
 The PlantUML container is also published on loopback by default at `http://127.0.0.1:18080`, so the host-based CLI can reuse it with:
