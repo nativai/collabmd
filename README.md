@@ -1,6 +1,6 @@
 # CollabMD
 
-Browser collaboration for existing markdown folders, diagram files, and git-backed docs.
+Realtime collaboration for Markdown folders, diagrams, and git-backed docs, without migrating your files.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/andes90/collabmd/master/docs/assets/collabmd-hero.png" alt="CollabMD showing a file tree, markdown editor, live preview, and collaborator presence." width="100%">
@@ -10,17 +10,33 @@ Browser collaboration for existing markdown folders, diagram files, and git-back
   <strong>Turn an existing markdown-and-diagram workspace into a realtime collaborative web app.</strong>
 </p>
 
-<p align="center">
-  No migration. Plain files stay on disk. Collaborators get live editing, source-anchored comments, chat, Markdown video embeds, Mermaid, PlantUML, Excalidraw, and vault-style navigation in the browser.
-</p>
+CollabMD turns a local Markdown folder, Obsidian-style vault, or docs repo into a collaborative workspace you can open in the browser.
+
+- No migration: your files stay on disk
+- Realtime editing with Yjs
+- Mermaid, PlantUML, and Excalidraw support
+- Source-anchored comments, chat, and presence
+- Works with plain folders, Obsidian-style vaults, and git-backed docs
+
+## Quick start
+
+```bash
+npx collabmd@latest ~/my-vault --no-tunnel
+```
+
+Open `http://localhost:1234`.
+
+Prefer Homebrew or source install? Jump to [Installation options](#installation-options).
 
 ## See it in action
+
+See CollabMD editing the same workspace from two browsers in realtime:
 
 ![CollabMD live demo](https://raw.githubusercontent.com/andes90/collabmd/master/docs/assets/collabmd-demo.gif)
 
 Prefer video? [Open the WebM demo](https://raw.githubusercontent.com/andes90/collabmd/master/docs/assets/collabmd-demo.webm).
 
-## Why teams use CollabMD
+## Features
 
 - **No migration** — point CollabMD at an existing markdown folder, diagram workspace, Obsidian-style vault, or git-backed docs repo
 - **Local-files-first** — your filesystem remains the source of truth
@@ -40,7 +56,7 @@ Prefer video? [Open the WebM demo](https://raw.githubusercontent.com/andes90/col
 - Editing notes and diagrams together while keeping everything as plain files on disk
 - Giving browser access to collaborators who do not use your local markdown setup
 
-## Quick start
+## Installation options
 
 *(Note: Throughout this guide, we use the term **vault** to simply mean any standard folder on your computer that contains markdown files.)*
 
@@ -48,6 +64,16 @@ Prefer video? [Open the WebM demo](https://raw.githubusercontent.com/andes90/col
 
 - macOS, Linux, or Windows (via WSL2)
 - Node.js 24 if installing from source
+
+### Run via npx (Node.js)
+
+If you have Node.js installed, you can run CollabMD directly without installing it globally:
+
+```bash
+npx collabmd@latest ~/my-vault --no-tunnel
+```
+
+Open `http://localhost:1234`.
 
 ### Install with Homebrew
 
@@ -62,16 +88,6 @@ Or in a single command:
 ```bash
 brew install andes90/tap/collabmd
 collabmd ~/my-vault --no-tunnel
-```
-
-Open `http://localhost:1234`.
-
-### Run via npx (Node.js)
-
-If you have Node.js installed, you can run CollabMD directly without installing it globally:
-
-```bash
-npx collabmd@latest ~/my-vault --no-tunnel
 ```
 
 Open `http://localhost:1234`.
@@ -190,11 +206,17 @@ collabmd --local-plantuml
 collabmd ~/Documents/Obsidian/MyVault
 ```
 
-## Cloudflare Tunnel
+## Public access
 
-When `cloudflared` is available, the CLI starts a [Cloudflare Quick Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) by default so your vault is accessible from the internet. Since the editor uses same-origin WebSocket routing (`/ws/:file`), the tunnel works for both HTTP and collaboration traffic.
+CollabMD can optionally expose the session using a [Cloudflare Quick Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/). Since the editor uses same-origin WebSocket routing (`/ws/:file`), the tunnel works for both HTTP and collaboration traffic.
 
-If you are exposing the app through the tunnel, `collabmd --auth password` is the intended first-line protection. When you do not pass `--auth-password`, CollabMD generates a password for that host run and prints it in the terminal. Restarting the app rotates that password and the signed session secret.
+If you are exposing the session publicly, `collabmd --auth password` is the intended first-line protection. When you do not pass `--auth-password`, CollabMD generates a password for that host run and prints it in the terminal. Restarting the app rotates that password and the signed session secret.
+
+To share safely:
+
+```bash
+collabmd ~/my-vault --auth password
+```
 
 `cloudflared` is optional. Install it only if you want public tunnel access:
 
