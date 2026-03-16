@@ -2,9 +2,10 @@ import {
   COMMENT_BODY_MAX_LENGTH,
   normalizeCommentQuoteForComparison,
 } from '../../domain/comment-threads.js';
+import { renderCommentMarkdownToHtml } from './comment-markdown-renderer.js';
 
 const COMMENT_CARD_OFFSET = 14;
-const COMMENT_CARD_WIDTH = 360;
+const COMMENT_CARD_WIDTH = 520;
 const COMMENT_SELECTION_REVEAL_DELAY_MS = 150;
 const COMMENT_SELECTION_CHIP_GAP = 12;
 const COMMENT_CONTROL_SLOT_HEIGHT = 36;
@@ -79,6 +80,38 @@ function isLeafSourceBlock(element) {
 function parseLineNumber(value) {
   const parsed = Number.parseInt(value || '', 10);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getLatestMessage(messages = []) {
+  return messages.reduce((latest, message) => {
+    if (!latest) {
+      return message;
+    }
+
+    return (message?.createdAt ?? 0) >= (latest?.createdAt ?? 0)
+      ? message
+      : latest;
+  }, null);
+}
+
+function getLatestGroupMessage(group) {
+  return group?.threads?.reduce((latest, thread) => {
+    const next = getLatestMessage(thread?.messages ?? []);
+    if (!next) {
+      return latest;
+    }
+
+    return (next.createdAt ?? 0) >= (latest?.createdAt ?? 0)
+      ? next
+      : latest;
+  }, null);
+}
+
+function createRenderedCommentBody(body, className = 'comment-markdown') {
+  const container = document.createElement('div');
+  container.className = className;
+  container.innerHTML = renderCommentMarkdownToHtml(body);
+  return container;
 }
 
 function overlapsAnchorRange(element, anchor) {
@@ -578,11 +611,26 @@ export class CommentUiController {
       quote.className = 'comments-drawer-item-quote';
       quote.textContent = group.anchor.quote || group.anchor.excerpt || 'Source anchored comment';
 
+      const latestMessage = getLatestGroupMessage(group);
+      const preview = createRenderedCommentBody(
+        latestMessage?.body || '',
+        'comment-markdown comments-drawer-item-preview',
+      );
+
       const footer = document.createElement('div');
       footer.className = 'comments-drawer-item-footer';
-      footer.textContent = `${group.threads.length} thread${group.threads.length === 1 ? '' : 's'}`;
+      const countLabel = document.createElement('span');
+      countLabel.textContent = `${group.threads.length} thread${group.threads.length === 1 ? '' : 's'}`;
 
-      button.append(header, quote, footer);
+      const updatedLabel = document.createElement('span');
+      updatedLabel.className = 'comments-drawer-item-updated';
+      updatedLabel.textContent = latestMessage
+        ? `${latestMessage.userName} • ${this.formatTimestamp(latestMessage.createdAt)}`
+        : '';
+
+      footer.append(countLabel, updatedLabel);
+
+      button.append(header, quote, preview, footer);
       fragment.appendChild(button);
     });
 
@@ -929,15 +977,18 @@ export class CommentUiController {
     header.append(titleWrap, closeButton);
     card.appendChild(header);
 
+    const content = document.createElement('div');
+    content.className = 'comment-card-scroll';
+
     if (this.activeCard.anchor?.quote) {
       const quote = document.createElement('p');
       quote.className = 'comment-card-quote';
       quote.textContent = this.activeCard.anchor.quote;
-      card.appendChild(quote);
+      content.appendChild(quote);
     }
 
     if (this.activeCard.mode === 'create') {
-      card.appendChild(this.createComposer());
+      content.appendChild(this.createComposer());
     } else {
       const group = this.getThreadGroups().find((entry) => entry.key === this.activeCard.groupKey);
       if (!group) {
@@ -946,10 +997,11 @@ export class CommentUiController {
       }
 
       group.threads.forEach((thread) => {
-        card.appendChild(this.createThreadElement(thread));
+        content.appendChild(this.createThreadElement(thread));
       });
     }
 
+    card.appendChild(content);
     root.appendChild(card);
     this.flushPendingCardFocus();
     root.style.visibility = 'hidden';
@@ -1022,6 +1074,9 @@ export class CommentUiController {
     const header = document.createElement('div');
     header.className = 'comment-thread-card-header';
 
+    const heading = document.createElement('div');
+    heading.className = 'comment-thread-card-heading';
+
     const author = document.createElement('span');
     author.className = 'comment-thread-card-author';
     author.textContent = thread.createdByName;
@@ -1065,7 +1120,8 @@ export class CommentUiController {
     });
 
     actions.append(jump, reply, resolve);
-    header.append(author, time, actions);
+    heading.append(author, time);
+    header.append(heading, actions);
 
     article.append(header);
 
@@ -1095,12 +1151,13 @@ export class CommentUiController {
     time.className = 'comment-message-card-time';
     time.textContent = this.formatTimestamp(message.createdAt);
 
-    const body = document.createElement('p');
-    body.className = 'comment-message-card-body';
-    body.textContent = message.body;
+    const renderedBody = createRenderedCommentBody(
+      message.body,
+      'comment-message-card-body comment-markdown',
+    );
 
     meta.append(author, time);
-    container.append(meta, body);
+    container.append(meta, renderedBody);
     return container;
   }
 

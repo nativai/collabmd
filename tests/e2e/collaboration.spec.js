@@ -942,6 +942,77 @@ test('creates a selected-text comment and surfaces it in the preview bubble card
   await expect(page.locator('.comment-card')).toContainText('This phrase should stay visible in preview.');
 });
 
+test('renders multiline markdown comments with fenced code blocks in the thread card', async ({ page }) => {
+  await clearReadmeCollaborationSidecars();
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, README_TEST_DOCUMENT);
+
+  await createComment(page, {
+    body: 'First line\nSecond line\n\n```js\nconst answer = 42;\nconsole.log(answer);\n```',
+    targetText: 'Welcome to the test vault',
+    useInlineChip: true,
+  });
+
+  await page.locator('#previewContent .comment-preview-badge[aria-label="1 comment thread"]').first().click();
+
+  await expect(page.locator('.comment-message-card-body')).toContainText('First line');
+  await expect(page.locator('.comment-message-card-body')).toContainText('Second line');
+  await expect(page.locator('.comment-message-card-body pre code')).toContainText('const answer = 42;');
+  await expect.poll(async () => (
+    page.locator('.comment-message-card-body pre').evaluate((element) => getComputedStyle(element).overflowX)
+  )).toBe('auto');
+});
+
+test('shows wrapped excerpts and the latest comment preview in the comments drawer', async ({ page }) => {
+  await clearReadmeCollaborationSidecars();
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, README_TEST_DOCUMENT);
+
+  await createComment(page, {
+    body: 'Initial comment',
+    targetText: 'Welcome to the test vault. This is the top-level readme.',
+  });
+  await page.locator('#previewContent .comment-preview-badge[aria-label="1 comment thread"]').first().click();
+  await page.locator('.comment-thread-card-action').filter({ hasText: 'Reply' }).first().click();
+  await page.locator('.comment-card-input').last().fill('Latest reply with\n\n- bullet one\n- bullet two');
+  await page.locator('.comment-reply-form').getByRole('button', { name: 'Reply' }).click();
+  await expect(page.locator('.comment-reply-form')).toBeHidden();
+
+  await page.locator('#commentsToggle').click();
+  await expect(page.locator('#commentsDrawer')).toBeVisible();
+  await expect(page.locator('.comments-drawer-item-preview')).toContainText('Latest reply with');
+  await expect(page.locator('.comments-drawer-item-preview')).toContainText('bullet one');
+  await expect.poll(async () => (
+    page.locator('.comments-drawer-item-quote').evaluate((element) => getComputedStyle(element).whiteSpace)
+  )).toBe('pre-wrap');
+});
+
+test('keeps the refreshed comment card within a narrow viewport', async ({ page }) => {
+  await page.setViewportSize({ height: 900, width: 780 });
+  await clearReadmeCollaborationSidecars();
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, README_TEST_DOCUMENT);
+
+  await createComment(page, {
+    body: '```js\nconst veryLongLine = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";\n```\n\nLine one\nLine two\nLine three\nLine four\nLine five',
+    targetText: 'Welcome to the test vault',
+    useInlineChip: true,
+  });
+
+  await page.locator('#previewContent .comment-preview-badge[aria-label="1 comment thread"]').first().click();
+  await expect(page.locator('.comment-card-scroll')).toBeVisible();
+  await expect.poll(async () => (
+    page.locator('.comment-card-scroll').evaluate((element) => getComputedStyle(element).overflowY)
+  )).toBe('auto');
+
+  const box = await page.locator('.comment-card').boundingBox();
+  expect(box).toBeTruthy();
+  expect((box?.x ?? 0) >= 0).toBe(true);
+  expect((box?.y ?? 0) >= 0).toBe(true);
+  expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(780);
+  expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(900);
+});
+
 test('supports comments for Mermaid and PlantUML files', async ({ page }) => {
   await stubPlantUmlRender(page, 'commentable-plantuml');
 
