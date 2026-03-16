@@ -18,6 +18,7 @@ function createController(overrides = {}) {
     getDisplayName: (filePath) => filePath,
     getSession,
     isExcalidrawFile: (filePath) => filePath?.endsWith('.excalidraw'),
+    isImageFile: (filePath) => filePath?.endsWith('.png'),
     isMermaidFile: (filePath) => filePath?.endsWith('.mmd'),
     isPlantUmlFile: (filePath) => filePath?.endsWith('.puml'),
     layoutController: { setView() {}, ...(overrides.layoutController || {}) },
@@ -116,6 +117,35 @@ test('WorkspacePreviewController forces Excalidraw files into preview without ov
   });
 
   controller.syncFileChrome('diagram.excalidraw');
+
+  assert.deepEqual(events, [
+    ['set-view', 'preview', { persist: false }],
+    ['outline-close'],
+    ['backlinks-clear'],
+  ]);
+});
+
+test('WorkspacePreviewController forces image attachments into preview without overwriting layout preference', () => {
+  const events = [];
+  const controller = createController({
+    layoutController: {
+      setView(view, options) {
+        events.push(['set-view', view, options]);
+      },
+    },
+    outlineController: {
+      close() {
+        events.push(['outline-close']);
+      },
+    },
+    backlinksPanel: {
+      clear() {
+        events.push(['backlinks-clear']);
+      },
+    },
+  });
+
+  controller.syncFileChrome('README.assets/diagram.png');
 
   assert.deepEqual(events, [
     ['set-view', 'preview', { persist: false }],

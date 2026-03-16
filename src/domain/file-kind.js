@@ -2,6 +2,7 @@ const MARKDOWN_FILE_EXTENSIONS = Object.freeze(['.md', '.markdown', '.mdx']);
 const EXCALIDRAW_FILE_EXTENSION = '.excalidraw';
 const MERMAID_FILE_EXTENSIONS = Object.freeze(['.mmd', '.mermaid']);
 const PLANTUML_FILE_EXTENSIONS = Object.freeze(['.puml', '.plantuml']);
+const IMAGE_ATTACHMENT_EXTENSIONS = Object.freeze(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg']);
 const DIAGRAM_FILE_EXTENSIONS = Object.freeze([
   EXCALIDRAW_FILE_EXTENSION,
   ...MERMAID_FILE_EXTENSIONS,
@@ -10,8 +11,9 @@ const DIAGRAM_FILE_EXTENSIONS = Object.freeze([
 const VAULT_FILE_EXTENSIONS = Object.freeze([
   ...MARKDOWN_FILE_EXTENSIONS,
   ...DIAGRAM_FILE_EXTENSIONS,
+  ...IMAGE_ATTACHMENT_EXTENSIONS,
 ]);
-const STRIP_VAULT_EXTENSION_PATTERN = /\.(?:md|markdown|mdx|excalidraw|mmd|mermaid|puml|plantuml)$/i;
+const STRIP_VAULT_EXTENSION_PATTERN = /\.(?:md|markdown|mdx|excalidraw|mmd|mermaid|puml|plantuml|png|jpe?g|webp|gif|svg)$/i;
 
 function normalizeFilePath(filePath) {
   return String(filePath ?? '').trim().toLowerCase();
@@ -25,6 +27,7 @@ function hasFileExtension(filePath, extensions) {
 export {
   DIAGRAM_FILE_EXTENSIONS,
   EXCALIDRAW_FILE_EXTENSION,
+  IMAGE_ATTACHMENT_EXTENSIONS,
   MARKDOWN_FILE_EXTENSIONS,
   MERMAID_FILE_EXTENSIONS,
   PLANTUML_FILE_EXTENSIONS,
@@ -48,6 +51,10 @@ export function getVaultFileKind(filePath) {
     return 'plantuml';
   }
 
+  if (hasFileExtension(filePath, IMAGE_ATTACHMENT_EXTENSIONS)) {
+    return 'image';
+  }
+
   return null;
 }
 
@@ -55,6 +62,10 @@ export function getVaultTreeNodeType(filePath) {
   const kind = getVaultFileKind(filePath);
   if (!kind) {
     return null;
+  }
+
+  if (kind === 'image') {
+    return 'image';
   }
 
   return kind === 'markdown' ? 'file' : kind;
@@ -79,6 +90,10 @@ export function isMermaidFilePath(filePath) {
 
 export function isPlantUmlFilePath(filePath) {
   return getVaultFileKind(filePath) === 'plantuml';
+}
+
+export function isImageAttachmentFilePath(filePath) {
+  return getVaultFileKind(filePath) === 'image';
 }
 
 export function isDiagramFilePath(filePath) {

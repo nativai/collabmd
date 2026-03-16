@@ -1,7 +1,8 @@
 import markdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 
-import { escapeHtml, resolveWikiTarget } from '../domain/vault-utils.js';
+import { isImageAttachmentFilePath } from '../../domain/file-kind.js';
+import { escapeHtml, resolveVaultRelativePath, resolveWikiTarget } from '../domain/vault-utils.js';
 import { analyzeMarkdownComplexity } from './preview-render-profile.js';
 
 const DIRECT_VIDEO_MIME_TYPES = Object.freeze({
@@ -189,6 +190,35 @@ function renderVideoEmbed(token, videoEmbedCounts) {
   });
 }
 
+function isAbsoluteOrExternalUrl(source = '') {
+  const normalized = String(source ?? '').trim();
+  return (
+    !normalized
+    || normalized.startsWith('data:')
+    || normalized.startsWith('blob:')
+    || normalized.startsWith('#')
+    || normalized.startsWith('//')
+    || /^[a-zA-Z][a-zA-Z\d+.-]*:/u.test(normalized)
+    || normalized.startsWith('/')
+  );
+}
+
+function resolveLocalAttachmentUrl(source = '', {
+  attachmentApiPath,
+  sourceFilePath,
+} = {}) {
+  if (!sourceFilePath || isAbsoluteOrExternalUrl(source)) {
+    return null;
+  }
+
+  const resolvedPath = resolveVaultRelativePath(sourceFilePath, source);
+  if (!resolvedPath || !isImageAttachmentFilePath(resolvedPath)) {
+    return null;
+  }
+
+  return `${attachmentApiPath}?path=${encodeURIComponent(resolvedPath)}`;
+}
+
 function renderInlineWikiText(content, {
   excalidrawEmbedCounts,
   fileList,
@@ -253,7 +283,10 @@ function renderInlineWikiText(content, {
   return html;
 }
 
-function createMarkdownRenderer(fileList = []) {
+function createMarkdownRenderer(fileList = [], {
+  attachmentApiPath = '/api/attachment',
+  sourceFilePath = '',
+} = {}) {
   const markdown = markdownIt({
     highlight(source, language) {
       if (language === 'mermaid' || language === 'plantuml' || language === 'puml') {
@@ -396,7 +429,16 @@ function createMarkdownRenderer(fileList = []) {
   };
 
   markdown.renderer.rules.image = (tokens, index, options, env, self) => {
-    const renderedVideo = renderVideoEmbed(tokens[index], videoEmbedCounts);
+    const token = tokens[index];
+    const localAttachmentUrl = resolveLocalAttachmentUrl(token.attrGet('src') || '', {
+      attachmentApiPath,
+      sourceFilePath,
+    });
+    if (localAttachmentUrl) {
+      token.attrSet('src', localAttachmentUrl);
+    }
+
+    const renderedVideo = renderVideoEmbed(token, videoEmbedCounts);
     if (renderedVideo) {
       return renderedVideo;
     }
@@ -415,9 +457,17 @@ function createMarkdownRenderer(fileList = []) {
   return markdown;
 }
 
-export function compilePreviewDocument({ fileList = [], markdownText = '' } = {}) {
+export function compilePreviewDocument({
+  attachmentApiPath = '/api/attachment',
+  fileList = [],
+  markdownText = '',
+  sourceFilePath = '',
+} = {}) {
   const normalizedMarkdown = String(markdownText);
-  const renderer = createMarkdownRenderer(fileList);
+  const renderer = createMarkdownRenderer(fileList, {
+    attachmentApiPath,
+    sourceFilePath,
+  });
 
   return {
     html: renderer.render(normalizedMarkdown),

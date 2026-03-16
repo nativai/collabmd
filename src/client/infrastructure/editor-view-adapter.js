@@ -11,7 +11,7 @@ import {
 } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
-import { Compartment, EditorSelection, EditorState } from '@codemirror/state';
+import { Compartment, EditorSelection, EditorState, Prec } from '@codemirror/state';
 import { oneDark } from '@codemirror/theme-one-dark';
 import {
   EditorView,
@@ -30,6 +30,7 @@ import { normalizeCommentQuote } from '../../domain/comment-threads.js';
 import { createMarkdownToolbarEdit } from '../domain/markdown-formatting.js';
 import { wikiLinkCompletions } from '../domain/wiki-link-completions.js';
 import { plantUmlLanguage, plantUmlLanguageDescription } from '../domain/plantuml-language.js';
+import { handleImagePasteEvent } from './editor-paste-utils.js';
 
 const markdownCodeLanguages = [...languages, plantUmlLanguageDescription];
 
@@ -127,6 +128,7 @@ export class EditorViewAdapter {
     lineInfoElement,
     lineWrappingEnabled = true,
     onDocChanged = null,
+    onImagePaste = null,
     onSelectionChanged = null,
     onViewportChanged = null,
   }) {
@@ -136,6 +138,7 @@ export class EditorViewAdapter {
     this.lineInfoElement = lineInfoElement;
     this.lineWrappingEnabled = lineWrappingEnabled;
     this.onDocChanged = onDocChanged;
+    this.onImagePaste = onImagePaste;
     this.onSelectionChanged = onSelectionChanged;
     this.onViewportChanged = onViewportChanged;
     this.editorView = null;
@@ -208,6 +211,9 @@ export class EditorViewAdapter {
           EditorView.contentAttributes.of({
             'aria-label': 'Markdown editor',
           }),
+          Prec.highest(EditorView.domEventHandlers({
+            paste: (event) => handleImagePasteEvent(event, this.onImagePaste),
+          })),
           createLanguageExtension(filePath),
           this.themeCompartment.of(createEditorTheme(this.initialTheme)),
           this.syntaxThemeCompartment.of(this.initialTheme === 'dark' ? oneDark : []),
@@ -557,6 +563,33 @@ export class EditorViewAdapter {
       scrollIntoView: true,
       userEvent: 'input',
     }));
+    this.editorView.focus();
+    return true;
+  }
+
+  insertText(text) {
+    if (!this.editorView) {
+      return false;
+    }
+
+    const insertValue = String(text ?? '');
+    const { state } = this.editorView;
+    const range = state.selection.main;
+    const anchor = range.from + insertValue.length;
+
+    this.editorView.dispatch({
+      changes: {
+        from: range.from,
+        insert: insertValue,
+        to: range.to,
+      },
+      scrollIntoView: true,
+      selection: {
+        anchor,
+        head: anchor,
+      },
+      userEvent: 'input',
+    });
     this.editorView.focus();
     return true;
   }

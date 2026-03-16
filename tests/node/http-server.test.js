@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { request } from 'node:http';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 
@@ -486,7 +486,7 @@ test('HTTP server returns 413 for oversized request payloads', async (t) => {
   assert.match(response.body, /Request body too large/);
 });
 
-test('HTTP server enforces markdown-only /api/file mutations', async (t) => {
+test('HTTP server rejects unsupported /api/file mutations outside the vault file set', async (t) => {
   const app = await startTestServer();
   t.after(() => app.close());
 
@@ -496,7 +496,7 @@ test('HTTP server enforces markdown-only /api/file mutations', async (t) => {
     method: 'DELETE',
   });
   assert.equal(deleteResponse.statusCode, 400);
-  assert.match(deleteResponse.body, /must end in \.md, \.excalidraw, \.mmd, \.mermaid, \.puml, or \.plantuml/i);
+  assert.match(deleteResponse.body, /must end in \.md, .*\.png, .*\.svg/i);
 
   const renameResponse = await httpRequest(`${app.baseUrl}/api/file`, {
     method: 'PATCH',
@@ -509,7 +509,157 @@ test('HTTP server enforces markdown-only /api/file mutations', async (t) => {
     }),
   });
   assert.equal(renameResponse.statusCode, 400);
-  assert.match(renameResponse.body, /Old path must be a vault file \(\.md, \.excalidraw, \.mmd, \.mermaid, \.puml, or \.plantuml\)/i);
+  assert.match(renameResponse.body, /Old path must be a vault file \(\.md, .*\.png, .*\.svg\)/i);
+});
+
+test('HTTP server uploads and serves vault-owned image attachments', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  const uploadResponse = await httpRequest(`${app.baseUrl}/api/attachments`, {
+    body: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    headers: {
+      'Content-Type': 'image/png',
+      'X-CollabMD-File-Name': encodeURIComponent('Product Screenshot.png'),
+      'X-CollabMD-Source-Path': encodeURIComponent('test.md'),
+    },
+    method: 'POST',
+  });
+
+  assert.equal(uploadResponse.statusCode, 201);
+  assert.match(uploadResponse.body, /"markdown":"!\[Product Screenshot\]\(test\.assets\/product-screenshot-/);
+  assert.match(uploadResponse.body, /"path":"test\.assets\/product-screenshot-[^"]+\.png"/);
+
+  const uploadedPath = JSON.parse(uploadResponse.body).path;
+  const attachmentResponse = await httpRequest(`${app.baseUrl}/api/attachment?path=${encodeURIComponent(uploadedPath)}`);
+  assert.equal(attachmentResponse.statusCode, 200);
+  assert.equal(attachmentResponse.headers['content-type'], 'image/png');
+  assert.equal(attachmentResponse.headers['x-content-type-options'], 'nosniff');
+  assert.deepEqual(Array.from(attachmentResponse.bodyBuffer), [0x89, 0x50, 0x4e, 0x47]);
+
+  const treeResponse = await httpRequest(`${app.baseUrl}/api/files`);
+  assert.equal(treeResponse.statusCode, 200);
+  assert.match(treeResponse.body, /"type":"image"/);
+  assert.match(treeResponse.body, /"name":"test\.assets"/);
+});
+
+test('HTTP server serves attachment bytes for password-authenticated workspaces with a session cookie', async (t) => {
+  const app = await startTestServer({
+    auth: {
+      password: 'test-password-123',
+      strategy: 'password',
+    },
+  });
+  t.after(() => app.close());
+
+  const loginResponse = await httpRequest(`${app.baseUrl}/api/auth/session`, {
+    body: JSON.stringify({ password: 'test-password-123' }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+  assert.equal(loginResponse.statusCode, 200);
+  const cookieHeader = extractCookieHeader(loginResponse.headers['set-cookie']);
+
+  const uploadResponse = await httpRequest(`${app.baseUrl}/api/attachments`, {
+    body: Buffer.from([0x47, 0x49, 0x46]),
+    headers: {
+      Cookie: cookieHeader,
+      'Content-Type': 'image/gif',
+      'X-CollabMD-File-Name': encodeURIComponent('pasted.gif'),
+      'X-CollabMD-Source-Path': encodeURIComponent('test.md'),
+    },
+    method: 'POST',
+  });
+  assert.equal(uploadResponse.statusCode, 201);
+
+  const uploadedPath = JSON.parse(uploadResponse.body).path;
+  const attachmentResponse = await httpRequest(`${app.baseUrl}/api/attachment?path=${encodeURIComponent(uploadedPath)}`, {
+    headers: {
+      Cookie: cookieHeader,
+    },
+  });
+  assert.equal(attachmentResponse.statusCode, 200);
+  assert.equal(attachmentResponse.headers['content-type'], 'image/gif');
+  assert.deepEqual(Array.from(attachmentResponse.bodyBuffer), [0x47, 0x49, 0x46]);
+});
+
+test('HTTP server rejects invalid attachment uploads', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  const missingSourceResponse = await httpRequest(`${app.baseUrl}/api/attachments`, {
+    body: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    headers: {
+      'Content-Type': 'image/png',
+    },
+    method: 'POST',
+  });
+  assert.equal(missingSourceResponse.statusCode, 400);
+  assert.match(missingSourceResponse.body, /Missing source document path/);
+
+  const invalidTypeResponse = await httpRequest(`${app.baseUrl}/api/attachments`, {
+    body: Buffer.from('hello'),
+    headers: {
+      'Content-Type': 'text/plain',
+      'X-CollabMD-Source-Path': encodeURIComponent('test.md'),
+    },
+    method: 'POST',
+  });
+  assert.equal(invalidTypeResponse.statusCode, 400);
+  assert.match(invalidTypeResponse.body, /Unsupported image type/);
+});
+
+test('HTTP server decodes encoded attachment metadata headers and hardens SVG responses', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  const uploadResponse = await httpRequest(`${app.baseUrl}/api/attachments`, {
+    body: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>'),
+    headers: {
+      'Content-Type': 'image/svg+xml',
+      'X-CollabMD-File-Name': encodeURIComponent('diagram résumé.svg'),
+      'X-CollabMD-Source-Path': encodeURIComponent('catatan/café.md'),
+    },
+    method: 'POST',
+  });
+
+  assert.equal(uploadResponse.statusCode, 201);
+  const uploadBody = JSON.parse(uploadResponse.body);
+  assert.match(uploadBody.markdown, /!\[diagram résumé\]\(caf%C3%A9\.assets\/diagram-r-sum-/);
+  assert.match(uploadBody.path, /^catatan\/café\.assets\/diagram-r-sum-[^/]+\.svg$/);
+
+  const attachmentResponse = await httpRequest(`${app.baseUrl}/api/attachment?path=${encodeURIComponent(uploadBody.path)}`);
+  assert.equal(attachmentResponse.statusCode, 200);
+  assert.equal(attachmentResponse.headers['content-type'], 'image/svg+xml');
+  assert.equal(attachmentResponse.headers['x-content-type-options'], 'nosniff');
+  assert.equal(
+    attachmentResponse.headers['content-security-policy'],
+    "default-src 'none'; img-src 'self' data: blob:; style-src 'unsafe-inline'; sandbox",
+  );
+  assert.match(
+    String(attachmentResponse.headers['content-disposition']),
+    new RegExp(`filename\\*=UTF-8''${encodeURIComponent(basename(uploadBody.path))}`),
+  );
+});
+
+test('HTTP server rejects malformed encoded attachment metadata headers', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  const response = await httpRequest(`${app.baseUrl}/api/attachments`, {
+    body: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    headers: {
+      'Content-Type': 'image/png',
+      'X-CollabMD-File-Name': '%E0%A4%A',
+      'X-CollabMD-Source-Path': encodeURIComponent('test.md'),
+    },
+    method: 'POST',
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.body, /Invalid attachment metadata header encoding/);
 });
 
 test('HTTP server reads and writes .mmd files through /api/file', async (t) => {

@@ -208,6 +208,21 @@ test('compilePreviewDocument keeps unsupported image urls as images', () => {
   assert.doesNotMatch(html, /video-embed/);
 });
 
+test('compilePreviewDocument rewrites relative vault image attachments through the attachment API', () => {
+  const markdown = '![Screenshot](README.assets/screenshot.png)';
+
+  const { html } = compilePreviewDocument({
+    attachmentApiPath: '/app/api/attachment',
+    markdownText: markdown,
+    sourceFilePath: 'README.md',
+  });
+
+  assert.match(
+    html,
+    /<img src="\/app\/api\/attachment\?path=README\.assets%2Fscreenshot\.png" alt="Screenshot">/,
+  );
+});
+
 test('compilePreviewDocument does not turn markdown links into video embeds', () => {
   const markdown = '[Watch](https://www.youtube.com/watch?v=dQw4w9WgXcQ)';
 

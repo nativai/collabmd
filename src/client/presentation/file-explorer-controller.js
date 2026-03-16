@@ -1,3 +1,4 @@
+import { isImageAttachmentFilePath } from '../../domain/file-kind.js';
 import { vaultApiClient } from '../domain/vault-api-client.js';
 import { FileActionController } from './file-action-controller.js';
 import { FileTreeState } from './file-tree-state.js';
@@ -67,6 +68,10 @@ export class FileExplorerController {
 
   get flatFiles() {
     return this.state.flatFiles;
+  }
+
+  get flatDocumentFiles() {
+    return this.state.flatFiles.filter((path) => !isImageAttachmentFilePath(path));
   }
 
   renderTree() {

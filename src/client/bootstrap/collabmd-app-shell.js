@@ -30,6 +30,7 @@ import { ScrollSyncController } from '../presentation/scroll-sync-controller.js'
 import { ThemeController } from '../presentation/theme-controller.js';
 import { ToastController } from '../presentation/toast-controller.js';
 import { VideoEmbedController } from '../presentation/video-embed-controller.js';
+import { ImageLightboxController } from '../presentation/image-lightbox-controller.js';
 
 const APP_SHELL_FEATURES = Object.freeze({
   chat: chatFeature,
@@ -152,9 +153,13 @@ export class CollabMdAppShell {
     this.videoEmbed = new VideoEmbedController({
       previewElement: this.elements.previewContent,
     });
+    this.imageLightbox = new ImageLightboxController({
+      previewElement: this.elements.previewContent,
+    });
     this.previewRenderer = new PreviewRenderer({
       getContent: () => this.getPreviewSource(),
-      getFileList: () => this.fileExplorer.flatFiles,
+      getFileList: () => this.fileExplorer.flatDocumentFiles,
+      getSourceFilePath: () => this.currentFilePath,
       onAfterRenderCommit: (_previewElement, stats) => {
         this.videoEmbed.reconcileEmbeds(this.elements.previewContent);
         this.videoEmbed.syncLayout();
@@ -227,6 +232,7 @@ export class CollabMdAppShell {
       getDisplayName: (filePath) => this.getDisplayName(filePath),
       getSession: () => this.session,
       isExcalidrawFile: (filePath) => this.isExcalidrawFile(filePath),
+      isImageFile: (filePath) => this.isImageFile(filePath),
       isMermaidFile: (filePath) => this.isMermaidFile(filePath),
       isPlantUmlFile: (filePath) => this.isPlantUmlFile(filePath),
       layoutController: this.layoutController,
@@ -237,7 +243,7 @@ export class CollabMdAppShell {
       videoEmbed: this.videoEmbed,
     });
     this.wikiLinkFileController = new WikiLinkFileController({
-      getFileList: () => this.fileExplorer.flatFiles,
+      getFileList: () => this.fileExplorer.flatDocumentFiles,
       navigation: this.navigation,
       refreshExplorer: () => this.fileExplorer.refresh(),
       toastController: this.toastController,
@@ -272,6 +278,7 @@ export class CollabMdAppShell {
         lineInfoElement: this.elements.lineInfo,
         lineWrappingEnabled: options.lineWrappingEnabled,
         localUser: options.localUser,
+        onImagePaste: options.onImagePaste,
         onAwarenessChange: options.onAwarenessChange,
         onCommentsChange: options.onCommentsChange,
         onConnectionChange: options.onConnectionChange,
@@ -280,12 +287,13 @@ export class CollabMdAppShell {
         preferredUserName: options.preferredUserName,
       }),
       getDisplayName: (filePath) => this.getDisplayName(filePath),
-      getFileList: () => this.fileExplorer.flatFiles,
+      getFileList: () => this.fileExplorer.flatDocumentFiles,
       getLineWrappingEnabled: () => this.getStoredLineWrapping(),
       getLocalUser: () => this.lobby.getLocalUser(),
       getStoredUserName: () => this.getStoredUserName(),
       getTheme: () => this.themeController.getTheme(),
       isExcalidrawFile: (filePath) => this.isExcalidrawFile(filePath),
+      isImageFile: (filePath) => this.isImageFile(filePath),
       isMermaidFile: (filePath) => this.isMermaidFile(filePath),
       isPlantUmlFile: (filePath) => this.isPlantUmlFile(filePath),
       isTabActive: () => this.isTabActive,
@@ -320,11 +328,13 @@ export class CollabMdAppShell {
         this.hideEditorLoading();
       },
       onSelectionChange: (anchor) => this.handleCommentSelectionChange(anchor),
+      onImagePaste: (file) => this.handleEditorImageInsert(file),
       onSessionAssigned: (session) => {
         this.session = session;
         this.commentUi.attachSession(session);
       },
       onRenderExcalidrawPreview: (filePath) => this.renderExcalidrawFilePreview(filePath),
+      onRenderImagePreview: (filePath) => this.renderImageFilePreview(filePath),
       onSyncWrapToggle: () => this.syncWrapToggle(),
       onUpdateActiveFile: (filePath) => this.fileExplorer.setActiveFile(filePath),
       onUpdateCurrentFile: (filePath) => {
@@ -355,6 +365,7 @@ export class CollabMdAppShell {
       getSessionLoadToken: () => this.sessionLoadToken,
       gitDiffView: this.gitDiffView,
       gitPanel: this.gitPanel,
+      imageLightbox: this.imageLightbox,
       layoutController: this.layoutController,
       lobby: this.lobby,
       navigation: this.navigation,

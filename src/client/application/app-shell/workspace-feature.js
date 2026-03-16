@@ -1,5 +1,6 @@
 import {
   isExcalidrawFilePath,
+  isImageAttachmentFilePath,
   isMermaidFilePath,
   isPlantUmlFilePath,
   stripVaultFileExtension,
@@ -8,6 +9,10 @@ import {
 export const workspaceFeature = {
   isExcalidrawFile(filePath) {
     return isExcalidrawFilePath(filePath);
+  },
+
+  isImageFile(filePath) {
+    return isImageAttachmentFilePath(filePath);
   },
 
   isMermaidFile(filePath) {
@@ -42,6 +47,10 @@ export const workspaceFeature = {
 
   renderExcalidrawFilePreview(filePath) {
     this.workspacePreviewController.renderExcalidrawFilePreview(filePath);
+  },
+
+  renderImageFilePreview(filePath) {
+    this.workspacePreviewController.renderImageFilePreview(filePath);
   },
 
   createResizeHandler() {

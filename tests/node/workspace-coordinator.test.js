@@ -91,8 +91,14 @@ function createCoordinator(overrides = {}) {
     onFileOpenReady: () => {
       events.push('open-ready');
     },
+    onImagePaste: () => {
+      events.push('image-paste');
+    },
     onRenderExcalidrawPreview: () => {
       events.push('render-excalidraw');
+    },
+    onRenderImagePreview: () => {
+      events.push('render-image');
     },
     onSyncWrapToggle: () => {
       events.push('sync-wrap');
@@ -175,6 +181,30 @@ test('WorkspaceCoordinator ensures initial content after sync wait even without 
   assert.equal(ensureCalls, 1);
 });
 
+test('WorkspaceCoordinator forwards image paste handling into the editor session options', async () => {
+  let sessionOptions = null;
+  const { coordinator } = createCoordinator({
+    createEditorSession: (_EditorSessionClass, options) => {
+      sessionOptions = options;
+      return {
+        applyTheme() {},
+        destroy() {},
+        ensureInitialContent() {},
+        getScrollContainer() {
+          return null;
+        },
+        initialize: async () => {},
+        requestMeasure() {},
+        waitForInitialSync: async () => {},
+      };
+    },
+  });
+
+  await coordinator.openFile('README.md');
+
+  assert.equal(typeof sessionOptions?.onImagePaste, 'function');
+});
+
 test('WorkspaceCoordinator skips creating an editor session for Excalidraw files', async () => {
   let createSessionCalls = 0;
   const { coordinator, events } = createCoordinator({
@@ -193,4 +223,24 @@ test('WorkspaceCoordinator skips creating an editor session for Excalidraw files
   assert.equal(coordinator.getSession(), null);
   assert.ok(events.includes('open-ready'));
   assert.ok(events.includes('render-excalidraw'));
+});
+
+test('WorkspaceCoordinator skips creating an editor session for image attachments', async () => {
+  let createSessionCalls = 0;
+  const { coordinator, events } = createCoordinator({
+    createEditorSession: () => {
+      createSessionCalls += 1;
+      return {
+        destroy() {},
+      };
+    },
+    isImageFile: (filePath) => filePath?.endsWith('.png'),
+  });
+
+  await coordinator.openFile('README.assets/diagram.png');
+
+  assert.equal(createSessionCalls, 0);
+  assert.equal(coordinator.getSession(), null);
+  assert.ok(events.includes('open-ready'));
+  assert.ok(events.includes('render-image'));
 });

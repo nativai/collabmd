@@ -270,6 +270,66 @@ export async function replaceEditorContent(page, content) {
   await page.keyboard.insertText(content);
 }
 
+export async function pasteClipboardImage(page, {
+  buffer,
+  fileName = 'pasted-image.png',
+  mimeType = 'image/png',
+} = {}) {
+  const imageBytes = Array.from(Buffer.from(buffer ?? []));
+
+  const editor = page.locator('.cm-content').first();
+  await editor.click();
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+
+  const clipboardMode = await page.evaluate(async ({ bytes, name, type }) => {
+    const target = document.querySelector('.cm-content');
+    if (!(target instanceof HTMLElement)) {
+      throw new Error('Missing editor content element');
+    }
+
+    const file = new File([new Uint8Array(bytes)], name, { type });
+
+    try {
+      if (typeof ClipboardItem === 'function' && navigator.clipboard?.write) {
+        const blob = new Blob([new Uint8Array(bytes)], { type });
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            [type]: blob,
+          }),
+        ]);
+        return 'clipboard';
+      }
+    } catch {
+      // Fall through to a synthetic paste payload. Headless Chromium often rejects image clipboard writes.
+    }
+
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', {
+      configurable: true,
+      value: {
+        files: [file],
+        items: [{
+          getAsFile() {
+            return file;
+          },
+          kind: 'file',
+          type,
+        }],
+      },
+    });
+    target.dispatchEvent(event);
+    return 'synthetic';
+  }, {
+    bytes: imageBytes,
+    name: fileName,
+    type: mimeType,
+  });
+
+  if (clipboardMode === 'clipboard') {
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+V' : 'Control+V');
+  }
+}
+
 export async function openChat(page) {
   await page.locator('#chatToggleBtn').click();
   await expect(page.locator('#chatPanel')).toBeVisible();

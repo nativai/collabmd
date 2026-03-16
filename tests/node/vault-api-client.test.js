@@ -39,24 +39,41 @@ test('VaultApiClient prefixes vault endpoints with the configured base path', as
   await client.renameFile({ newPath: 'notes/tomorrow.md', oldPath: 'notes/today.md' });
   await client.deleteFile('notes/tomorrow.md');
   await client.createDirectory('notes/archive');
+  await client.uploadImageAttachment({
+    file: new Blob(['png-bytes'], { type: 'image/png' }),
+    fileName: 'résumé screen.png',
+    sourcePath: 'notes/hari ini.md',
+  });
 
   assert.deepEqual(
     requests.map(({ options, url }) => ({
-      body: options.body ? JSON.parse(options.body) : null,
+      body: options.body instanceof Blob ? '[blob]' : (options.body ? JSON.parse(options.body) : null),
+      headers: options.headers ?? null,
       method: options.method ?? 'GET',
       url,
     })),
     [
-      { body: null, method: 'GET', url: '/app/api/files' },
-      { body: null, method: 'GET', url: '/app/api/file?path=notes%2Ftoday.md' },
-      { body: { content: '# Today\n', path: 'notes/today.md' }, method: 'POST', url: '/app/api/file' },
+      { body: null, headers: null, method: 'GET', url: '/app/api/files' },
+      { body: null, headers: null, method: 'GET', url: '/app/api/file?path=notes%2Ftoday.md' },
+      { body: { content: '# Today\n', path: 'notes/today.md' }, headers: { 'Content-Type': 'application/json' }, method: 'POST', url: '/app/api/file' },
       {
         body: { newPath: 'notes/tomorrow.md', oldPath: 'notes/today.md' },
+        headers: { 'Content-Type': 'application/json' },
         method: 'PATCH',
         url: '/app/api/file',
       },
-      { body: null, method: 'DELETE', url: '/app/api/file?path=notes%2Ftomorrow.md' },
-      { body: { path: 'notes/archive' }, method: 'POST', url: '/app/api/directory' },
+      { body: null, headers: null, method: 'DELETE', url: '/app/api/file?path=notes%2Ftomorrow.md' },
+      { body: { path: 'notes/archive' }, headers: { 'Content-Type': 'application/json' }, method: 'POST', url: '/app/api/directory' },
+      {
+        body: '[blob]',
+        headers: {
+          'Content-Type': 'image/png',
+          'X-CollabMD-File-Name': 'r%C3%A9sum%C3%A9%20screen.png',
+          'X-CollabMD-Source-Path': 'notes%2Fhari%20ini.md',
+        },
+        method: 'POST',
+        url: '/app/api/attachments',
+      },
     ],
   );
 });

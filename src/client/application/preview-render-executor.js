@@ -10,17 +10,21 @@ function createPreviewWorker() {
 
 export class PreviewRenderExecutor {
   constructor({
+    attachmentApiPath = '/api/attachment',
     cancelIdleRenderFn = cancelIdleRender,
     compilePreviewDocumentLoader = () => import('./preview-render-compiler.js'),
     createWorkerFn = createPreviewWorker,
     getFileList,
+    getSourceFilePath = null,
     idleTimeoutMs = IDLE_RENDER_TIMEOUT_MS,
     requestIdleRenderFn = requestIdleRender,
   } = {}) {
+    this.attachmentApiPath = attachmentApiPath;
     this.cancelIdleRenderFn = cancelIdleRenderFn;
     this.compilePreviewDocumentLoader = compilePreviewDocumentLoader;
     this.createWorkerFn = createWorkerFn;
     this.getFileList = getFileList;
+    this.getSourceFilePath = getSourceFilePath;
     this.idleTimeoutMs = idleTimeoutMs;
     this.requestIdleRenderFn = requestIdleRenderFn;
     this.worker = null;
@@ -105,17 +109,21 @@ export class PreviewRenderExecutor {
       return new Promise((resolve, reject) => {
         this.workerJob = { reject, renderVersion, resolve };
         activeWorker.postMessage({
+          attachmentApiPath: this.attachmentApiPath,
           fileList: this.getFileList?.() ?? [],
           markdownText,
           renderVersion,
+          sourceFilePath: this.getSourceFilePath?.() ?? '',
         });
       });
     }
 
     const { compilePreviewDocument } = await this.compilePreviewDocumentLoader();
     return compilePreviewDocument({
+      attachmentApiPath: this.attachmentApiPath,
       fileList: this.getFileList?.() ?? [],
       markdownText,
+      sourceFilePath: this.getSourceFilePath?.() ?? '',
     });
   }
 

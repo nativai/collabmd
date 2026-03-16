@@ -2,7 +2,13 @@ import { normalizeVaultPathInput } from '../domain/vault-paths.js';
 
 function flattenTree(nodes, files = []) {
   for (const node of nodes) {
-    if (node.type === 'file' || node.type === 'excalidraw' || node.type === 'mermaid' || node.type === 'plantuml') {
+    if (
+      node.type === 'file'
+      || node.type === 'excalidraw'
+      || node.type === 'mermaid'
+      || node.type === 'plantuml'
+      || node.type === 'image'
+    ) {
       files.push(node.path);
       continue;
     }

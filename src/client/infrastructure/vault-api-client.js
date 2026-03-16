@@ -1,5 +1,9 @@
 import { resolveApiUrl } from '../domain/runtime-paths.js';
 
+function encodeHeaderMetadata(value) {
+  return encodeURIComponent(String(value ?? ''));
+}
+
 async function parseApiResponse(response, fallbackError) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok || data.ok === false) {
@@ -55,6 +59,19 @@ export class VaultApiClient {
       method: 'POST',
     });
     return parseApiResponse(response, 'Failed to create folder');
+  }
+
+  async uploadImageAttachment({ file, fileName = '', sourcePath }) {
+    const response = await fetch(resolveApiUrl('/attachments'), {
+      body: file,
+      headers: {
+        'Content-Type': file?.type || 'application/octet-stream',
+        'X-CollabMD-File-Name': encodeHeaderMetadata(fileName),
+        'X-CollabMD-Source-Path': encodeHeaderMetadata(sourcePath),
+      },
+      method: 'POST',
+    });
+    return parseApiResponse(response, 'Failed to upload image');
   }
 }
 

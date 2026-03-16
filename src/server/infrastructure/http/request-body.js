@@ -2,7 +2,7 @@ import { createRequestError } from './http-errors.js';
 
 export const REQUEST_BODY_LIMIT_BYTES = 8_388_608;
 
-export async function readRequestBody(req, maxBytes = REQUEST_BODY_LIMIT_BYTES) {
+async function readRequestBuffer(req, maxBytes = REQUEST_BODY_LIMIT_BYTES) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
@@ -32,7 +32,7 @@ export async function readRequestBody(req, maxBytes = REQUEST_BODY_LIMIT_BYTES) 
     };
 
     const onEnd = () => {
-      finish(resolve, Buffer.concat(chunks).toString('utf-8'));
+      finish(resolve, Buffer.concat(chunks));
     };
 
     const onError = (error) => {
@@ -43,6 +43,15 @@ export async function readRequestBody(req, maxBytes = REQUEST_BODY_LIMIT_BYTES) 
     req.on('end', onEnd);
     req.on('error', onError);
   });
+}
+
+export async function readRequestBody(req, maxBytes = REQUEST_BODY_LIMIT_BYTES) {
+  const bodyBuffer = await readRequestBuffer(req, maxBytes);
+  return bodyBuffer.toString('utf-8');
+}
+
+export async function readBinaryRequestBody(req, maxBytes = REQUEST_BODY_LIMIT_BYTES) {
+  return readRequestBuffer(req, maxBytes);
 }
 
 export async function parseJsonBody(req) {

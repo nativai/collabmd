@@ -2,6 +2,7 @@ import {
   isDiagramFilePath,
   isMarkdownFilePath,
 } from '../../domain/file-kind.js';
+import { resolveApiUrl } from '../domain/runtime-paths.js';
 
 export class WorkspacePreviewController {
   constructor({
@@ -11,6 +12,7 @@ export class WorkspacePreviewController {
     getDisplayName,
     getSession,
     isExcalidrawFile,
+    isImageFile,
     isMermaidFile,
     isPlantUmlFile,
     layoutController,
@@ -25,9 +27,10 @@ export class WorkspacePreviewController {
     this.excalidrawEmbed = excalidrawEmbed;
     this.getDisplayName = getDisplayName;
     this.getSession = getSession;
-    this.isExcalidrawFile = isExcalidrawFile;
-    this.isMermaidFile = isMermaidFile;
-    this.isPlantUmlFile = isPlantUmlFile;
+    this.isExcalidrawFile = isExcalidrawFile ?? (() => false);
+    this.isImageFile = isImageFile ?? (() => false);
+    this.isMermaidFile = isMermaidFile ?? (() => false);
+    this.isPlantUmlFile = isPlantUmlFile ?? (() => false);
     this.layoutController = layoutController;
     this.outlineController = outlineController;
     this.previewRenderer = previewRenderer;
@@ -58,23 +61,25 @@ export class WorkspacePreviewController {
 
   resetPreviewMode() {
     this.elements.previewContent?.classList.remove('is-excalidraw-file-preview');
+    this.elements.previewContent?.classList.remove('is-image-file-preview');
     this.elements.previewContent?.classList.remove('is-mermaid-file-preview');
     this.elements.previewContent?.classList.remove('is-plantuml-file-preview');
   }
 
   syncFileChrome(filePath) {
     const isExcalidraw = this.isExcalidrawFile(filePath);
+    const isImage = this.isImageFile(filePath);
     const isMarkdown = isMarkdownFilePath(filePath);
     const isMermaid = this.isMermaidFile(filePath);
     const isPlantUml = this.isPlantUmlFile(filePath);
     const isDiagramFile = isDiagramFilePath(filePath);
 
     this.elements.markdownToolbar?.classList.toggle('hidden', !isMarkdown);
-    this.elements.outlineToggle?.classList.toggle('hidden', isDiagramFile);
+    this.elements.outlineToggle?.classList.toggle('hidden', isDiagramFile || isImage);
     this.elements.previewContent?.classList.toggle('is-mermaid-file-preview', isMermaid);
     this.elements.previewContent?.classList.toggle('is-plantuml-file-preview', isPlantUml);
 
-    if (isExcalidraw) {
+    if (isExcalidraw || isImage) {
       this.layoutController.setView('preview', { persist: false });
       this.outlineController.close();
       this.backlinksPanel.clear();
@@ -121,6 +126,41 @@ export class WorkspacePreviewController {
     this.videoEmbed?.reconcileEmbeds(previewElement);
     this.excalidrawEmbed.reconcileEmbeds(previewElement, { isLargeDocument: false });
     this.excalidrawEmbed.hydrateVisibleEmbeds();
+    this.schedulePreviewLayoutSyncCallback({ delayMs: 0 });
+  }
+
+  renderImageFilePreview(filePath) {
+    const previewElement = this.elements.previewContent;
+    if (!previewElement) {
+      return;
+    }
+
+    this.videoEmbed?.detachForCommit();
+    this.excalidrawEmbed.detachForCommit();
+    this.resetPreviewMode();
+    previewElement.classList.add('is-image-file-preview');
+    const renderHost = this.previewRenderer.ensureRenderHost();
+    this.previewRenderer.normalizePreviewChildren(renderHost);
+
+    const shell = document.createElement('figure');
+    shell.className = 'image-file-preview-shell';
+
+    const image = document.createElement('img');
+    image.className = 'image-file-preview-image';
+    image.alt = this.getDisplayName(filePath);
+    image.src = resolveApiUrl(`/attachment?path=${encodeURIComponent(filePath)}`);
+    shell.appendChild(image);
+
+    if (renderHost) {
+      renderHost.replaceChildren(shell);
+      renderHost.style.minHeight = '';
+    }
+
+    previewElement.dataset.renderPhase = 'ready';
+    this.outlineController.refresh();
+    this.scrollSyncController.setLargeDocumentMode(false);
+    this.scrollSyncController.invalidatePreviewBlocks();
+    this.videoEmbed?.reconcileEmbeds(previewElement);
     this.schedulePreviewLayoutSyncCallback({ delayMs: 0 });
   }
 

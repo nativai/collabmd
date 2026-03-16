@@ -1,7 +1,12 @@
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'fs/promises';
-import { dirname, join, resolve } from 'path';
+import { basename, dirname, extname, join, relative, resolve } from 'path';
 
-import { getVaultTreeNodeType, isVaultFilePath } from '../../../domain/file-kind.js';
+import {
+  getVaultTreeNodeType,
+  isImageAttachmentFilePath,
+  isMarkdownFilePath,
+  isVaultFilePath,
+} from '../../../domain/file-kind.js';
 import { getVaultContentAdapter } from './vault-content-adapter.js';
 import {
   INVALID_VAULT_FILE_PATH_ERROR,
@@ -13,6 +18,23 @@ import {
   toVaultRelativePath,
 } from './path-utils.js';
 import { SidecarStore } from './sidecar-store.js';
+
+const IMAGE_EXTENSION_TO_MIME_TYPE = Object.freeze({
+  '.gif': 'image/gif',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+});
+
+const MIME_TYPE_TO_IMAGE_EXTENSION = Object.freeze({
+  'image/gif': '.gif',
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/svg+xml': '.svg',
+  'image/webp': '.webp',
+});
 
 function createTransactionalPath(targetPath, label) {
   return `${targetPath}.collabmd-${label}-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
@@ -40,6 +62,88 @@ async function pathExists(pathValue) {
 
 async function cleanupPaths(paths = []) {
   await Promise.allSettled(paths.filter(Boolean).map((pathValue) => rm(pathValue, { force: true })));
+}
+
+function normalizeAttachmentMimeType(value) {
+  return String(value ?? '').split(';')[0].trim().toLowerCase();
+}
+
+function sanitizeAttachmentStem(value, fallback = 'image') {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || fallback;
+}
+
+function padAttachmentTimestamp(value) {
+  return String(value).padStart(2, '0');
+}
+
+function createAttachmentTimestamp(date = new Date()) {
+  return [
+    date.getFullYear(),
+    padAttachmentTimestamp(date.getMonth() + 1),
+    padAttachmentTimestamp(date.getDate()),
+  ].join('')
+    + '-'
+    + [
+      padAttachmentTimestamp(date.getHours()),
+      padAttachmentTimestamp(date.getMinutes()),
+      padAttachmentTimestamp(date.getSeconds()),
+    ].join('');
+}
+
+function createDocumentAttachmentDirectoryPath(documentPath) {
+  const normalizedPath = String(documentPath ?? '').replace(/\\/g, '/');
+  const documentDir = dirname(normalizedPath).replace(/\\/g, '/');
+  const documentStem = basename(normalizedPath, extname(normalizedPath));
+  return documentDir === '.'
+    ? `${documentStem}.assets`
+    : `${documentDir}/${documentStem}.assets`;
+}
+
+function createAttachmentAltText(originalFileName = '') {
+  const stem = basename(String(originalFileName ?? ''), extname(String(originalFileName ?? '')))
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return stem || 'Image';
+}
+
+function escapeMarkdownText(value = '') {
+  return String(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]')
+    .replace(/\r?\n/g, ' ');
+}
+
+function encodeMarkdownPath(pathValue = '') {
+  return String(pathValue)
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+}
+
+function resolveAttachmentExtension({ mimeType, originalFileName }) {
+  const normalizedMimeType = normalizeAttachmentMimeType(mimeType);
+  const extensionFromName = extname(String(originalFileName ?? '')).toLowerCase();
+  if (extensionFromName && IMAGE_EXTENSION_TO_MIME_TYPE[extensionFromName]) {
+    const expectedMimeType = IMAGE_EXTENSION_TO_MIME_TYPE[extensionFromName];
+    if (!normalizedMimeType || expectedMimeType === normalizedMimeType) {
+      return extensionFromName;
+    }
+  }
+
+  return MIME_TYPE_TO_IMAGE_EXTENSION[normalizedMimeType] ?? '';
+}
+
+function createAttachmentMarkdownSnippet({ altText, documentPath, storedPath }) {
+  const relativePath = relative(dirname(documentPath), storedPath).replace(/\\/g, '/');
+  const encodedRelativePath = encodeMarkdownPath(relativePath || basename(storedPath));
+  return `![${escapeMarkdownText(altText)}](${encodedRelativePath})`;
 }
 
 export class VaultFileStore {
@@ -174,6 +278,28 @@ export class VaultFileStore {
     return this.readContentFile(filePath, 'plantuml');
   }
 
+  async readImageAttachmentFile(filePath) {
+    const absolute = this.resolveContentPath(filePath, { requireVaultFile: false });
+    if (!absolute || !isImageAttachmentFilePath(filePath)) {
+      return null;
+    }
+
+    try {
+      const content = await readFile(absolute);
+      return {
+        content,
+        mimeType: IMAGE_EXTENSION_TO_MIME_TYPE[extname(filePath).toLowerCase()] || 'application/octet-stream',
+        path: filePath,
+      };
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
   async writeMarkdownFile(filePath, content, options = {}) {
     return this.writeContentFile(filePath, content, 'markdown', options);
   }
@@ -188,6 +314,65 @@ export class VaultFileStore {
 
   async writePlantUmlFile(filePath, content, options = {}) {
     return this.writeContentFile(filePath, content, 'plantuml', options);
+  }
+
+  async writeImageAttachmentForDocument(sourceDocumentPath, {
+    content,
+    mimeType,
+    originalFileName = '',
+    now = new Date(),
+  } = {}) {
+    if (!Buffer.isBuffer(content) || content.byteLength === 0) {
+      return { ok: false, error: 'Missing attachment content' };
+    }
+
+    if (!isMarkdownFilePath(sourceDocumentPath)) {
+      return { ok: false, error: 'Source document must be a markdown file' };
+    }
+
+    const extension = resolveAttachmentExtension({ mimeType, originalFileName });
+    if (!extension) {
+      return { ok: false, error: 'Unsupported image type' };
+    }
+
+    const stemSource = basename(String(originalFileName ?? ''), extname(String(originalFileName ?? '')));
+    const attachmentStem = sanitizeAttachmentStem(stemSource, 'image');
+    const attachmentDirPath = createDocumentAttachmentDirectoryPath(sourceDocumentPath);
+    const timestamp = createAttachmentTimestamp(now);
+    const baseFileName = `${attachmentStem}-${timestamp}`;
+    let collisionIndex = 0;
+    let storedPath = '';
+    let absolutePath = '';
+
+    do {
+      const suffix = collisionIndex > 0 ? `-${collisionIndex + 1}` : '';
+      storedPath = `${attachmentDirPath}/${baseFileName}${suffix}${extension}`;
+      absolutePath = this.resolveContentPath(storedPath, { requireVaultFile: false });
+      collisionIndex += 1;
+    } while (absolutePath && await pathExists(absolutePath));
+
+    if (!absolutePath || !isImageAttachmentFilePath(storedPath)) {
+      return { ok: false, error: INVALID_VAULT_FILE_PATH_ERROR };
+    }
+
+    try {
+      await mkdir(dirname(absolutePath), { recursive: true });
+      await writeFile(absolutePath, content);
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+
+    const altText = createAttachmentAltText(originalFileName);
+    return {
+      ok: true,
+      altText,
+      markdownSnippet: createAttachmentMarkdownSnippet({
+        altText,
+        documentPath: sourceDocumentPath,
+        storedPath,
+      }),
+      path: storedPath,
+    };
   }
 
   async persistCollaborationState(filePath, {

@@ -14,6 +14,7 @@ export class EditorSession {
     onConnectionChange,
     onCommentsChange,
     onContentChange,
+    onImagePaste,
     onSelectionChange,
     preferredUserName,
     localUser,
@@ -43,6 +44,7 @@ export class EditorSession {
       onDocChanged: () => {
         this.emitContentChange();
       },
+      onImagePaste,
       onViewportChanged: (viewport) => {
         this.collaborationClient.setLocalViewport(viewport);
       },
@@ -221,6 +223,10 @@ export class EditorSession {
 
   applyMarkdownToolbarAction(action) {
     return this.viewAdapter.applyMarkdownToolbarAction(action);
+  }
+
+  insertText(text) {
+    return this.viewAdapter.insertText(text);
   }
 
   waitForInitialSync(timeoutMs = 1500) {

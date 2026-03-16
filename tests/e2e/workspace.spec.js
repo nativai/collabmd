@@ -3,6 +3,7 @@ import {
   openFile,
   openHome,
   openSampleFull,
+  pasteClipboardImage,
   replaceEditorContent,
   test,
   waitForEditor,
@@ -74,6 +75,125 @@ test('video toolbar helper converts a selected video url into markdown embed syn
   await expect(page.locator('#previewContent .video-embed-iframe')).toHaveAttribute(
     'src',
     'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
+  );
+});
+
+test('image toolbar uploads a vault attachment and inserts inline markdown', async ({ page }) => {
+  await openFile(page, 'README.md');
+
+  const fileChooserPromise = page.waitForEvent('filechooser');
+  await page.locator('[data-markdown-action="image"]').click();
+  const fileChooser = await fileChooserPromise;
+  await fileChooser.setFiles({
+    buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" fill="#0f172a"/></svg>'),
+    mimeType: 'image/svg+xml',
+    name: 'inline-diagram.svg',
+  });
+
+  await expect.poll(async () => (
+    page.evaluate(async () => {
+      const response = await fetch('/api/file?path=README.md');
+      const data = await response.json();
+      return data.content || '';
+    })
+  )).toMatch(/!\[inline diagram\]\(README\.assets\/inline-diagram-/i);
+
+  await expect(page.locator('#fileTree')).toContainText('README.assets');
+  await expect(page.locator('#previewContent img')).toBeVisible();
+  await expect(page.locator('#previewContent img')).toHaveAttribute(
+    'src',
+    /\/api\/attachment\?path=README\.assets%2Finline-diagram-/,
+  );
+});
+
+test('image lightbox supports click zoom, reset, close, and shared preview controls', async ({ page }) => {
+  await openFile(page, 'README.md');
+
+  const fileChooserPromise = page.waitForEvent('filechooser');
+  await page.locator('[data-markdown-action="image"]').click();
+  const fileChooser = await fileChooserPromise;
+  await fileChooser.setFiles({
+    buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" rx="8" fill="#0f172a"/><circle cx="24" cy="24" r="10" fill="#f8fafc"/></svg>'),
+    mimeType: 'image/svg+xml',
+    name: 'lightbox-target.svg',
+  });
+
+  const previewImage = page.locator('#previewContent img').first();
+  await expect(previewImage).toBeVisible();
+
+  await previewImage.click();
+  await expect(page.locator('.image-lightbox-root')).toBeVisible();
+  await expect(page.locator('.image-lightbox-toolbar')).toHaveClass(/diagram-preview-toolbar/);
+  await expect(page.locator('.image-lightbox-btn').first()).toHaveClass(/diagram-preview-action-btn/);
+  await expect(page.locator('.image-lightbox-btn[aria-label="Zoom in"]')).toHaveClass(/is-icon-only/);
+
+  const lightboxImage = page.locator('.image-lightbox-image');
+  const zoomLabel = page.locator('.image-lightbox-zoom-label');
+  await expect(zoomLabel).toHaveText('100%');
+
+  await lightboxImage.click();
+  await expect(zoomLabel).toHaveText('200%');
+
+  await page.locator('.image-lightbox-controls').getByText('Reset', { exact: true }).click();
+  await expect(zoomLabel).toHaveText('100%');
+
+  await page.locator('.image-lightbox-btn[aria-label="Zoom in"]').click();
+  await expect(zoomLabel).toHaveText('125%');
+
+  await page.locator('.image-lightbox-controls').getByText('Close', { exact: true }).click();
+  await expect(page.locator('.image-lightbox-root')).toBeHidden();
+});
+
+test('switching from a YouTube markdown preview to an image file clears the video overlay', async ({ page }) => {
+  await openFile(page, 'README.md');
+
+  const fileChooserPromise = page.waitForEvent('filechooser');
+  await page.locator('[data-markdown-action="image"]').click();
+  const fileChooser = await fileChooserPromise;
+  await fileChooser.setFiles({
+    buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" rx="8" fill="#0f172a"/><circle cx="24" cy="24" r="10" fill="#f8fafc"/></svg>'),
+    mimeType: 'image/svg+xml',
+    name: 'preview-switch.svg',
+  });
+
+  await replaceEditorContent(page, [
+    '# Video Preview',
+    '',
+    '![Demo video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)',
+  ].join('\n'));
+
+  await expect(page.locator('#previewContent .video-embed-iframe')).toBeVisible();
+  await expect(page.locator('#previewContent [data-video-overlay-root="true"]')).toBeVisible();
+
+  await page.locator('#fileTree').getByText('README.assets').click();
+  await page.locator('#fileTree .file-tree-item', { hasText: 'preview-switch' }).click();
+
+  await expect(page.locator('#previewContent').locator('.image-file-preview-image')).toBeVisible();
+  await expect(page.locator('#previewContent .video-embed-iframe')).toHaveCount(0);
+  await expect(page.locator('#previewContent [data-video-overlay-root="true"]')).toHaveCount(0);
+});
+
+test('pasting an image uploads a vault attachment and inserts inline markdown', async ({ page }) => {
+  await openFile(page, 'README.md');
+
+  await pasteClipboardImage(page, {
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WnSUs8AAAAASUVORK5CYII=', 'base64'),
+    mimeType: 'image/png',
+  });
+
+  await expect.poll(async () => (
+    page.evaluate(async () => {
+      const response = await fetch('/api/file?path=README.md');
+      const data = await response.json();
+      return data.content || '';
+    })
+  )).toMatch(/!\[pasted image\]\(README\.assets\/pasted-image-/i);
+
+  await expect(page.locator('#fileTree')).toContainText('README.assets');
+  await expect(page.locator('#previewContent img')).toBeVisible();
+  await expect(page.locator('#previewContent img')).toHaveAttribute(
+    'src',
+    /\/api\/attachment\?path=README\.assets%2Fpasted-image-/,
   );
 });
 

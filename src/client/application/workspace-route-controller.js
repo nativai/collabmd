@@ -10,6 +10,7 @@ export class WorkspaceRouteController {
     getSessionLoadToken,
     gitDiffView,
     gitPanel,
+    imageLightbox = null,
     lobby,
     navigation,
     previewRenderer,
@@ -37,6 +38,7 @@ export class WorkspaceRouteController {
     this.getSessionLoadToken = getSessionLoadToken;
     this.gitDiffView = gitDiffView;
     this.gitPanel = gitPanel;
+    this.imageLightbox = imageLightbox;
     this.lobby = lobby;
     this.navigation = navigation;
     this.previewRenderer = previewRenderer;
@@ -140,6 +142,7 @@ export class WorkspaceRouteController {
   }
 
   async openFile(filePath) {
+    this.imageLightbox?.close?.();
     this.gitPanel.setSelection();
     this.gitDiffView.hide();
     this.syncMainChrome({ mode: 'editor' });
@@ -161,6 +164,7 @@ export class WorkspaceRouteController {
   }
 
   resetPreviewSurface() {
+    this.imageLightbox?.close?.();
     this.previewRenderer.setHydrationPaused(false);
     this.excalidrawEmbed.setHydrationPaused(false);
     this.videoEmbed?.detachForCommit();

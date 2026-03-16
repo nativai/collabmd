@@ -4,11 +4,13 @@ import { IDLE_RENDER_TIMEOUT_MS } from './preview-diagram-utils.js';
 import { PreviewRenderExecutor } from './preview-render-executor.js';
 import { getRenderProfile, isLargeDocumentStats } from './preview-render-profile.js';
 import { PreviewRenderScheduler } from './preview-render-scheduler.js';
+import { resolveApiUrl } from '../domain/runtime-paths.js';
 
 export class PreviewRenderer {
   constructor({
     getContent,
     getFileList,
+    getSourceFilePath,
     onAfterRenderCommit,
     onBeforeRenderCommit,
     onRenderComplete,
@@ -18,6 +20,7 @@ export class PreviewRenderer {
   }) {
     this.getContent = getContent;
     this.getFileList = getFileList;
+    this.getSourceFilePath = getSourceFilePath;
     this.onAfterRenderCommit = onAfterRenderCommit;
     this.onBeforeRenderCommit = onBeforeRenderCommit;
     this.onRenderComplete = onRenderComplete;
@@ -67,7 +70,9 @@ export class PreviewRenderer {
     this.plantUmlHydrator = new PlantUmlPreviewHydrator(this);
     this.renderScheduler = new PreviewRenderScheduler({ getRenderProfileFn: getRenderProfile });
     this.renderExecutor = new PreviewRenderExecutor({
+      attachmentApiPath: resolveApiUrl('/attachment'),
       getFileList: () => this.getFileList?.() ?? [],
+      getSourceFilePath: () => this.getSourceFilePath?.() ?? '',
       idleTimeoutMs: IDLE_RENDER_TIMEOUT_MS,
     });
 

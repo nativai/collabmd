@@ -38,6 +38,7 @@ test('PreviewRenderExecutor falls back to direct compilation when no worker is a
       throw new Error('worker unavailable');
     },
     getFileList: () => ['README.md'],
+    getSourceFilePath: () => 'README.md',
   });
 
   const result = await executor.compile('Hello', 3);
@@ -58,9 +59,11 @@ test('PreviewRenderExecutor compiles through the worker when available', async (
   const resultPromise = executor.compile('# Today', 7);
 
   assert.deepEqual(worker.lastMessage, {
+    attachmentApiPath: '/api/attachment',
     fileList: ['notes/today.md'],
     markdownText: '# Today',
     renderVersion: 7,
+    sourceFilePath: '',
   });
 
   worker.dispatch('message', {

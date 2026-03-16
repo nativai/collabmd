@@ -14,6 +14,7 @@ export class WorkspaceCoordinator {
     getStoredUserName,
     getTheme,
     isExcalidrawFile,
+    isImageFile,
     isMermaidFile,
     isPlantUmlFile,
     isTabActive,
@@ -26,9 +27,11 @@ export class WorkspaceCoordinator {
     onFileAwarenessChange,
     onFileOpenError,
     onFileOpenReady,
+    onImagePaste,
     onSelectionChange,
     onSessionAssigned = null,
     onRenderExcalidrawPreview,
+    onRenderImagePreview,
     onSyncWrapToggle,
     onUpdateActiveFile,
     onUpdateCurrentFile,
@@ -50,9 +53,10 @@ export class WorkspaceCoordinator {
     this.getLocalUser = getLocalUser;
     this.getStoredUserName = getStoredUserName;
     this.getTheme = getTheme;
-    this.isExcalidrawFile = isExcalidrawFile;
-    this.isMermaidFile = isMermaidFile;
-    this.isPlantUmlFile = isPlantUmlFile;
+    this.isExcalidrawFile = isExcalidrawFile ?? (() => false);
+    this.isImageFile = isImageFile ?? (() => false);
+    this.isMermaidFile = isMermaidFile ?? (() => false);
+    this.isPlantUmlFile = isPlantUmlFile ?? (() => false);
     this.isTabActive = isTabActive;
     this.loadEditorSessionClassPort = loadEditorSessionClass;
     this.loadBacklinks = loadBacklinks;
@@ -63,6 +67,7 @@ export class WorkspaceCoordinator {
     this.onFileAwarenessChange = onFileAwarenessChange;
     this.onFileOpenError = onFileOpenError;
     this.onFileOpenReady = onFileOpenReady;
+    this.onImagePaste = onImagePaste;
     this.onSelectionChange = onSelectionChange;
     this.onSessionAssigned = onSessionAssigned;
     this.onRenderExcalidrawPreview = onRenderExcalidrawPreview;
@@ -88,6 +93,7 @@ export class WorkspaceCoordinator {
       onFileOpenError,
       onFileOpenReady,
       onRenderExcalidrawPreview,
+      onRenderImagePreview,
       onSyncWrapToggle,
       onUpdateActiveFile,
       onUpdateCurrentFile,
@@ -129,10 +135,11 @@ export class WorkspaceCoordinator {
     }
 
     const isExcalidraw = this.isExcalidrawFile(filePath);
+    const isImage = this.isImageFile(filePath);
     const isMermaid = this.isMermaidFile(filePath);
     const isPlantUml = this.isPlantUmlFile(filePath);
 
-    if (filePath === this.stateStore.get('currentFilePath') && (this.session || isExcalidraw)) {
+    if (filePath === this.stateStore.get('currentFilePath') && (this.session || isExcalidraw || isImage)) {
       this.onUpdateActiveFile(filePath);
       this.onUpdateLobbyCurrentFile(filePath);
       return;
@@ -142,10 +149,10 @@ export class WorkspaceCoordinator {
 
     this.cleanupSession();
     const chromeState = this.chromeController.prepareForFileOpen(filePath, {
-      resetConnectionState: !isExcalidraw,
+      resetConnectionState: !isExcalidraw && !isImage,
     });
 
-    if (isExcalidraw) {
+    if (isExcalidraw || isImage) {
       this.onSessionAssigned?.(null);
 
       if (loadToken !== this.stateStore.get('sessionLoadToken')) {
@@ -155,7 +162,8 @@ export class WorkspaceCoordinator {
       this.chromeController.markFileOpenReady(null);
       this.chromeController.finalizeFileOpen({
         filePath,
-        isExcalidraw: true,
+        isExcalidraw,
+        isImage,
         session: null,
         supportsBacklinks: chromeState.supportsBacklinks,
       });
@@ -180,6 +188,7 @@ export class WorkspaceCoordinator {
           isPlantUml,
         });
       },
+      onImagePaste: (file) => this.onImagePaste?.(file),
       preferredUserName: this.getStoredUserName(),
       onSelectionChange: (anchor) => this.onSelectionChange?.(anchor),
       theme: this.getTheme(),

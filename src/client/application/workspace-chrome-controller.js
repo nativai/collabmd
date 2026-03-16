@@ -12,6 +12,7 @@ export class WorkspaceChromeController {
     onFileOpenError,
     onFileOpenReady,
     onRenderExcalidrawPreview,
+    onRenderImagePreview,
     onSyncWrapToggle,
     onUpdateActiveFile,
     onUpdateCurrentFile,
@@ -29,6 +30,7 @@ export class WorkspaceChromeController {
     this.onFileOpenError = onFileOpenError;
     this.onFileOpenReady = onFileOpenReady;
     this.onRenderExcalidrawPreview = onRenderExcalidrawPreview;
+    this.onRenderImagePreview = onRenderImagePreview;
     this.onSyncWrapToggle = onSyncWrapToggle;
     this.onUpdateActiveFile = onUpdateActiveFile;
     this.onUpdateCurrentFile = onUpdateCurrentFile;
@@ -68,9 +70,18 @@ export class WorkspaceChromeController {
     this.onFileOpenReady(session);
   }
 
-  finalizeFileOpen({ filePath, isExcalidraw, session = null, supportsBacklinks }) {
+  finalizeFileOpen({
+    filePath,
+    isExcalidraw = false,
+    isImage = false,
+    session = null,
+    supportsBacklinks,
+  }) {
     if (isExcalidraw) {
       this.onRenderExcalidrawPreview(filePath);
+    }
+    if (isImage) {
+      this.onRenderImagePreview(filePath);
     }
     this.onSyncWrapToggle();
     if (supportsBacklinks && session) {

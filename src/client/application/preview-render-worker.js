@@ -1,10 +1,21 @@
 import { compilePreviewDocument } from './preview-render-compiler.js';
 
 self.onmessage = (event) => {
-  const { fileList, markdownText, renderVersion } = event.data ?? {};
+  const {
+    attachmentApiPath,
+    fileList,
+    markdownText,
+    renderVersion,
+    sourceFilePath,
+  } = event.data ?? {};
 
   try {
-    const result = compilePreviewDocument({ fileList, markdownText });
+    const result = compilePreviewDocument({
+      attachmentApiPath,
+      fileList,
+      markdownText,
+      sourceFilePath,
+    });
     self.postMessage({
       html: result.html,
       renderVersion,

@@ -53,6 +53,9 @@ function createController(overrides = {}) {
     gitPanel: {
       setSelection: () => events.push(['git-selection']),
     },
+    imageLightbox: {
+      close: () => events.push(['lightbox-close']),
+    },
     layoutController: {
       reset: () => events.push(['layout-reset']),
     },
@@ -143,6 +146,7 @@ test('WorkspaceRouteController routes hash changes to empty, git diff, and file 
   await file.controller.handleHashChange();
   assert.deepEqual(file.events, [
     ['sidebar-tab', 'files'],
+    ['lightbox-close'],
     ['git-selection'],
     ['diff-hide'],
     ['main-chrome', 'editor', null],
@@ -163,6 +167,7 @@ test('WorkspaceRouteController resets editor state when showing the empty worksp
   assert.equal(previewContent.dataset.renderPhase, 'ready');
   assert.equal(events.includes(['current-file', null]), false);
   assert.deepEqual(events.filter(([type]) => type === 'current-file'), [['current-file', null]]);
+  assert.ok(events.some(([type]) => type === 'lightbox-close'));
 });
 
 test('WorkspaceRouteController resets into diff mode and keeps navigation helpers simple', () => {
@@ -175,6 +180,7 @@ test('WorkspaceRouteController resets into diff mode and keeps navigation helper
   assert.equal(sessionLoadToken(), 1);
   assert.equal(previewContent.innerHTML, '');
   assert.equal(previewContent.dataset.renderPhase, 'ready');
+  assert.ok(events.some(([type]) => type === 'lightbox-close'));
   assert.deepEqual(events.slice(-2), [
     ['close-sidebar'],
     ['navigate', 'README.md'],

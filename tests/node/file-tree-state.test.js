@@ -11,6 +11,7 @@ test('FileTreeState flattens tree nodes and filters search matches', () => {
       children: [
         { name: 'README.md', path: 'docs/README.md', type: 'file' },
         { name: 'diagram.puml', path: 'docs/diagram.puml', type: 'plantuml' },
+        { name: 'diagram.png', path: 'docs/diagram.png', type: 'image' },
       ],
       name: 'docs',
       path: 'docs',
@@ -24,9 +25,10 @@ test('FileTreeState flattens tree nodes and filters search matches', () => {
   assert.deepEqual(state.flatFiles, [
     'docs/README.md',
     'docs/diagram.puml',
+    'docs/diagram.png',
     'sketch.excalidraw',
   ]);
-  assert.deepEqual(state.getSearchMatches(), ['docs/diagram.puml']);
+  assert.deepEqual(state.getSearchMatches(), ['docs/diagram.puml', 'docs/diagram.png']);
 });
 
 test('FileTreeState expands parent directories for active files', () => {

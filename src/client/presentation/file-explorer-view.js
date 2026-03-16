@@ -161,11 +161,15 @@ export class FileExplorerView {
     const button = document.createElement('button');
     button.className = 'file-tree-item file-tree-file';
     const isExcalidraw = fileType === 'excalidraw';
+    const isImage = fileType === 'image';
     const isMermaid = fileType === 'mermaid';
     const isPlantUml = fileType === 'plantuml';
 
     if (isExcalidraw) {
       button.classList.add('is-excalidraw');
+    }
+    if (isImage) {
+      button.classList.add('is-image');
     }
     if (isMermaid) {
       button.classList.add('is-mermaid');
@@ -181,7 +185,7 @@ export class FileExplorerView {
     button.dataset.depth = depth;
     button.dataset.path = filePath;
     button.innerHTML = `
-      ${this.getFileIconSvg({ isExcalidraw, isMermaid, isPlantUml })}
+      ${this.getFileIconSvg({ isExcalidraw, isImage, isMermaid, isPlantUml })}
       <span class="file-tree-name">${escapeHtml(stripVaultFileExtension(name))}</span>
     `;
 
@@ -196,9 +200,13 @@ export class FileExplorerView {
     return button;
   }
 
-  getFileIconSvg({ isExcalidraw, isMermaid, isPlantUml }) {
+  getFileIconSvg({ isExcalidraw, isImage, isMermaid, isPlantUml }) {
     if (isExcalidraw) {
       return '<svg class="file-tree-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>';
+    }
+
+    if (isImage) {
+      return '<svg class="file-tree-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="m21 16-5-5L7 20"/><path d="m14 14 2 2"/></svg>';
     }
 
     if (isMermaid) {

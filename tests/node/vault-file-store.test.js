@@ -319,6 +319,36 @@ test('VaultFileStore includes empty directories in the file tree', async (t) => 
   assert.deepEqual(drafts.children, []);
 });
 
+test('VaultFileStore writes image attachments next to their source markdown document', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  const result = await store.writeImageAttachmentForDocument('README.md', {
+    content: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    mimeType: 'image/png',
+    now: new Date(2026, 2, 16, 15, 30, 12),
+    originalFileName: 'Product Screenshot.png',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.altText, 'Product Screenshot');
+  assert.equal(result.path, 'README.assets/product-screenshot-20260316-153012.png');
+  assert.equal(result.markdownSnippet, '![Product Screenshot](README.assets/product-screenshot-20260316-153012.png)');
+
+  const attachment = await store.readImageAttachmentFile(result.path);
+  assert.deepEqual(Array.from(attachment?.content ?? []), [0x89, 0x50, 0x4e, 0x47]);
+  assert.equal(attachment?.mimeType, 'image/png');
+
+  const tree = await store.tree();
+  const assetsDirectory = tree.find((node) => node.name === 'README.assets');
+  assert.ok(assetsDirectory);
+  assert.equal(assetsDirectory.type, 'directory');
+  assert.deepEqual(
+    assetsDirectory.children.map((node) => ({ name: node.name, type: node.type })),
+    [{ name: 'product-screenshot-20260316-153012.png', type: 'image' }],
+  );
+});
+
 test('VaultFileStore rejects non-markdown delete and rename source paths', async (t) => {
   const { store, cleanup, vaultDir } = await createVaultStore();
   t.after(cleanup);
@@ -327,11 +357,11 @@ test('VaultFileStore rejects non-markdown delete and rename source paths', async
 
   const deleteResult = await store.deleteFile('secret.txt');
   assert.equal(deleteResult.ok, false);
-  assert.match(deleteResult.error, /must end in \.md, \.excalidraw, \.mmd, \.mermaid, \.puml, or \.plantuml/i);
+  assert.match(deleteResult.error, /must end in \.md, .*\.png, .*\.svg/i);
 
   const renameResult = await store.renameFile('secret.txt', 'secret.md');
   assert.equal(renameResult.ok, false);
-  assert.match(renameResult.error, /Old path must be a vault file \(\.md, \.excalidraw, \.mmd, \.mermaid, \.puml, or \.plantuml\)/i);
+  assert.match(renameResult.error, /Old path must be a vault file \(\.md, .*\.png, .*\.svg\)/i);
 });
 
 test('VaultFileStore rejects path traversal', async (t) => {
@@ -352,7 +382,7 @@ test('VaultFileStore rejects path traversal even when the target uses a vault ex
 
   const createResult = await store.createFile('../created-outside.md', '# Nope\n');
   assert.equal(createResult.ok, false);
-  assert.match(createResult.error, /must end in \.md, \.excalidraw, \.mmd, \.mermaid, \.puml, or \.plantuml/i);
+  assert.match(createResult.error, /must end in \.md, .*\.png, .*\.svg/i);
 
   const renameResult = await store.renameFile('README.md', '../escape.md');
   assert.equal(renameResult.ok, false);
@@ -360,7 +390,7 @@ test('VaultFileStore rejects path traversal even when the target uses a vault ex
 
   const deleteResult = await store.deleteFile('../escape.md');
   assert.equal(deleteResult.ok, false);
-  assert.match(deleteResult.error, /must end in \.md, \.excalidraw, \.mmd, \.mermaid, \.puml, or \.plantuml/i);
+  assert.match(deleteResult.error, /must end in \.md, .*\.png, .*\.svg/i);
 
   const directoryResult = await store.createDirectory('../outside-dir');
   assert.equal(directoryResult.ok, false);

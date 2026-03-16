@@ -18,7 +18,8 @@ export const presenceFeature = {
 
     const hasEditorSession = Boolean(this.session);
     const isExcalidrawRoute = Boolean(this.currentFilePath && this.isExcalidrawFile?.(this.currentFilePath));
-    const shouldUseLobbyState = !hasEditorSession && (!this.currentFilePath || isExcalidrawRoute);
+    const isImageRoute = Boolean(this.currentFilePath && this.isImageFile?.(this.currentFilePath));
+    const shouldUseLobbyState = !hasEditorSession && (!this.currentFilePath || isExcalidrawRoute || isImageRoute);
     const effectiveConnectionState = shouldUseLobbyState
       ? this.lobby?.getConnectionState?.() ?? this.connectionState
       : this.connectionState;
