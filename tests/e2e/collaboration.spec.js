@@ -1013,6 +1013,96 @@ test('keeps the refreshed comment card within a narrow viewport', async ({ page 
   expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(900);
 });
 
+test('toggles a preset emoji reaction on a comment message', async ({ page }) => {
+  await clearReadmeCollaborationSidecars();
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, README_TEST_DOCUMENT);
+
+  await createComment(page, {
+    body: 'Reaction ready',
+    targetText: 'Welcome to the test vault',
+    useInlineChip: true,
+  });
+
+  await page.locator('#previewContent .comment-preview-badge[aria-label="1 comment thread"]').first().click();
+  await page.locator('.comment-reaction-quick-add').filter({ hasText: '👍' }).first().click();
+
+  const chip = page.locator('.comment-reaction-chip').filter({ hasText: '👍' }).first();
+  await expect(chip).toContainText('1');
+  await expect(chip).toHaveClass(/is-active/);
+  await expect(page.locator('.comment-reaction-quick-add').filter({ hasText: '👍' })).toHaveCount(0);
+
+  await chip.click();
+  await expect(page.locator('.comment-reaction-chip').filter({ hasText: '👍' })).toHaveCount(0);
+});
+
+test('supports reacting to reply messages through the extended reaction picker', async ({ page }) => {
+  await clearReadmeCollaborationSidecars();
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, README_TEST_DOCUMENT);
+
+  await createComment(page, {
+    body: 'Initial comment',
+    targetText: 'Welcome to the test vault',
+    useInlineChip: true,
+  });
+
+  await page.locator('#previewContent .comment-preview-badge[aria-label="1 comment thread"]').first().click();
+  await page.locator('.comment-thread-card-action').filter({ hasText: 'Reply' }).first().click();
+  await page.locator('.comment-card-input').last().fill('Reply with reaction');
+  await page.locator('.comment-reply-form').getByRole('button', { name: 'Reply' }).click();
+  await expect(page.locator('.comment-reply-form')).toBeHidden();
+
+  const replyCard = page.locator('.comment-message-card').last();
+  await replyCard.locator('.comment-reaction-more-trigger').click();
+  await expect(replyCard.locator('.comment-reaction-picker')).toBeVisible();
+  await replyCard.locator('.comment-reaction-picker-btn').filter({ hasText: '💡' }).click();
+
+  const chip = replyCard.locator('.comment-reaction-chip').filter({ hasText: '💡' });
+  await expect(chip).toContainText('1');
+  await expect(chip).toHaveClass(/is-active/);
+});
+
+test('syncs reaction counts across collaborators while keeping active state local', async ({ browser }) => {
+  const contextA = await browser.newContext();
+  const contextB = await browser.newContext();
+  const pageA = await contextA.newPage();
+  const pageB = await contextB.newPage();
+
+  await clearReadmeCollaborationSidecars();
+  await openFile(pageA, 'README.md', { userName: 'Andes A' });
+  await openFile(pageB, 'README.md', { userName: 'Andes B' });
+  await replaceEditorContent(pageA, README_TEST_DOCUMENT);
+  await expect(pageB.locator('#previewContent')).toContainText('Welcome to the test vault');
+
+  await createComment(pageA, {
+    body: 'Sync reaction',
+    targetText: 'Welcome to the test vault',
+    useInlineChip: true,
+  });
+
+  const openThread = async (targetPage) => {
+    await targetPage.locator('#previewContent .comment-preview-badge[aria-label="1 comment thread"]').first().click();
+    await expect(targetPage.locator('.comment-card')).toBeVisible();
+  };
+
+  await openThread(pageA);
+  await pageA.locator('.comment-reaction-quick-add').filter({ hasText: '👍' }).first().click();
+
+  await openThread(pageB);
+  const pageBChip = pageB.locator('.comment-reaction-chip').filter({ hasText: '👍' }).first();
+  await expect(pageBChip).toContainText('1');
+  await expect(pageBChip).not.toHaveClass(/is-active/);
+
+  await pageBChip.click();
+  await expect(pageBChip).toContainText('2');
+  await expect(pageBChip).toHaveClass(/is-active/);
+  await expect(pageA.locator('.comment-reaction-chip').filter({ hasText: '👍' }).first()).toContainText('2');
+
+  await contextA.close();
+  await contextB.close();
+});
+
 test('supports comments for Mermaid and PlantUML files', async ({ page }) => {
   await stubPlantUmlRender(page, 'commentable-plantuml');
 

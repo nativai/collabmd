@@ -217,6 +217,7 @@ export class CollabMdAppShell {
         this.session?.scrollToLine(lineNumber, 0.2);
       },
       onReplyToThread: (threadId, body) => this.session?.replyToCommentThread(threadId, body),
+      onToggleReaction: (threadId, messageId, emoji) => this.session?.toggleCommentReaction(threadId, messageId, emoji),
       onResolveThread: (threadId) => this.session?.deleteCommentThread(threadId),
     });
     this.workspacePreviewController = new WorkspacePreviewController({

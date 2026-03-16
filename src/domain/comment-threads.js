@@ -3,6 +3,7 @@ import * as Y from 'yjs';
 export const COMMENT_BODY_MAX_LENGTH = 2000;
 export const COMMENT_EXCERPT_MAX_LENGTH = 160;
 export const COMMENT_ANCHOR_QUOTE_MAX_LENGTH = 280;
+export const COMMENT_REACTION_EMOJI_MAX_LENGTH = 16;
 
 const COMMENT_ANCHOR_KINDS = new Set(['line', 'text']);
 
@@ -22,6 +23,14 @@ function asString(value) {
   return typeof value === 'string' ? value : '';
 }
 
+function asArray(value) {
+  if (value instanceof Y.Array) {
+    return value.toArray();
+  }
+
+  return Array.isArray(value) ? value : [];
+}
+
 function readThreadValue(thread, key) {
   if (thread instanceof Y.Map) {
     return thread.get(key);
@@ -32,6 +41,14 @@ function readThreadValue(thread, key) {
 
 function isResolvedThread(thread) {
   return asFiniteNumber(readThreadValue(thread, 'resolvedAt')) !== null;
+}
+
+function readRecordValue(record, key) {
+  if (record instanceof Y.Map) {
+    return record.get(key);
+  }
+
+  return record?.[key];
 }
 
 function normalizeAnchorKind(value) {
@@ -76,30 +93,95 @@ export function summarizeCommentExcerpt(value, maxLength = COMMENT_EXCERPT_MAX_L
   return `${normalized.slice(0, Math.max(maxLength - 1, 1)).trimEnd()}…`;
 }
 
+function normalizeReactionEmoji(value) {
+  return Array.from(String(value ?? '').trim())
+    .slice(0, COMMENT_REACTION_EMOJI_MAX_LENGTH)
+    .join('');
+}
+
+function createReactionUserRecord(user) {
+  const userId = asString(readRecordValue(user, 'userId')).trim();
+  if (!userId) {
+    return null;
+  }
+
+  return {
+    reactedAt: asFiniteNumber(readRecordValue(user, 'reactedAt')) ?? Date.now(),
+    userColor: asString(readRecordValue(user, 'userColor')),
+    userId,
+    userName: asString(readRecordValue(user, 'userName')) || 'Anonymous',
+  };
+}
+
+function createReactionGroupRecord(group) {
+  const emoji = normalizeReactionEmoji(readRecordValue(group, 'emoji'));
+  if (!emoji) {
+    return null;
+  }
+
+  const usersById = new Map();
+  asArray(readRecordValue(group, 'users')).forEach((user) => {
+    const normalizedUser = createReactionUserRecord(user);
+    if (normalizedUser) {
+      usersById.set(normalizedUser.userId, normalizedUser);
+    }
+  });
+
+  if (usersById.size === 0) {
+    return null;
+  }
+
+  return {
+    emoji,
+    users: Array.from(usersById.values()),
+  };
+}
+
+function serializeCommentReactions(reactions) {
+  const groupsByEmoji = new Map();
+
+  asArray(reactions).forEach((group) => {
+    const normalizedGroup = createReactionGroupRecord(group);
+    if (!normalizedGroup) {
+      return;
+    }
+
+    const existing = groupsByEmoji.get(normalizedGroup.emoji);
+    if (!existing) {
+      groupsByEmoji.set(normalizedGroup.emoji, normalizedGroup);
+      return;
+    }
+
+    const mergedUsers = new Map(existing.users.map((user) => [user.userId, user]));
+    normalizedGroup.users.forEach((user) => mergedUsers.set(user.userId, user));
+    groupsByEmoji.set(normalizedGroup.emoji, {
+      emoji: normalizedGroup.emoji,
+      users: Array.from(mergedUsers.values()),
+    });
+  });
+
+  return Array.from(groupsByEmoji.values());
+}
+
 function createMessageRecord(message) {
-  const body = normalizeCommentBody(message?.body);
+  const body = normalizeCommentBody(readRecordValue(message, 'body'));
   if (!body) {
     return null;
   }
 
   return {
     body,
-    createdAt: asFiniteNumber(message?.createdAt) ?? Date.now(),
-    id: asString(message?.id) || createCommentId('comment'),
-    peerId: asString(message?.peerId),
-    userColor: asString(message?.userColor),
-    userName: asString(message?.userName) || 'Anonymous',
+    createdAt: asFiniteNumber(readRecordValue(message, 'createdAt')) ?? Date.now(),
+    id: asString(readRecordValue(message, 'id')) || createCommentId('comment'),
+    peerId: asString(readRecordValue(message, 'peerId')),
+    reactions: serializeCommentReactions(readRecordValue(message, 'reactions')),
+    userColor: asString(readRecordValue(message, 'userColor')),
+    userName: asString(readRecordValue(message, 'userName')) || 'Anonymous',
   };
 }
 
 function serializeMessages(messages) {
-  const source = messages instanceof Y.Array
-    ? messages.toArray()
-    : Array.isArray(messages)
-      ? messages
-      : [];
-
-  return source
+  return asArray(messages)
     .map((message) => createMessageRecord(message))
     .filter(Boolean);
 }

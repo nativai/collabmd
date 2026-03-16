@@ -157,6 +157,10 @@ export class EditorSession {
     return this.commentThreadStore.replyToCommentThread(threadId, body);
   }
 
+  toggleCommentReaction(threadId, messageId, emoji) {
+    return this.commentThreadStore.toggleCommentReaction(threadId, messageId, emoji);
+  }
+
   deleteCommentThread(threadId) {
     return this.commentThreadStore.deleteCommentThread(threadId);
   }

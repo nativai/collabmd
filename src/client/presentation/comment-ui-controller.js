@@ -9,6 +9,8 @@ const COMMENT_CARD_WIDTH = 520;
 const COMMENT_SELECTION_REVEAL_DELAY_MS = 150;
 const COMMENT_SELECTION_CHIP_GAP = 12;
 const COMMENT_CONTROL_SLOT_HEIGHT = 36;
+const COMMENT_REACTION_PRESET_EMOJIS = Object.freeze(['👍', '❤️', '🎉', '👀', '🚀']);
+const COMMENT_REACTION_MORE_EMOJIS = Object.freeze(['😂', '🔥', '✅', '🙏', '💡', '🤔', '👏', '😄', '🎯', '🙌']);
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -112,6 +114,29 @@ function createRenderedCommentBody(body, className = 'comment-markdown') {
   container.className = className;
   container.innerHTML = renderCommentMarkdownToHtml(body);
   return container;
+}
+
+function hasLocalReaction(reaction, localUserId) {
+  return Boolean(localUserId && reaction?.users?.some((user) => user?.userId === localUserId));
+}
+
+function formatReactionCount(reaction) {
+  return String(Array.isArray(reaction?.users) ? reaction.users.length : 0);
+}
+
+function isReactionPickerOpen(reactionPicker, threadId, messageId) {
+  return reactionPicker?.threadId === threadId && reactionPicker?.messageId === messageId;
+}
+
+function getReactionPickerBounds(card) {
+  const picker = card?.querySelector?.('.comment-reaction-picker');
+  const wrap = picker?.closest?.('.comment-reaction-picker-wrap');
+  const scroll = card?.querySelector?.('.comment-card-scroll');
+  if (!(picker instanceof HTMLElement) || !(wrap instanceof HTMLElement) || !(scroll instanceof HTMLElement)) {
+    return null;
+  }
+
+  return { picker, scroll, wrap };
 }
 
 function overlapsAnchorRange(element, anchor) {
@@ -257,6 +282,7 @@ export class CommentUiController {
     onCreateThread,
     onNavigateToLine,
     onReplyToThread,
+    onToggleReaction,
     onResolveThread,
     previewContainer,
     previewElement,
@@ -270,6 +296,7 @@ export class CommentUiController {
     this.onCreateThread = onCreateThread;
     this.onNavigateToLine = onNavigateToLine;
     this.onReplyToThread = onReplyToThread;
+    this.onToggleReaction = onToggleReaction;
     this.onResolveThread = onResolveThread;
     this.previewContainer = previewContainer;
     this.previewElement = previewElement;
@@ -291,6 +318,7 @@ export class CommentUiController {
     this.previewHighlightLayer = null;
     this.cardRoot = null;
     this.pendingCardFocusElement = null;
+    this.reactionPicker = null;
     this.layoutFrame = 0;
     this.timeFormatter = new Intl.DateTimeFormat(undefined, {
       day: 'numeric',
@@ -362,6 +390,11 @@ export class CommentUiController {
       this.closeCard();
     };
     this.handleDocumentKeyDown = (event) => {
+      if (event.key === 'Escape' && this.reactionPicker) {
+        this.reactionPicker = null;
+        this.renderCard();
+        return;
+      }
       if (event.key === 'Escape' && this.activeCard) {
         this.closeCard();
       }
@@ -416,6 +449,7 @@ export class CommentUiController {
     this.selectionAnchor = session?.getCurrentSelectionCommentAnchor?.() ?? null;
     this.pendingSelectionAnchor = null;
     this.committedSelectionAnchor = null;
+    this.reactionPicker = null;
     this.clearSelectionRevealTimer();
     this.pointerSelecting = false;
     session?.getScrollContainer?.()?.addEventListener('scroll', this.handleEditorScroll, { passive: true });
@@ -436,6 +470,7 @@ export class CommentUiController {
       this.clearSelectionRevealTimer();
       this.pointerSelecting = false;
       this.activeCard = null;
+      this.reactionPicker = null;
     }
     if (!this.supported) {
       this.drawerOpen = false;
@@ -446,6 +481,7 @@ export class CommentUiController {
       this.committedSelectionAnchor = null;
       this.clearSelectionRevealTimer();
       this.pointerSelecting = false;
+      this.reactionPicker = null;
     }
     this.render();
   }
@@ -515,6 +551,15 @@ export class CommentUiController {
       && !this.getThreadGroups().some((group) => group.key === this.activeCard.groupKey)
     ) {
       this.activeCard = null;
+    }
+    if (
+      this.reactionPicker
+      && !this.threads.some((thread) => (
+        thread.id === this.reactionPicker.threadId
+        && thread.messages?.some((message) => message.id === this.reactionPicker.messageId)
+      ))
+    ) {
+      this.reactionPicker = null;
     }
     this.render();
   }
@@ -859,6 +904,7 @@ export class CommentUiController {
     }
 
     this.selectionAnchor = anchor;
+    this.reactionPicker = null;
     const nextOrigin = origin === 'editor' && sourceRect ? 'editor-chip' : origin;
     const nextSourceRect = sourceRect ?? (origin === 'toolbar'
       ? this.commentSelectionButton?.getBoundingClientRect?.()
@@ -874,6 +920,7 @@ export class CommentUiController {
   }
 
   openThreadGroup(group, { anchor, origin, sourceRect }) {
+    this.reactionPicker = null;
     this.activeCard = {
       anchor,
       groupKey: group.key,
@@ -889,6 +936,7 @@ export class CommentUiController {
   closeCard() {
     this.activeCard = null;
     this.pendingCardFocusElement = null;
+    this.reactionPicker = null;
     this.renderCard();
     this.scheduleLayoutRefresh();
   }
@@ -950,6 +998,21 @@ export class CommentUiController {
 
     const card = document.createElement('section');
     card.className = 'comment-card';
+    card.addEventListener('click', (event) => {
+      if (
+        !this.reactionPicker
+        || event.target?.closest?.('.comment-reaction-picker-wrap')
+      ) {
+        return;
+      }
+
+      this.reactionPicker = null;
+      requestAnimationFrame(() => {
+        if (this.activeCard) {
+          this.renderCard();
+        }
+      });
+    });
 
     const header = document.createElement('div');
     header.className = 'comment-card-header';
@@ -1001,11 +1064,40 @@ export class CommentUiController {
       });
     }
 
+    root.style.visibility = 'hidden';
     card.appendChild(content);
     root.appendChild(card);
+    this.updateReactionPickerPosition(card);
+    this.positionCard(card);
     this.flushPendingCardFocus();
-    root.style.visibility = 'hidden';
+    root.style.visibility = '';
     this.scheduleLayoutRefresh();
+  }
+
+  updateReactionPickerPosition(card) {
+    const bounds = getReactionPickerBounds(card);
+    if (!bounds) {
+      return;
+    }
+
+    const { picker, scroll, wrap } = bounds;
+    picker.classList.remove('is-upward');
+    picker.style.maxHeight = '';
+
+    const wrapRect = wrap.getBoundingClientRect();
+    const scrollRect = scroll.getBoundingClientRect();
+    const pickerRect = picker.getBoundingClientRect();
+    const safeViewportTop = 12;
+    const safeViewportBottom = window.innerHeight - 12;
+    const lowerBoundary = Math.min(scrollRect.bottom, safeViewportBottom);
+    const upperBoundary = Math.max(scrollRect.top, safeViewportTop);
+    const availableBelow = Math.max(lowerBoundary - wrapRect.bottom - 8, 0);
+    const availableAbove = Math.max(wrapRect.top - upperBoundary - 8, 0);
+    const shouldOpenUpward = pickerRect.height > availableBelow && availableAbove > availableBelow;
+    const maxHeight = Math.max((shouldOpenUpward ? availableAbove : availableBelow), 120);
+
+    picker.classList.toggle('is-upward', shouldOpenUpward);
+    picker.style.maxHeight = `${maxHeight}px`;
   }
 
   repositionActiveCard() {
@@ -1126,7 +1218,7 @@ export class CommentUiController {
     article.append(header);
 
     thread.messages.forEach((message) => {
-      article.appendChild(this.createMessageElement(message));
+      article.appendChild(this.createMessageElement(thread, message));
     });
 
     if (this.activeCard?.replyThreadId === thread.id) {
@@ -1136,7 +1228,7 @@ export class CommentUiController {
     return article;
   }
 
-  createMessageElement(message) {
+  createMessageElement(thread, message) {
     const container = document.createElement('div');
     container.className = 'comment-message-card';
 
@@ -1158,7 +1250,124 @@ export class CommentUiController {
 
     meta.append(author, time);
     container.append(meta, renderedBody);
+    container.appendChild(this.createReactionBar(thread, message));
     return container;
+  }
+
+  createReactionBar(thread, message) {
+    const localUserId = this.session?.getLocalUser?.()?.userId ?? '';
+    const wrap = document.createElement('div');
+    wrap.className = 'comment-reaction-bar';
+
+    const existingReactionEmojis = new Set((message.reactions ?? []).map((reaction) => reaction.emoji));
+
+    const chips = document.createElement('div');
+    chips.className = 'comment-reaction-chips';
+
+    (message.reactions ?? []).forEach((reaction) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'comment-reaction-chip';
+      chip.classList.toggle('is-active', hasLocalReaction(reaction, localUserId));
+      chip.setAttribute('aria-pressed', String(hasLocalReaction(reaction, localUserId)));
+      chip.title = reaction.users?.map((user) => user.userName).join(', ') || reaction.emoji;
+
+      const emoji = document.createElement('span');
+      emoji.className = 'comment-reaction-chip-emoji';
+      emoji.textContent = reaction.emoji;
+
+      const count = document.createElement('span');
+      count.className = 'comment-reaction-chip-count';
+      count.textContent = formatReactionCount(reaction);
+
+      chip.append(emoji, count);
+      chip.addEventListener('click', async () => {
+        await this.onToggleReaction?.(thread.id, message.id, reaction.emoji);
+      });
+      chips.appendChild(chip);
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'comment-reaction-actions';
+
+    COMMENT_REACTION_PRESET_EMOJIS
+      .filter((emoji) => !existingReactionEmojis.has(emoji))
+      .forEach((emoji) => {
+        actions.appendChild(this.createQuickReactionButton(thread, message, emoji));
+      });
+
+    const pickerWrap = document.createElement('div');
+    pickerWrap.className = 'comment-reaction-picker-wrap';
+
+    const moreButton = document.createElement('button');
+    moreButton.type = 'button';
+    moreButton.className = 'comment-reaction-more-trigger';
+    moreButton.dataset.reactionPickerToggle = 'true';
+    moreButton.setAttribute('aria-expanded', String(
+      isReactionPickerOpen(this.reactionPicker, thread.id, message.id),
+    ));
+    moreButton.textContent = 'More';
+    moreButton.addEventListener('click', () => {
+      const isOpen = isReactionPickerOpen(this.reactionPicker, thread.id, message.id);
+      this.reactionPicker = isOpen
+        ? null
+        : {
+          messageId: message.id,
+          threadId: thread.id,
+        };
+      this.renderCard();
+    });
+
+    pickerWrap.appendChild(moreButton);
+
+    if (isReactionPickerOpen(this.reactionPicker, thread.id, message.id)) {
+      pickerWrap.appendChild(this.createReactionPicker(thread, message));
+    }
+
+    actions.appendChild(pickerWrap);
+    wrap.append(chips, actions);
+    return wrap;
+  }
+
+  createQuickReactionButton(thread, message, emoji) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'comment-reaction-quick-add';
+    button.textContent = emoji;
+    button.title = `React with ${emoji}`;
+    button.addEventListener('click', async () => {
+      await this.onToggleReaction?.(thread.id, message.id, emoji);
+    });
+    return button;
+  }
+
+  createReactionPicker(thread, message) {
+    const picker = document.createElement('div');
+    picker.className = 'comment-reaction-picker';
+    const moreGrid = document.createElement('div');
+    moreGrid.className = 'comment-reaction-picker-grid';
+    COMMENT_REACTION_MORE_EMOJIS.forEach((emoji) => {
+      moreGrid.appendChild(this.createReactionPickerButton(thread, message, emoji));
+    });
+    picker.appendChild(moreGrid);
+
+    return picker;
+  }
+
+  createReactionPickerButton(thread, message, emoji) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'comment-reaction-picker-btn';
+    button.textContent = emoji;
+    button.title = `React with ${emoji}`;
+    button.addEventListener('click', async () => {
+      const didToggle = await this.onToggleReaction?.(thread.id, message.id, emoji);
+      if (didToggle) {
+        this.reactionPicker = null;
+        this.renderCard();
+      }
+    });
+    return button;
   }
 
   createReplyComposer(thread) {

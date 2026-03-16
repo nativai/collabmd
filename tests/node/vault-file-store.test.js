@@ -101,6 +101,15 @@ test('VaultFileStore persists content, comments, and snapshot as one staged coll
       createdAt: 1,
       id: 'message-atomic',
       peerId: 'peer-1',
+      reactions: [{
+        emoji: '🎉',
+        users: [{
+          reactedAt: 1,
+          userColor: '#0f172a',
+          userId: 'user-1',
+          userName: 'Reviewer',
+        }],
+      }],
       userColor: '#0f172a',
       userName: 'Reviewer',
     }],
@@ -189,6 +198,15 @@ test('VaultFileStore persists hidden comment sidecars alongside vault files', as
       createdAt: 1,
       id: 'comment-1',
       peerId: 'peer-1',
+      reactions: [{
+        emoji: '👍',
+        users: [{
+          reactedAt: 1,
+          userColor: '#4f46e5',
+          userId: 'user-1',
+          userName: 'Andes',
+        }],
+      }],
       userColor: '#4f46e5',
       userName: 'Andes',
     }],

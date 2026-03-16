@@ -3225,6 +3225,119 @@ body.plantuml-maximized-open::before {
   line-height: 1.65;
 }
 
+.comment-reaction-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+}
+
+.comment-reaction-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.comment-reaction-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.comment-reaction-chip,
+.comment-reaction-more-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid color-mix(in srgb, var(--color-divider) 88%, var(--color-comment) 12%);
+  background: color-mix(in srgb, var(--color-surface) 90%, var(--color-comment) 10%);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  transition: background var(--transition-interactive), border-color var(--transition-interactive), color var(--transition-interactive), transform 140ms ease;
+}
+
+.comment-reaction-chip:hover,
+.comment-reaction-more-trigger:hover {
+  color: var(--color-text);
+  border-color: oklch(from var(--color-comment) l c h / 0.22);
+  background: color-mix(in srgb, var(--color-surface-offset) 76%, var(--color-comment) 24%);
+}
+
+.comment-reaction-chip.is-active {
+  color: var(--color-comment);
+  border-color: oklch(from var(--color-comment) l c h / 0.28);
+  background: color-mix(in srgb, var(--color-surface-offset) 64%, var(--color-comment) 36%);
+}
+
+.comment-reaction-chip-emoji,
+.comment-reaction-chip-count {
+  line-height: 1;
+}
+
+.comment-reaction-quick-add,
+.comment-reaction-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--color-divider) 88%, var(--color-comment) 12%);
+  background: color-mix(in srgb, var(--color-surface-2) 92%, var(--color-comment) 8%);
+  font-size: 18px;
+  transition: background var(--transition-interactive), border-color var(--transition-interactive), transform 140ms ease;
+}
+
+.comment-reaction-quick-add:hover,
+.comment-reaction-picker-btn:hover {
+  border-color: oklch(from var(--color-comment) l c h / 0.24);
+  background: color-mix(in srgb, var(--color-surface-offset) 78%, var(--color-comment) 22%);
+  transform: translateY(-1px);
+}
+
+.comment-reaction-picker-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.comment-reaction-picker {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 2;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--color-border) 82%, var(--color-comment) 18%);
+  background: color-mix(in srgb, var(--color-surface) 96%, var(--color-comment) 4%);
+  box-shadow: var(--shadow-lg);
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.comment-reaction-picker.is-upward {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+
+.comment-reaction-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
 .comment-markdown {
   color: var(--color-text);
   font-size: 12px;
@@ -3820,6 +3933,12 @@ body.plantuml-maximized-open::before {
     width: 100%;
     margin-left: 0;
     justify-content: flex-start;
+  }
+
+  .comment-reaction-picker {
+    left: 0;
+    right: auto;
+    min-width: min(240px, calc(100vw - 64px));
   }
 }
 

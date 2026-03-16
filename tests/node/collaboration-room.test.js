@@ -312,6 +312,15 @@ test('CollaborationRoom hydrates and persists markdown comment threads', async (
       createdAt: 1,
       id: 'comment-1',
       peerId: 'peer-1',
+      reactions: [{
+        emoji: '👍',
+        users: [{
+          reactedAt: 1,
+          userColor: '#818cf8',
+          userId: 'user-1',
+          userName: 'Andes',
+        }],
+      }],
       userColor: '#818cf8',
       userName: 'Andes',
     }],
@@ -348,6 +357,15 @@ test('CollaborationRoom hydrates and persists markdown comment threads', async (
   const hydratedThreads = room.doc.getArray('comments').toArray();
   assert.equal(hydratedThreads.length, 1);
   assert.equal(hydratedThreads[0].get('id'), 'thread-1');
+  assert.deepEqual(hydratedThreads[0].get('messages').toArray()[0].reactions, [{
+    emoji: '👍',
+    users: [{
+      reactedAt: 1,
+      userColor: '#818cf8',
+      userId: 'user-1',
+      userName: 'Andes',
+    }],
+  }]);
 
   room.doc.transact(() => {
     const comments = room.doc.getArray('comments');
@@ -392,6 +410,7 @@ test('CollaborationRoom hydrates and persists markdown comment threads', async (
   assert.equal(commentWrites[0].path, 'notes.md');
   assert.equal(commentWrites[0].threads.length, 2);
   assert.equal(commentWrites[0].threads[0].messages.length, 2);
+  assert.equal(commentWrites[0].threads[0].messages[0].reactions[0].emoji, '👍');
   assert.equal(commentWrites[0].threads[1].id, 'thread-2');
 });
 

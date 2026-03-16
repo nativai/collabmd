@@ -79,3 +79,84 @@ test('normalizeCommentQuote preserves source formatting while trimming edges', (
 test('normalizeCommentQuoteForComparison collapses whitespace for stable preview matching', () => {
   assert.equal(normalizeCommentQuoteForComparison(' Hello \n   from\tcomment '), 'Hello from comment');
 });
+
+test('comment thread serialization preserves normalized message reactions', () => {
+  const doc = new Y.Doc();
+  const threads = doc.getArray('comments');
+  const thread = createCommentThreadSharedType({
+    anchorEnd: { assoc: 0, type: null },
+    anchorEndLine: 4,
+    anchorKind: 'line',
+    anchorQuote: 'Line quote',
+    anchorStart: { assoc: 0, type: null },
+    anchorStartLine: 4,
+    id: 'thread-reactions',
+    messages: [{
+      body: 'Line thread',
+      id: 'comment-reactions',
+      reactions: [{
+        emoji: '👍',
+        users: [{
+          reactedAt: 2,
+          userColor: '#3b82f6',
+          userId: 'user-1',
+          userName: 'Tester',
+        }, {
+          reactedAt: 3,
+          userColor: '#3b82f6',
+          userId: 'user-1',
+          userName: 'Tester updated',
+        }],
+      }],
+      userName: 'Tester',
+    }],
+  });
+
+  threads.push([thread]);
+
+  const [serialized] = serializeCommentThreads(threads);
+  assert.deepEqual(serialized.messages[0].reactions, [{
+    emoji: '👍',
+    users: [{
+      reactedAt: 3,
+      userColor: '#3b82f6',
+      userId: 'user-1',
+      userName: 'Tester updated',
+    }],
+  }]);
+});
+
+test('comment thread serialization ignores malformed reactions', () => {
+  const doc = new Y.Doc();
+  const threads = doc.getArray('comments');
+  const thread = createCommentThreadSharedType({
+    anchorEnd: { assoc: 0, type: null },
+    anchorEndLine: 4,
+    anchorKind: 'line',
+    anchorQuote: 'Line quote',
+    anchorStart: { assoc: 0, type: null },
+    anchorStartLine: 4,
+    id: 'thread-malformed-reactions',
+    messages: [{
+      body: 'Line thread',
+      id: 'comment-malformed-reactions',
+      reactions: [{
+        emoji: '',
+        users: [{
+          userId: 'user-1',
+        }],
+      }, {
+        emoji: '🎉',
+        users: [{
+          userId: '',
+        }],
+      }],
+      userName: 'Tester',
+    }],
+  });
+
+  threads.push([thread]);
+
+  const [serialized] = serializeCommentThreads(threads);
+  assert.deepEqual(serialized.messages[0].reactions, []);
+});
