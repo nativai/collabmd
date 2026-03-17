@@ -181,7 +181,7 @@ Comment threads are source-anchored and currently supported for markdown, Mermai
 
 Markdown video embeds are opt-in and use standard image syntax such as `![Video](https://www.youtube.com/watch?v=...)` or `![Video](https://cdn.example.com/demo.webm)`. The preview currently supports public YouTube URLs plus direct public `https` video files ending in `.mp4`, `.webm`, or `.ogg`. The editor toolbar also includes a `Video` action that inserts the same Markdown syntax for you.
 
-Your filesystem is the source of truth. CollabMD reads files from disk, uses Yjs for realtime collaboration, and writes plain text back to disk when the last editor disconnects.
+Your filesystem is the source of truth. CollabMD reads files from disk, uses Yjs for realtime collaboration, and continuously writes plain text back to disk as you type.
 
 ## Usage
 
@@ -502,6 +502,7 @@ scripts/
 | `HTTP_HEADERS_TIMEOUT_MS` | Header read timeout | `60000` |
 | `HTTP_REQUEST_TIMEOUT_MS` | Request timeout | `30000` |
 | `WS_HEARTBEAT_INTERVAL_MS` | Heartbeat interval for evicting dead clients | `30000` |
+| `WS_ROOM_IDLE_GRACE_MS` | Delay before closing empty collaboration rooms to disk | `15000` |
 | `WS_MAX_BUFFERED_AMOUNT_BYTES` | Max outbound buffer per WebSocket | `16777216` |
 | `WS_MAX_PAYLOAD_BYTES` | Max inbound WebSocket frame | `16777216` |
 | `CLOUDFLARED_BIN` | `cloudflared` binary path | `cloudflared` |
