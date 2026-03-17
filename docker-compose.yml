@@ -1,6 +1,6 @@
 services:
   collabmd:
-    image: ${COLLABMD_IMAGE:-collabmd:local}
+    image: ${COLLABMD_IMAGE:-ghcr.io/andes90/collabmd:latest}
     depends_on:
       - plantuml
     environment:

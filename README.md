@@ -271,8 +271,7 @@ For the full runtime env var reference, see the `Environment variables` details 
 Published image: `ghcr.io/andes90/collabmd:latest`
 
 ```bash
-docker build -t collabmd .
-docker run -p 1234:1234 -v /path/to/vault:/data collabmd
+docker run -p 1234:1234 -v /path/to/vault:/data ghcr.io/andes90/collabmd:latest
 ```
 
 The container listens on `0.0.0.0:1234` and stores vault files at `/data`.
@@ -287,7 +286,7 @@ docker run \
   -e COLLABMD_GIT_SSH_PRIVATE_KEY_B64="$(base64 < ~/.ssh/id_ed25519 | tr -d '\n')" \
   -e COLLABMD_GIT_USER_NAME="CollabMD Bot" \
   -e COLLABMD_GIT_USER_EMAIL="bot@example.com" \
-  collabmd
+  ghcr.io/andes90/collabmd:latest
 ```
 
 For a full local and Docker test walkthrough, including key generation and deploy-key setup, see [docs/private-git-deployment.md](https://github.com/andes90/collabmd/blob/master/docs/private-git-deployment.md).
@@ -309,7 +308,7 @@ docker run \
   -e COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE=/run/secrets/collabmd_known_hosts \
   -e COLLABMD_GIT_USER_NAME="CollabMD Bot" \
   -e COLLABMD_GIT_USER_EMAIL="bot@example.com" \
-  collabmd
+  ghcr.io/andes90/collabmd:latest
 ```
 
 ### Local docker-compose with a private PlantUML server
@@ -318,16 +317,16 @@ The included `docker-compose.yml` runs a prebuilt CollabMD image together with a
 
 ```bash
 mkdir -p data/vault
-docker build -t collabmd:local .
 docker compose up
 ```
 
 Open `http://localhost:1234`.
 
-By default, compose uses `COLLABMD_IMAGE=collabmd:local`. To run the published GitHub Container Registry image instead:
+By default, compose uses `COLLABMD_IMAGE=ghcr.io/andes90/collabmd:latest`. If you want to test a local image while developing instead:
 
 ```bash
-COLLABMD_IMAGE=ghcr.io/andes90/collabmd:latest docker compose up
+docker build -t collabmd:local .
+COLLABMD_IMAGE=collabmd:local docker compose up
 ```
 
 The PlantUML container is also published on loopback by default at `http://127.0.0.1:18080`, so the host-based CLI can reuse it with:
@@ -528,7 +527,7 @@ cp .env.example .env
 - `.obsidian`, `.git`, `.trash`, and `node_modules` directories are ignored.
 - Only `.md`, `.markdown`, and `.mdx` files are indexed.
 - PlantUML preview rendering is server-side and uses `PLANTUML_SERVER_URL`; point it at a self-hosted renderer if you do not want to use the public PlantUML service.
-- `docker compose up --build` uses the included local PlantUML service and avoids the public renderer by default. The initial git clone may also require a longer health-check grace period than a purely local vault.
+- `docker compose up` uses the included local PlantUML service and avoids the public renderer by default. The initial git clone may also require a longer health-check grace period than a purely local vault.
 - `collabmd --local-plantuml` and `npm run start:local-plantuml` will start the local PlantUML compose service first, then run CollabMD against `http://127.0.0.1:${PLANTUML_HOST_PORT:-18080}`.
 
 ## License
