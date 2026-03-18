@@ -49,6 +49,30 @@ test.describe('mobile outline', () => {
   });
 });
 
+test.describe('mobile linked mentions', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+  });
+
+  test('keeps linked mentions inline instead of showing the desktop dock', async ({ page }) => {
+    await openFile(page, 'projects/collabmd.md', { waitFor: 'preview' });
+    await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'preview');
+
+    await expect(page.locator('#backlinksPanel')).toBeHidden();
+
+    await page.locator('#previewContainer').evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+
+    const inlinePanel = page.locator('#backlinksInlinePanel');
+    await expect(inlinePanel).toBeVisible();
+
+    await inlinePanel.locator('.backlinks-header').click();
+    await expect(inlinePanel).toHaveClass(/expanded/);
+    await expect(inlinePanel.locator('.backlinks-body')).toBeVisible();
+  });
+});
+
 test.describe('mobile PlantUML preview', () => {
   test.use({
     viewport: { width: 390, height: 844 },

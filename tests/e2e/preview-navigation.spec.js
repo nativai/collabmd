@@ -21,6 +21,22 @@ Welcome to the test vault.
 - [[projects/collabmd]]
 `;
 
+async function createLinkedMentionFiles(page, {
+  count = 12,
+  target = 'projects/collabmd',
+} = {}) {
+  for (let index = 0; index < count; index += 1) {
+    const response = await page.request.post('http://127.0.0.1:4173/api/file', {
+      data: {
+        content: `# Mention ${index + 1}\n\n- [[${target}]]\n`,
+        path: `linked-mention-${index + 1}.md`,
+      },
+    });
+
+    expect(response.ok()).toBeTruthy();
+  }
+}
+
 test('keeps preview and outline aligned when scrolling list-heavy editor content', async ({ page }) => {
   await openFile(page, 'README.md');
 
@@ -96,6 +112,64 @@ test('keeps the preview pinned to the top when a file first opens at the top of 
   });
 
   expect(previewHeadingOffset).toBeLessThan(80);
+});
+
+test('keeps the linked mentions dock reachable while preview scrolls and expands it without moving the document', async ({ page }) => {
+  await openFile(page, 'README.md', { waitFor: 'preview' });
+  await createLinkedMentionFiles(page, { count: 12 });
+  await openFile(page, 'projects/collabmd.md', { waitFor: 'preview' });
+
+  const dock = page.locator('#backlinksPanel .backlinks-panel-dock');
+  const dockHeader = dock.locator('.backlinks-header');
+
+  await expect(dock).toBeVisible();
+  await expect.poll(async () => Number.parseInt(await dock.locator('.backlinks-count').textContent() || '0', 10)).toBeGreaterThan(10);
+
+  const positions = [];
+  for (const progress of [0, 0.5, 0.9]) {
+    // Keep the preview scroll moving while the dock should remain fixed to preview chrome.
+    // The measurement is taken against the preview body rather than the viewport.
+    // That makes the assertion resilient in split and preview-only layouts.
+    // It also directly checks the intended contract: anchored inside preview chrome.
+    // `progress` is intentionally coarse to exercise top, middle, and near-bottom.
+    const snapshot = await page.locator('#previewContainer').evaluate((element, nextProgress) => {
+      const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+      element.scrollTop = Math.round(maxScrollTop * nextProgress);
+
+      const panel = document.querySelector('#backlinksPanel .backlinks-panel-dock');
+      const previewBody = document.querySelector('.preview-body');
+      const panelRect = panel.getBoundingClientRect();
+      const previewBodyRect = previewBody.getBoundingClientRect();
+
+      return {
+        bottomOffset: Math.round(previewBodyRect.bottom - panelRect.bottom),
+        top: Math.round(panelRect.top),
+      };
+    }, progress);
+
+    positions.push(snapshot);
+  }
+
+  expect(Math.abs(positions[0].bottomOffset - positions[1].bottomOffset)).toBeLessThanOrEqual(2);
+  expect(Math.abs(positions[1].bottomOffset - positions[2].bottomOffset)).toBeLessThanOrEqual(2);
+  expect(Math.abs(positions[0].top - positions[1].top)).toBeLessThanOrEqual(2);
+  expect(Math.abs(positions[1].top - positions[2].top)).toBeLessThanOrEqual(2);
+
+  const scrollTopBeforeExpand = await page.locator('#previewContainer').evaluate((element) => element.scrollTop);
+  await dockHeader.click();
+  await expect(dock).toHaveClass(/expanded/);
+
+  const scrollTopAfterExpand = await page.locator('#previewContainer').evaluate((element) => element.scrollTop);
+  expect(Math.abs(scrollTopAfterExpand - scrollTopBeforeExpand)).toBeLessThanOrEqual(1);
+
+  const bodyMetrics = await dock.locator('.backlinks-body').evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    overflowY: window.getComputedStyle(element).overflowY,
+    scrollHeight: element.scrollHeight,
+  }));
+
+  expect(bodyMetrics.overflowY).toBe('auto');
+  expect(bodyMetrics.scrollHeight).toBeGreaterThan(bodyMetrics.clientHeight);
 });
 
 test('keeps the clicked parent heading active in the outline after navigation', async ({ page }) => {

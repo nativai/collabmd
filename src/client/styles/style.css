@@ -2268,6 +2268,7 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
   --preview-floating-sidebar-gap: var(--space-3);
   --preview-floating-comments-width: min(300px, 34vw);
   --preview-floating-outline-width: 220px;
+  --preview-content-max-width: 720px;
   display: flex;
   flex: 1;
   overflow: hidden;
@@ -2299,6 +2300,12 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
 }
 .preview-content[data-render-phase="shell"] {
   color: var(--color-text-muted);
+}
+
+@media (min-width: 769px) {
+  .preview-content {
+    padding-bottom: calc(var(--space-12) + 96px);
+  }
 }
 
 .preview-content.is-excalidraw-file-preview {
@@ -3673,13 +3680,44 @@ body.plantuml-maximized-open::before {
 
 /* ===== BACKLINKS PANEL ===== */
 
+.backlinks-panel.hidden,
+.backlinks-panel-layer.hidden {
+  display: none;
+}
 .backlinks-panel {
+  min-width: 0;
+}
+.backlinks-panel-layer {
+  position: absolute;
+  left: max(
+    var(--space-4),
+    calc((100% - min(var(--preview-content-max-width), 100%)) / 2)
+  );
+  bottom: calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
+  width: min(320px, calc(min(var(--preview-content-max-width), 100%) - var(--space-8)));
+  z-index: 14;
+  pointer-events: none;
+}
+.backlinks-panel-dock {
+  display: flex;
+  flex-direction: column-reverse;
+  border: 1px solid var(--color-divider);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--color-surface) 84%, var(--color-surface-offset) 16%);
+  box-shadow: 0 14px 34px oklch(0 0 0 / 0.18);
+  backdrop-filter: blur(16px);
+  overflow: hidden;
+  pointer-events: auto;
+  transition: box-shadow 160ms ease, transform 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+.backlinks-panel-dock:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 40px oklch(0 0 0 / 0.2);
+}
+.backlinks-panel-inline {
   border-top: 1px solid var(--color-divider);
   margin-top: var(--space-6);
   padding: 0 var(--space-4);
-}
-.backlinks-panel.hidden {
-  display: none;
 }
 .backlinks-header {
   display: flex;
@@ -3695,6 +3733,10 @@ body.plantuml-maximized-open::before {
 }
 .backlinks-header:hover {
   color: var(--color-text);
+}
+.backlinks-panel-dock .backlinks-header {
+  padding: 11px 14px;
+  background: color-mix(in srgb, var(--color-surface-offset) 76%, var(--color-bg) 24%);
 }
 .backlinks-header-empty {
   cursor: default;
@@ -3712,15 +3754,20 @@ body.plantuml-maximized-open::before {
 }
 .backlinks-toggle {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .backlinks-count {
   font-size: var(--text-xs);
   font-weight: 600;
   color: var(--color-primary);
-  background: oklch(from var(--color-primary) l c h / 0.12);
+  background: oklch(from var(--color-primary) l c h / 0.14);
   border-radius: var(--radius-full);
-  padding: 1px 8px;
-  min-width: 0;
+  padding: 1px 7px;
+  min-width: 22px;
+  text-align: center;
 }
 .backlinks-count:empty {
   display: none;
@@ -3730,15 +3777,30 @@ body.plantuml-maximized-open::before {
   max-height: 0;
   transition: max-height 200ms ease;
 }
-.backlinks-panel.expanded .backlinks-body {
+.backlinks-panel-inline.expanded .backlinks-body {
   max-height: 600px;
   overflow-y: auto;
+}
+.backlinks-panel-dock .backlinks-body {
+  background: color-mix(in srgb, var(--color-surface) 94%, var(--color-surface-offset) 6%);
+}
+.backlinks-panel-dock.expanded .backlinks-body {
+  max-height: min(44vh, 400px);
+  overflow-y: auto;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-divider) 78%, var(--color-primary) 22%);
+}
+.backlinks-panel-dock.expanded {
+  border-color: color-mix(in srgb, var(--color-divider) 72%, var(--color-primary) 28%);
+  background: color-mix(in srgb, var(--color-surface) 90%, var(--color-surface-offset) 10%);
 }
 .backlinks-list {
   padding-bottom: var(--space-4);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+.backlinks-panel-dock .backlinks-list {
+  padding: 10px;
 }
 .backlink-item {
   display: block;
@@ -3750,6 +3812,10 @@ body.plantuml-maximized-open::before {
   background: var(--color-surface);
   cursor: pointer;
   transition: border-color var(--transition-interactive), background var(--transition-interactive);
+}
+.backlinks-panel-dock .backlink-item {
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-surface) 88%, var(--color-surface-offset) 12%);
 }
 .backlink-item:hover {
   border-color: var(--color-primary);
@@ -3790,6 +3856,12 @@ body.plantuml-maximized-open::before {
 .backlink-more {
   font-style: italic;
   color: var(--color-text-faint);
+}
+
+@media (min-width: 769px) {
+  .backlinks-panel-inline {
+    display: none !important;
+  }
 }
 
 .outline-panel {
@@ -4072,6 +4144,10 @@ body.plantuml-maximized-open::before {
 
   .preview-content {
     padding: var(--space-4);
+  }
+
+  .backlinks-panel-layer {
+    display: none !important;
   }
 
   .diff-toolbar {

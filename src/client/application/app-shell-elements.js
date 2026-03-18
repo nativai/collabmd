@@ -61,6 +61,7 @@ export function bindAppShellElements(doc = document) {
     emptyStateNewFileBtn: doc.getElementById('emptyStateNewFileBtn'),
     emptyStateSearchBtn: doc.getElementById('emptyStateSearchBtn'),
     backlinksPanel: doc.getElementById('backlinksPanel'),
+    backlinksInlinePanel: doc.getElementById('backlinksInlinePanel'),
     commentSelectionButton: doc.getElementById('commentSelectionBtn'),
     commentsDrawer: doc.getElementById('commentsDrawer'),
     commentsDrawerEmpty: doc.getElementById('commentsDrawerEmpty'),
