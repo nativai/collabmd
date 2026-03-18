@@ -25,8 +25,8 @@ export function escapeHtml(text) {
  *
  * Matching rules (in order):
  *   1. Exact path match (with .md appended if missing)
- *   2. Filename match at any directory depth
- *   3. Path without .md extension matches the target
+ *   2. Exact path without .md extension matches the target
+ *   3. Filename/path suffix match at any directory depth
  *
  * @param {string} target — the raw wiki-link target text
  * @param {string[]} files — list of vault file paths

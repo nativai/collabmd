@@ -66,10 +66,21 @@ export function resolveWikiTargetPath(target, files) {
   }
 
   const rawTarget = String(target ?? '').trim();
+  let fallbackSuffixMatch = null;
 
-  return files.find((filePath) => (
-    filePath === normalizedTarget
-      || filePath.endsWith(`/${normalizedTarget}`)
-      || filePath.replace(/\.md$/i, '') === rawTarget
-  )) ?? null;
+  for (const filePath of files) {
+    if (filePath === normalizedTarget) {
+      return filePath;
+    }
+
+    if (filePath.replace(/\.md$/i, '') === rawTarget) {
+      return filePath;
+    }
+
+    if (!fallbackSuffixMatch && filePath.endsWith(`/${normalizedTarget}`)) {
+      fallbackSuffixMatch = filePath;
+    }
+  }
+
+  return fallbackSuffixMatch;
 }

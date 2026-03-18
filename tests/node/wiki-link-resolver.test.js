@@ -19,6 +19,16 @@ test('resolveWikiTargetPath matches exact paths and bare note names', () => {
   assert.equal(resolveWikiTargetPath('collabmd', files), 'projects/collabmd.md');
 });
 
+test('resolveWikiTargetPath prefers root-level exact matches over nested suffix matches', () => {
+  const files = [
+    'test-vault/showcase.md',
+    'showcase.md',
+  ];
+
+  assert.equal(resolveWikiTargetPath('showcase', files), 'showcase.md');
+  assert.equal(resolveWikiTargetPath('showcase.md', files), 'showcase.md');
+});
+
 test('resolveWikiTargetPath returns null for empty or missing targets', () => {
   const files = ['README.md'];
 
@@ -37,4 +47,15 @@ test('resolveWikiTargetWithIndex resolves without scanning file arrays', () => {
   assert.equal(resolveWikiTargetWithIndex('README', index), 'README.md');
   assert.equal(resolveWikiTargetWithIndex('notes/daily', index), 'notes/daily.md');
   assert.equal(resolveWikiTargetWithIndex('collabmd', index), 'projects/collabmd.md');
+});
+
+test('resolveWikiTargetWithIndex prefers root-level exact matches over nested suffix matches', () => {
+  const files = [
+    'test-vault/showcase.md',
+    'showcase.md',
+  ];
+  const index = createWikiTargetIndex(files);
+
+  assert.equal(resolveWikiTargetWithIndex('showcase', index), 'showcase.md');
+  assert.equal(resolveWikiTargetWithIndex('showcase.md', index), 'showcase.md');
 });
