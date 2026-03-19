@@ -24,6 +24,9 @@ export class EditorSession {
     this.onCommentsChange = onCommentsChange;
     this.onContentChange = onContentChange;
     this.onSelectionChange = onSelectionChange;
+    this.activeFilePath = '';
+    this.bootstrapContent = null;
+    this.pendingCollaborativeBindings = null;
     this.hasDeliveredContent = false;
     this.lastDeliveredContent = null;
 
@@ -61,22 +64,56 @@ export class EditorSession {
   }
 
   async initialize(filePath) {
+    this.activeFilePath = filePath;
     this.hasDeliveredContent = false;
     this.lastDeliveredContent = null;
     const collaborationBindings = await this.collaborationClient.initialize(filePath);
-
-    this.viewAdapter.initialize({
-      awareness: collaborationBindings.awareness,
-      filePath,
-      undoManager: collaborationBindings.undoManager,
-      ytext: collaborationBindings.ytext,
-    });
     this.commentThreadStore.bind({
       commentThreads: collaborationBindings.commentThreads,
       ydoc: collaborationBindings.ydoc,
       ytext: collaborationBindings.ytext,
     });
+
+    this.pendingCollaborativeBindings = collaborationBindings;
+    if (this.collaborationClient.initialSyncComplete) {
+      this.activateCollaborativeView();
+    }
+
     this.onAwarenessChange?.(this.collaborationClient.collectUsers((cursor) => this.resolveAwarenessCursor(cursor)));
+  }
+
+  activateCollaborativeView() {
+    if (!this.pendingCollaborativeBindings) {
+      return false;
+    }
+
+    this.viewAdapter.initialize({
+      awareness: this.pendingCollaborativeBindings.awareness,
+      filePath: this.activeFilePath,
+      undoManager: this.pendingCollaborativeBindings.undoManager,
+      ytext: this.pendingCollaborativeBindings.ytext,
+    });
+    this.pendingCollaborativeBindings = null;
+    this.bootstrapContent = null;
+    return true;
+  }
+
+  showBootstrapContent({ content = '', filePath = this.activeFilePath } = {}) {
+    if (this.collaborationClient.initialSyncComplete) {
+      return false;
+    }
+
+    this.activeFilePath = filePath;
+    this.bootstrapContent = String(content ?? '');
+    this.viewAdapter.initializeProvisional({
+      content: this.bootstrapContent,
+      filePath: this.activeFilePath,
+    });
+    return this.emitContentChange();
+  }
+
+  hasBootstrapContent() {
+    return this.bootstrapContent !== null;
   }
 
   emitContentChange({ force = false } = {}) {
@@ -239,6 +276,9 @@ export class EditorSession {
 
   destroy() {
     this.commentThreadStore.unbind();
+    this.activeFilePath = '';
+    this.bootstrapContent = null;
+    this.pendingCollaborativeBindings = null;
     this.hasDeliveredContent = false;
     this.lastDeliveredContent = null;
     this.collaborationClient.destroy();

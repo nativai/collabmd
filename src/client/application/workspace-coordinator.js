@@ -1,6 +1,14 @@
 import { FileOpenLifecycle } from './file-open-lifecycle.js';
 import { WorkspaceChromeController } from './workspace-chrome-controller.js';
 
+const BOOTSTRAP_RENDER_DELAY_MS = 150;
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 export class WorkspaceCoordinator {
   constructor({
     attachEditorScroller,
@@ -18,6 +26,7 @@ export class WorkspaceCoordinator {
     isMermaidFile,
     isPlantUmlFile,
     isTabActive,
+    loadBootstrapContent = null,
     loadEditorSessionClass,
     loadBacklinks,
     onBeforeFileOpen,
@@ -30,6 +39,7 @@ export class WorkspaceCoordinator {
     onImagePaste,
     onSelectionChange,
     onSessionAssigned = null,
+    onFileOpenMetric = null,
     onRenderExcalidrawPreview,
     onRenderImagePreview,
     onSyncWrapToggle,
@@ -58,6 +68,7 @@ export class WorkspaceCoordinator {
     this.isMermaidFile = isMermaidFile ?? (() => false);
     this.isPlantUmlFile = isPlantUmlFile ?? (() => false);
     this.isTabActive = isTabActive;
+    this.loadBootstrapContent = loadBootstrapContent;
     this.loadEditorSessionClassPort = loadEditorSessionClass;
     this.loadBacklinks = loadBacklinks;
     this.onBeforeFileOpen = onBeforeFileOpen;
@@ -70,6 +81,7 @@ export class WorkspaceCoordinator {
     this.onImagePaste = onImagePaste;
     this.onSelectionChange = onSelectionChange;
     this.onSessionAssigned = onSessionAssigned;
+    this.onFileOpenMetric = onFileOpenMetric;
     this.onRenderExcalidrawPreview = onRenderExcalidrawPreview;
     this.onSyncWrapToggle = onSyncWrapToggle;
     this.onUpdateActiveFile = onUpdateActiveFile;
@@ -122,6 +134,14 @@ export class WorkspaceCoordinator {
     });
   }
 
+  reportFileOpenMetric(name, loadToken, data = {}) {
+    this.onFileOpenMetric?.(name, {
+      filePath: this.stateStore.get('currentFilePath'),
+      loadToken,
+      ...data,
+    });
+  }
+
   cleanupSession() {
     this.session?.destroy();
     this.session = null;
@@ -146,11 +166,13 @@ export class WorkspaceCoordinator {
     }
 
     const loadToken = this.stateStore.nextSessionLoadToken();
+    const openStartedAt = performance.now();
 
     this.cleanupSession();
     const chromeState = this.chromeController.prepareForFileOpen(filePath, {
       resetConnectionState: !isExcalidraw && !isImage,
     });
+    this.reportFileOpenMetric('open_started', loadToken, { filePath });
 
     if (isExcalidraw || isImage) {
       this.onSessionAssigned?.(null);
@@ -198,37 +220,144 @@ export class WorkspaceCoordinator {
     this.onSessionAssigned?.(session);
 
     try {
-      await session.initialize(filePath);
+      let fileOpenReady = false;
+      let fileOpenFinalized = false;
+      let liveSyncComplete = false;
+
+      const readySession = async (reason) => {
+        if (fileOpenReady || loadToken !== this.stateStore.get('sessionLoadToken')) {
+          return;
+        }
+
+        fileOpenReady = true;
+        this.lifecycle.attachSessionScroller(session);
+        session.applyTheme(this.getTheme());
+        this.chromeController.markFileOpenReady(session);
+        this.reportFileOpenMetric('editor_ready', loadToken, { reason });
+        session.requestMeasure();
+        await this.waitForNextPaint();
+
+        if (fileOpenFinalized || loadToken !== this.stateStore.get('sessionLoadToken')) {
+          return;
+        }
+
+        fileOpenFinalized = true;
+        this.chromeController.finalizeFileOpen({
+          filePath,
+          isExcalidraw,
+          session,
+          supportsBacklinks: chromeState.supportsBacklinks,
+        });
+      };
+
+      const bootstrapPromise = this.loadBootstrapContent
+        ? (async () => {
+          this.reportFileOpenMetric('bootstrap_fetch_started', loadToken);
+          try {
+            const content = await this.loadBootstrapContent(filePath);
+            this.reportFileOpenMetric('bootstrap_fetch_completed', loadToken, {
+              found: content !== null,
+            });
+            return content;
+          } catch (error) {
+            this.reportFileOpenMetric('bootstrap_fetch_completed', loadToken, {
+              error: error.message,
+              found: false,
+            });
+            return null;
+          }
+        })()
+        : Promise.resolve(null);
+
+      const initializePromise = session.initialize(filePath);
+      const liveSyncPromise = (async () => {
+        await initializePromise;
+
+        if (loadToken !== this.stateStore.get('sessionLoadToken')) {
+          return false;
+        }
+
+        await session.waitForInitialSync(null);
+        if (loadToken !== this.stateStore.get('sessionLoadToken')) {
+          return false;
+        }
+
+        liveSyncComplete = true;
+        session.activateCollaborativeView?.();
+        this.lifecycle.attachSessionScroller(session);
+        session.applyTheme(this.getTheme());
+        this.reportFileOpenMetric('initial_sync_complete', loadToken);
+        session.ensureInitialContent?.();
+        if (!fileOpenReady) {
+          await readySession('live-sync');
+        } else {
+          session.requestMeasure();
+        }
+        return true;
+      })();
+
+      const bootstrapVisibilityPromise = (async () => {
+        const bootstrapContent = await bootstrapPromise;
+        if (
+          bootstrapContent === null
+          || liveSyncComplete
+          || fileOpenReady
+          || loadToken !== this.stateStore.get('sessionLoadToken')
+        ) {
+          return false;
+        }
+
+        const elapsedMs = performance.now() - openStartedAt;
+        const remainingDelayMs = Math.max(0, BOOTSTRAP_RENDER_DELAY_MS - elapsedMs);
+        if (remainingDelayMs > 0) {
+          const winner = await Promise.race([
+            liveSyncPromise.then((didSync) => (didSync ? 'live-sync' : 'stale')),
+            delay(remainingDelayMs).then(() => 'timeout'),
+          ]);
+          if (winner === 'live-sync') {
+            return false;
+          }
+        }
+
+        if (
+          liveSyncComplete
+          || fileOpenReady
+          || loadToken !== this.stateStore.get('sessionLoadToken')
+        ) {
+          return false;
+        }
+
+        const didApplyBootstrap = session.showBootstrapContent({
+          content: bootstrapContent,
+          filePath,
+        });
+        if (!didApplyBootstrap && !session.hasBootstrapContent?.()) {
+          return false;
+        }
+
+        this.reportFileOpenMetric('bootstrap_shown', loadToken);
+        await readySession('bootstrap');
+        return true;
+      })();
+
+      await initializePromise;
 
       if (loadToken !== this.stateStore.get('sessionLoadToken')) {
         session.destroy();
         return;
       }
 
-      this.lifecycle.attachSessionScroller(session);
-      session.applyTheme(this.getTheme());
-      await session.waitForInitialSync();
-      session.ensureInitialContent?.();
+      await Promise.all([liveSyncPromise, bootstrapVisibilityPromise]);
 
       if (loadToken !== this.stateStore.get('sessionLoadToken')) {
         session.destroy();
         return;
       }
 
-      this.chromeController.markFileOpenReady(session);
-      session.requestMeasure();
-      await this.waitForNextPaint();
-
-      if (loadToken !== this.stateStore.get('sessionLoadToken')) {
-        session.destroy();
-        return;
+      if (!fileOpenReady) {
+        session.ensureInitialContent?.();
+        await readySession('post-initialize');
       }
-      this.chromeController.finalizeFileOpen({
-        filePath,
-        isExcalidraw,
-        session,
-        supportsBacklinks: chromeState.supportsBacklinks,
-      });
     } catch (error) {
       console.error('[app] Failed to initialize editor:', error);
       session.destroy();

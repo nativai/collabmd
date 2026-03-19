@@ -48,6 +48,9 @@ export function createAppServer(config = loadConfig()) {
     enabled: config.gitEnabled,
     vaultDir: config.vaultDir,
   });
+  const testControls = {
+    wsRoomHydrateDelayMs: Math.max(0, Number(config.testWsRoomHydrateDelayMs || 0)),
+  };
   let workspaceMutationCoordinator = null;
   const roomRegistry = new RoomRegistry({
     createRoom: ({ name, onEmpty }) => {
@@ -57,6 +60,7 @@ export function createAppServer(config = loadConfig()) {
           name,
           vaultFileStore: name === '__lobby__' || name === WORKSPACE_ROOM_NAME ? null : vaultFileStore,
         }),
+        getHydrateDelayMs: () => testControls.wsRoomHydrateDelayMs,
         idleGraceMs: config.wsRoomIdleGraceMs,
         maxBufferedAmountBytes: config.wsMaxBufferedAmountBytes,
         name,
@@ -90,6 +94,7 @@ export function createAppServer(config = loadConfig()) {
     roomRegistry,
     plantUmlRenderer,
     gitService,
+    testControls,
     workspaceMutationCoordinator,
     fileSystemSyncService,
   );
@@ -168,6 +173,9 @@ export function createAppServer(config = loadConfig()) {
     authService,
     fileSystemSyncService,
     gitService,
+    setTestHydrateDelayMs(delayMs = 0) {
+      testControls.wsRoomHydrateDelayMs = Math.max(0, Number(delayMs) || 0);
+    },
     vaultFileStore,
     get vaultFileCount() { return vaultFileCount; },
   };

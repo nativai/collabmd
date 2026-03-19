@@ -126,6 +126,7 @@ function computeTextReplacement(currentContent, nextContent) {
 export class CollaborationRoom {
   constructor({
     documentStore = null,
+    getHydrateDelayMs = null,
     name,
     idleGraceMs = 0,
     maxBufferedAmountBytes,
@@ -141,6 +142,7 @@ export class CollaborationRoom {
       name,
       vaultFileStore,
     });
+    this.getHydrateDelayMs = getHydrateDelayMs;
     this.onEmpty = onEmpty;
     this.doc = new Y.Doc({ gc: true });
     this.awareness = new awarenessProtocol.Awareness(this.doc);
@@ -152,6 +154,12 @@ export class CollaborationRoom {
     this.destroyed = false;
     this.cachedInitialSyncMessage = null;
     this.activePersistPromise = null;
+    this.debugMetrics = {
+      hydrateCount: 0,
+      initialSyncCount: 0,
+      lastHydrate: null,
+      lastInitialSyncAt: 0,
+    };
     this.persistence = new RoomPersistenceController({
       idleGraceMs: this.idleGraceMs,
       onDestroy: () => {
@@ -173,64 +181,96 @@ export class CollaborationRoom {
 
     if (!this.hydratePromise) {
       this.hydratePromise = (async () => {
-        if (this.documentStore?.hasPersistence()) {
-          const snapshot = await this.documentStore.readSnapshot();
-          if (snapshot) {
-            try {
-              if (isExcalidrawRoom(this.name)) {
-                const validationDoc = new Y.Doc({ gc: true });
-                try {
-                  Y.applyUpdate(validationDoc, snapshot, 'hydrate');
-                  if (!this.ensureStructuredExcalidrawState(validationDoc)) {
-                    throw new Error('snapshot did not contain a valid structured Excalidraw scene');
-                  }
+        const startedAt = Date.now();
+        let hydrateSource = 'empty';
+        let snapshotExists = false;
+        let snapshotValid = false;
+        let commentThreadCount = 0;
+        const hydrateDelayMs = Math.max(0, Number(this.getHydrateDelayMs?.() || 0));
 
-                  Y.applyUpdate(this.doc, Y.encodeStateAsUpdate(validationDoc), 'hydrate');
-                } finally {
-                  validationDoc.destroy();
-                }
-              } else {
-                Y.applyUpdate(this.doc, snapshot, 'hydrate');
-              }
-
-              this.hydrated = true;
-              return;
-            } catch (error) {
-              console.warn(
-                `[room:${this.name}] Discarding invalid collaboration snapshot: ${error.message}`,
-              );
-              await this.documentStore.deleteSnapshot?.();
-            }
+        try {
+          if (hydrateDelayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, hydrateDelayMs));
           }
 
-          const [content, commentThreads] = await Promise.all([
-            this.documentStore.readContent(),
-            this.documentStore.readCommentThreads(),
-          ]);
-          if (content !== null || commentThreads.length > 0) {
-            const ytext = this.doc.getText('codemirror');
-            const comments = this.doc.getArray('comments');
-            this.doc.transact(() => {
-              if (isExcalidrawRoom(this.name)) {
-                const parsedScene = tryParseExcalidrawSceneJson(content);
-                if (parsedScene) {
-                  migrateLegacyExcalidrawRoomData(this.doc, parsedScene);
+          if (this.documentStore?.hasPersistence()) {
+            const snapshot = await this.documentStore.readSnapshot();
+            if (snapshot) {
+              snapshotExists = true;
+              try {
+                if (isExcalidrawRoom(this.name)) {
+                  const validationDoc = new Y.Doc({ gc: true });
+                  try {
+                    Y.applyUpdate(validationDoc, snapshot, 'hydrate');
+                    if (!this.ensureStructuredExcalidrawState(validationDoc)) {
+                      throw new Error('snapshot did not contain a valid structured Excalidraw scene');
+                    }
+
+                    Y.applyUpdate(this.doc, Y.encodeStateAsUpdate(validationDoc), 'hydrate');
+                  } finally {
+                    validationDoc.destroy();
+                  }
+                } else {
+                  Y.applyUpdate(this.doc, snapshot, 'hydrate');
+                }
+
+                snapshotValid = true;
+                hydrateSource = 'snapshot';
+                this.hydrated = true;
+                return;
+              } catch (error) {
+                console.warn(
+                  `[room:${this.name}] Discarding invalid collaboration snapshot: ${error.message}`,
+                );
+                await this.documentStore.deleteSnapshot?.();
+              }
+            }
+
+            const [content, commentThreads] = await Promise.all([
+              this.documentStore.readContent(),
+              this.documentStore.readCommentThreads(),
+            ]);
+            commentThreadCount = commentThreads.length;
+            if (content !== null || commentThreads.length > 0) {
+              hydrateSource = 'content';
+              const ytext = this.doc.getText('codemirror');
+              const comments = this.doc.getArray('comments');
+              this.doc.transact(() => {
+                if (isExcalidrawRoom(this.name)) {
+                  const parsedScene = tryParseExcalidrawSceneJson(content);
+                  if (parsedScene) {
+                    migrateLegacyExcalidrawRoomData(this.doc, parsedScene);
+                  } else if (content !== null) {
+                    ytext.insert(0, content);
+                  }
                 } else if (content !== null) {
                   ytext.insert(0, content);
                 }
-              } else if (content !== null) {
-                ytext.insert(0, content);
-              }
-              populateCommentThreads(comments, commentThreads);
-            }, 'hydrate');
+                populateCommentThreads(comments, commentThreads);
+              }, 'hydrate');
 
-            void this.documentStore.writeSnapshot(Y.encodeStateAsUpdate(this.doc)).catch((error) => {
-              console.error(`[room:${this.name}] Failed to prime collaboration snapshot: ${error.message}`);
-            });
+              void this.documentStore.writeSnapshot(Y.encodeStateAsUpdate(this.doc)).catch((error) => {
+                console.error(`[room:${this.name}] Failed to prime collaboration snapshot: ${error.message}`);
+              });
+            }
+          }
+
+          this.hydrated = true;
+        } finally {
+          if (this.hydrated) {
+            this.debugMetrics.hydrateCount += 1;
+            this.debugMetrics.lastHydrate = {
+              commentThreadCount,
+              durationMs: Date.now() - startedAt,
+              snapshotExists,
+              snapshotValid,
+              source: hydrateSource,
+            };
+            console.info(
+              `[perf][room:${this.name}] hydrate durationMs=${this.debugMetrics.lastHydrate.durationMs} source=${this.debugMetrics.lastHydrate.source} snapshotExists=${this.debugMetrics.lastHydrate.snapshotExists} snapshotValid=${this.debugMetrics.lastHydrate.snapshotValid} commentThreads=${this.debugMetrics.lastHydrate.commentThreadCount}`,
+            );
           }
         }
-
-        this.hydrated = true;
       })().catch((error) => {
         this.hydratePromise = null;
         console.error(`[room:${this.name}] Failed to hydrate from disk: ${error.message}`);
@@ -479,6 +519,9 @@ export class CollaborationRoom {
   }
 
   sendInitialSync(ws) {
+    this.debugMetrics.initialSyncCount += 1;
+    this.debugMetrics.lastInitialSyncAt = Date.now();
+    console.info(`[perf][room:${this.name}] send-initial-sync count=${this.debugMetrics.initialSyncCount}`);
     return sendMessage.call(this, ws, this.getInitialSyncMessage(), this);
   }
 

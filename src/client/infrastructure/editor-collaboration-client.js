@@ -125,6 +125,10 @@ export class EditorCollaborationClient {
       return Promise.resolve();
     }
 
+    if (timeoutMs === null || timeoutMs === undefined || timeoutMs === false) {
+      return this.initialSyncPromise;
+    }
+
     return Promise.race([
       this.initialSyncPromise,
       new Promise((resolve) => {

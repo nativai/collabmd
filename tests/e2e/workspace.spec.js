@@ -5,7 +5,9 @@ import {
   openSampleFull,
   pasteClipboardImage,
   replaceEditorContent,
+  setHydrateDelay,
   test,
+  waitForCollaborativeEditor,
   waitForEditor,
   waitForHeavyPreviewContent,
   appendEditorContent,
@@ -48,6 +50,27 @@ test('renders markdown preview when a file is opened', async ({ page }) => {
 
   await expect(page.locator('#previewContent')).toContainText('My Vault');
   await expect(page.locator('#previewContent')).toContainText('Welcome to the test vault');
+});
+
+test('shows provisional content before delayed websocket sync and upgrades to collaborative editing', async ({ page }) => {
+  await setHydrateDelay(page, 700);
+
+  try {
+    await openFile(page, 'README.md', { waitFor: 'loaded' });
+
+    await expect.poll(async () => (
+      page.locator('#editorContainer').evaluate((element) => element.dataset.editorMode || '')
+    )).toBe('provisional');
+    await expect(page.locator('#previewContent')).toContainText('My Vault');
+    await expect(page.locator('#previewContent')).toContainText('Welcome to the test vault');
+
+    await waitForCollaborativeEditor(page);
+    await replaceEditorContent(page, '# Live After Bootstrap\n\nCollaborative editing restored.\n');
+    await expect(page.locator('#previewContent')).toContainText('Live After Bootstrap');
+    await expect(page.locator('#previewContent')).toContainText('Collaborative editing restored.');
+  } finally {
+    await setHydrateDelay(page, 0);
+  }
 });
 
 test('escapes raw html in markdown preview', async ({ page }) => {

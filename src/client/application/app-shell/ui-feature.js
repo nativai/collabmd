@@ -395,6 +395,11 @@ export const uiFeature = {
 
   handleConnectionChange(state) {
     this.connectionState = state;
+    if (state?.firstConnection) {
+      this.recordFileOpenMetric?.('ws_connected', {
+        status: state.status,
+      });
+    }
     this.renderPresence();
 
     if (state.unreachable && !this.connectionHelpShown) {

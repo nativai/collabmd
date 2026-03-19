@@ -207,6 +207,8 @@ test('WebSocket collaboration preserves Yjs history across short reconnect gaps'
 
   providerA.destroy();
   await waitForCondition(() => app.server.roomRegistry.get(filePath), { timeoutMs: 2_000 });
+  const warmRoom = app.server.roomRegistry.get(filePath);
+  assert.equal(warmRoom?.debugMetrics?.hydrateCount, 1);
 
   const providerB = new WebsocketProvider(serverUrl, filePath, sharedDoc, {
     WebSocketPolyfill: WebSocket,
@@ -228,6 +230,7 @@ test('WebSocket collaboration preserves Yjs history across short reconnect gaps'
   providerB.destroy();
   sharedDoc.destroy();
 
+  assert.equal(app.server.roomRegistry.get(filePath)?.debugMetrics?.hydrateCount, 1);
   assert.equal(diskContent, '# Test\n\nHello from test vault.\n\nReconnect-safe edit.\n');
 });
 

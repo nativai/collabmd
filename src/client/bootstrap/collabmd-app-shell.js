@@ -113,6 +113,7 @@ export class CollabMdAppShell {
     this.fileExplorerReadyPromise = Promise.resolve();
     this.mobileBreakpointQuery = window.matchMedia('(max-width: 768px)');
     this.pendingWorkspaceRequestIds = new Set();
+    this._fileOpenPerf = null;
 
     this.lobby = new LobbyPresence({
       preferredUserName: this.getStoredUserName(),
@@ -175,6 +176,10 @@ export class CollabMdAppShell {
       getFileList: () => this.fileExplorer.flatDocumentFiles,
       getSourceFilePath: () => this.currentFilePath,
       onAfterRenderCommit: (_previewElement, stats) => {
+        this.recordFileOpenMetric('preview_committed', {
+          chars: stats?.chars ?? 0,
+          renderVersion: stats?.renderVersion ?? 0,
+        });
         this.videoEmbed.reconcileEmbeds(this.elements.previewContent);
         this.videoEmbed.syncLayout();
         this.excalidrawEmbed.reconcileEmbeds(this.elements.previewContent, { isLargeDocument: stats.isLargeDocument });
@@ -313,6 +318,10 @@ export class CollabMdAppShell {
       isMermaidFile: (filePath) => this.isMermaidFile(filePath),
       isPlantUmlFile: (filePath) => this.isPlantUmlFile(filePath),
       isTabActive: () => this.isTabActive,
+      loadBootstrapContent: async (filePath) => {
+        const response = await this.vaultApiClient.readFile(filePath);
+        return typeof response?.content === 'string' ? response.content : null;
+      },
       loadEditorSessionClass: () => this.loadEditorSessionClass(),
       loadBacklinks: (filePath) => this.backlinksPanel.load(filePath),
       onBeforeFileOpen: () => {
@@ -345,6 +354,7 @@ export class CollabMdAppShell {
       },
       onSelectionChange: (anchor) => this.handleCommentSelectionChange(anchor),
       onImagePaste: (file) => this.handleEditorImageInsert(file),
+      onFileOpenMetric: (name, payload) => this.recordFileOpenMetric(name, payload),
       onSessionAssigned: (session) => {
         this.session = session;
         this.commentUi.attachSession(session);
@@ -451,6 +461,58 @@ export class CollabMdAppShell {
   set followedUserClientId(value) { this.stateStore.set('followedUserClientId', value); }
   get followedCursorSignature() { return this.stateStore.get('followedCursorSignature'); }
   set followedCursorSignature(value) { this.stateStore.set('followedCursorSignature', value); }
+
+  publishFileOpenPerf() {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.__COLLABMD_PERF__ ??= {};
+    window.__COLLABMD_PERF__.fileOpen = this._fileOpenPerf
+      ? {
+        ...this._fileOpenPerf,
+        details: { ...this._fileOpenPerf.details },
+        marks: { ...this._fileOpenPerf.marks },
+      }
+      : null;
+  }
+
+  recordFileOpenMetric(name, payload = {}) {
+    if (name === 'open_started') {
+      this._fileOpenPerf = {
+        details: {
+          filePath: payload.filePath || this.currentFilePath || '',
+          loadToken: payload.loadToken ?? 0,
+        },
+        marks: {
+          open_started: performance.now(),
+        },
+      };
+      this.publishFileOpenPerf();
+      return;
+    }
+
+    if (!this._fileOpenPerf) {
+      return;
+    }
+
+    const metricLoadToken = payload.loadToken ?? this._fileOpenPerf.details.loadToken;
+    if (metricLoadToken !== this._fileOpenPerf.details.loadToken) {
+      return;
+    }
+
+    this._fileOpenPerf.marks[name] = performance.now();
+    if (payload.filePath) {
+      this._fileOpenPerf.details.filePath = payload.filePath;
+    }
+    Object.entries(payload).forEach(([key, value]) => {
+      if (key === 'filePath' || key === 'loadToken') {
+        return;
+      }
+      this._fileOpenPerf.details[key] = value;
+    });
+    this.publishFileOpenPerf();
+  }
 
   loadEditorSessionClass() {
     if (!this._editorSessionModulePromise) {

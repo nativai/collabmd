@@ -340,8 +340,8 @@ export class EditorViewAdapter {
     };
   }
 
-  initialize({ awareness, filePath, undoManager, ytext }) {
-    const updateListener = EditorView.updateListener.of((update) => {
+  createUpdateListener() {
+    return EditorView.updateListener.of((update) => {
       if (update.docChanged) {
         this.onDocChanged?.();
       }
@@ -351,62 +351,99 @@ export class EditorViewAdapter {
         this.onSelectionChanged?.(update.state);
       }
     });
+  }
 
-    const loadingIndicator = this.editorContainer.querySelector('#editorLoading');
+  getBaseExtensions(filePath, { readOnly = false } = {}) {
+    const extensions = [
+      lineNumbers(),
+      highlightActiveLineGutter(),
+      highlightSpecialChars(),
+      history(),
+      foldGutter(),
+      drawSelection(),
+      EditorState.allowMultipleSelections.of(true),
+      indentOnInput(),
+      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      bracketMatching({ renderMatch: renderBracketMatch }),
+      closeBrackets(),
+      autocompletion({
+        override: [wikiLinkCompletions(this.getFileList)],
+      }),
+      rectangularSelection(),
+      crosshairCursor(),
+      highlightActiveLine(),
+      highlightSelectionMatches(),
+      keymap.of([
+        ...closeBracketsKeymap,
+        ...defaultKeymap,
+        ...historyKeymap,
+        ...searchKeymap,
+        ...foldKeymap,
+        indentWithTab,
+      ]),
+      EditorView.contentAttributes.of({
+        'aria-label': 'Markdown editor',
+      }),
+      createLanguageExtension(filePath),
+      this.themeCompartment.of(createEditorTheme(this.initialTheme)),
+      this.syntaxThemeCompartment.of(this.initialTheme === 'dark' ? oneDark : []),
+      this.lineWrappingCompartment.of(this.lineWrappingEnabled ? EditorView.lineWrapping : []),
+      remoteUpdateFlashField,
+      this.createUpdateListener(),
+    ];
+
+    if (readOnly) {
+      extensions.push(EditorState.readOnly.of(true));
+      extensions.push(EditorView.editable.of(false));
+      return extensions;
+    }
+
+    extensions.splice(13, 0, Prec.highest(EditorView.domEventHandlers({
+      paste: (event) => handleImagePasteEvent(event, this.onImagePaste),
+    })));
+    return extensions;
+  }
+
+  clearEditorDom({ preserveLoadingIndicator = true } = {}) {
+    if (!this.editorContainer) {
+      return;
+    }
+
+    const loadingIndicator = preserveLoadingIndicator
+      ? this.editorContainer.querySelector('#editorLoading')
+      : null;
     Array.from(this.editorContainer.children).forEach((child) => {
       if (child !== loadingIndicator) {
         child.remove();
       }
     });
+  }
+
+  teardownEditorView({ clearContainer = false } = {}) {
+    this.editorView?.contentDOM?.removeEventListener('beforeinput', this.handleLocalInputActivity);
+    this.editorView?.contentDOM?.removeEventListener('keydown', this.handleLocalInputActivity);
+    this.editorView?.contentDOM?.removeEventListener('paste', this.handleLocalInputActivity);
+    this.editorView?.contentDOM?.removeEventListener('compositionstart', this.handleLocalInputActivity);
+    this.editorView?.scrollDOM?.removeEventListener('scroll', this.handleScroll);
+    this.editorView?.destroy();
+    this.editorView = null;
+
+    if (clearContainer && this.editorContainer) {
+      this.editorContainer.innerHTML = '';
+      delete this.editorContainer.dataset.editorMode;
+    }
+  }
+
+  mountEditor(state, { editorMode = 'collaborative', preserveScrollTop = 0 } = {}) {
+    this.clearEditorDom({ preserveLoadingIndicator: true });
+    this.teardownEditorView();
 
     this.editorView = new EditorView({
       parent: this.editorContainer,
-      state: EditorState.create({
-        doc: ytext.toString(),
-        extensions: [
-          lineNumbers(),
-          highlightActiveLineGutter(),
-          highlightSpecialChars(),
-          history(),
-          foldGutter(),
-          drawSelection(),
-          EditorState.allowMultipleSelections.of(true),
-          indentOnInput(),
-          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-          bracketMatching({ renderMatch: renderBracketMatch }),
-          closeBrackets(),
-          autocompletion({
-            override: [wikiLinkCompletions(this.getFileList)],
-          }),
-          rectangularSelection(),
-          crosshairCursor(),
-          highlightActiveLine(),
-          highlightSelectionMatches(),
-          keymap.of([
-            ...closeBracketsKeymap,
-            ...defaultKeymap,
-            ...historyKeymap,
-            ...searchKeymap,
-            ...foldKeymap,
-            indentWithTab,
-          ]),
-          EditorView.contentAttributes.of({
-            'aria-label': 'Markdown editor',
-          }),
-          Prec.highest(EditorView.domEventHandlers({
-            paste: (event) => handleImagePasteEvent(event, this.onImagePaste),
-          })),
-          createLanguageExtension(filePath),
-          this.themeCompartment.of(createEditorTheme(this.initialTheme)),
-          this.syntaxThemeCompartment.of(this.initialTheme === 'dark' ? oneDark : []),
-          this.lineWrappingCompartment.of(this.lineWrappingEnabled ? EditorView.lineWrapping : []),
-          remoteUpdateFlashField,
-          yCollab(ytext, awareness, { undoManager }),
-          updateListener,
-        ],
-      }),
+      state,
     });
 
+    this.editorContainer.dataset.editorMode = editorMode;
     this.editorView.scrollDOM.addEventListener('scroll', this.handleScroll, { passive: true });
     this.editorView.contentDOM.addEventListener('beforeinput', this.handleLocalInputActivity);
     this.editorView.contentDOM.addEventListener('keydown', this.handleLocalInputActivity);
@@ -415,6 +452,43 @@ export class EditorViewAdapter {
     this.updateCursorInfo(this.editorView.state);
     this.onSelectionChanged?.(this.editorView.state);
     this.emitViewportChange();
+
+    if (preserveScrollTop > 0) {
+      requestAnimationFrame(() => {
+        if (this.editorView?.scrollDOM) {
+          this.editorView.scrollDOM.scrollTop = preserveScrollTop;
+        }
+      });
+    }
+  }
+
+  initialize({ awareness, filePath, undoManager, ytext }) {
+    const preserveScrollTop = this.editorView?.scrollDOM?.scrollTop ?? 0;
+    const state = EditorState.create({
+      doc: ytext.toString(),
+      extensions: [
+        ...this.getBaseExtensions(filePath),
+        yCollab(ytext, awareness, { undoManager }),
+      ],
+    });
+
+    this.mountEditor(state, {
+      editorMode: 'collaborative',
+      preserveScrollTop,
+    });
+  }
+
+  initializeProvisional({ content = '', filePath }) {
+    const preserveScrollTop = this.editorView?.scrollDOM?.scrollTop ?? 0;
+    const state = EditorState.create({
+      doc: String(content ?? ''),
+      extensions: this.getBaseExtensions(filePath, { readOnly: true }),
+    });
+
+    this.mountEditor(state, {
+      editorMode: 'provisional',
+      preserveScrollTop,
+    });
   }
 
   destroy() {
@@ -426,17 +500,7 @@ export class EditorViewAdapter {
       clearTimeout(this.remoteUpdateFlashTimer);
       this.remoteUpdateFlashTimer = 0;
     }
-    this.editorView?.contentDOM?.removeEventListener('beforeinput', this.handleLocalInputActivity);
-    this.editorView?.contentDOM?.removeEventListener('keydown', this.handleLocalInputActivity);
-    this.editorView?.contentDOM?.removeEventListener('paste', this.handleLocalInputActivity);
-    this.editorView?.contentDOM?.removeEventListener('compositionstart', this.handleLocalInputActivity);
-    this.editorView?.scrollDOM?.removeEventListener('scroll', this.handleScroll);
-    this.editorView?.destroy();
-    this.editorView = null;
-
-    if (this.editorContainer) {
-      this.editorContainer.innerHTML = '';
-    }
+    this.teardownEditorView({ clearContainer: true });
   }
 
   getText() {

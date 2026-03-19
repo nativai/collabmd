@@ -3,6 +3,7 @@ import { createGitApiHandler } from './create-git-api-handler.js';
 import { createEsmProxyHandler } from './create-esm-proxy-handler.js';
 import { createStaticHandler } from './create-static-handler.js';
 import { createVaultApiHandler } from './create-vault-api-handler.js';
+import { parseJsonBody } from './request-body.js';
 import {
   applyCorsHeaders,
   jsonResponse,
@@ -42,6 +43,7 @@ export function createRequestHandler(
   roomRegistry = null,
   plantUmlRenderer = null,
   gitService = null,
+  testControls = { wsRoomHydrateDelayMs: 0 },
   workspaceMutationCoordinator = null,
   fileSystemSyncService = null,
 ) {
@@ -114,6 +116,18 @@ export function createRequestHandler(
       await workspaceMutationCoordinator?.initialize?.();
       await fileSystemSyncService?.resetForExternalStateChange?.();
       jsonResponse(req, res, 200, { ok: true });
+      return;
+    }
+
+    if (config.nodeEnv === 'test' && requestUrl.pathname === '/api/test/hydrate-delay' && req.method === 'POST') {
+      const body = await parseJsonBody(req).catch(() => ({}));
+      testControls.wsRoomHydrateDelayMs = Math.max(0, Number(body?.delayMs) || 0);
+      await fileSystemSyncService?.resetForExternalStateChange?.();
+      await roomRegistry?.reset?.();
+      await backlinkIndex?.build?.();
+      await workspaceMutationCoordinator?.initialize?.();
+      await fileSystemSyncService?.resetForExternalStateChange?.();
+      jsonResponse(req, res, 200, { delayMs: testControls.wsRoomHydrateDelayMs, ok: true });
       return;
     }
 

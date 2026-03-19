@@ -31,6 +31,9 @@ function createCoordinator(overrides = {}) {
   const events = [];
   const stateStore = createStateStore();
   const session = overrides.session ?? {
+    activateCollaborativeView() {
+      events.push('activate-collab');
+    },
     applyTheme() {
       events.push('apply-theme');
     },
@@ -43,11 +46,18 @@ function createCoordinator(overrides = {}) {
     getScrollContainer() {
       return null;
     },
+    hasBootstrapContent() {
+      return false;
+    },
     initialize: async () => {
       events.push('initialize');
     },
     requestMeasure() {
       events.push('measure');
+    },
+    showBootstrapContent() {
+      events.push('show-bootstrap');
+      return true;
     },
     waitForInitialSync: async () => {
       events.push('wait-sync');
@@ -73,6 +83,7 @@ function createCoordinator(overrides = {}) {
     isMermaidFile: () => false,
     isPlantUmlFile: () => false,
     isTabActive: () => true,
+    loadBootstrapContent: async () => null,
     loadEditorSessionClass: async () => EditorSession,
     loadBacklinks: () => {
       events.push('load-backlinks');
@@ -170,8 +181,14 @@ test('WorkspaceCoordinator ensures initial content after sync wait even without 
       getScrollContainer() {
         return null;
       },
+      hasBootstrapContent() {
+        return false;
+      },
       initialize: async () => {},
       requestMeasure() {},
+      showBootstrapContent() {
+        return false;
+      },
       waitForInitialSync: async () => {},
     },
   });
@@ -193,8 +210,14 @@ test('WorkspaceCoordinator forwards image paste handling into the editor session
         getScrollContainer() {
           return null;
         },
+        hasBootstrapContent() {
+          return false;
+        },
         initialize: async () => {},
         requestMeasure() {},
+        showBootstrapContent() {
+          return false;
+        },
         waitForInitialSync: async () => {},
       };
     },
@@ -243,4 +266,105 @@ test('WorkspaceCoordinator skips creating an editor session for image attachment
   assert.equal(coordinator.getSession(), null);
   assert.ok(events.includes('open-ready'));
   assert.ok(events.includes('render-image'));
+});
+
+test('WorkspaceCoordinator shows bootstrap content before live sync completes', async () => {
+  let resolveInitialSync;
+  const initialSyncPromise = new Promise((resolve) => {
+    resolveInitialSync = resolve;
+  });
+  const { coordinator, events } = createCoordinator({
+    loadBootstrapContent: async () => '# Bootstrap\n',
+    session: {
+      activateCollaborativeView() {
+        events.push('activate-collab');
+      },
+      applyTheme() {
+        events.push('apply-theme');
+      },
+      destroy() {
+        events.push('destroy');
+      },
+      ensureInitialContent() {
+        events.push('ensure-content');
+      },
+      getScrollContainer() {
+        return null;
+      },
+      hasBootstrapContent() {
+        return true;
+      },
+      initialize: async () => {
+        events.push('initialize');
+      },
+      requestMeasure() {
+        events.push('measure');
+      },
+      showBootstrapContent() {
+        events.push('show-bootstrap');
+        return true;
+      },
+      waitForInitialSync: async () => {
+        events.push('wait-sync');
+        await initialSyncPromise;
+      },
+    },
+  });
+
+  const openPromise = coordinator.openFile('README.md');
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  assert.ok(events.includes('show-bootstrap'));
+  assert.ok(events.includes('open-ready'));
+  assert.equal(events.includes('activate-collab'), false);
+
+  resolveInitialSync();
+  await openPromise;
+
+  assert.ok(events.includes('activate-collab'));
+  assert.ok(events.indexOf('show-bootstrap') < events.indexOf('open-ready'));
+});
+
+test('WorkspaceCoordinator skips bootstrap when live sync wins the race', async () => {
+  const { coordinator, events } = createCoordinator({
+    loadBootstrapContent: async () => '# Bootstrap\n',
+    session: {
+      activateCollaborativeView() {
+        events.push('activate-collab');
+      },
+      applyTheme() {
+        events.push('apply-theme');
+      },
+      destroy() {
+        events.push('destroy');
+      },
+      ensureInitialContent() {
+        events.push('ensure-content');
+      },
+      getScrollContainer() {
+        return null;
+      },
+      hasBootstrapContent() {
+        return false;
+      },
+      initialize: async () => {
+        events.push('initialize');
+      },
+      requestMeasure() {
+        events.push('measure');
+      },
+      showBootstrapContent() {
+        events.push('show-bootstrap');
+        return true;
+      },
+      waitForInitialSync: async () => {
+        events.push('wait-sync');
+      },
+    },
+  });
+
+  await coordinator.openFile('README.md');
+
+  assert.equal(events.includes('show-bootstrap'), false);
+  assert.ok(events.includes('activate-collab'));
 });

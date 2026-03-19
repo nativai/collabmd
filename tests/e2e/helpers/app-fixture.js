@@ -99,6 +99,12 @@ export async function waitForEditor(page) {
   await expect(page.locator('.cm-editor')).toBeVisible({ timeout: 15000 });
 }
 
+export async function waitForCollaborativeEditor(page) {
+  await expect.poll(async () => (
+    page.locator('#editorContainer').evaluate((element) => element.dataset.editorMode || '')
+  ), { timeout: 15000 }).toBe('collaborative');
+}
+
 export async function waitForPreview(page) {
   await expect(page.locator('#previewPane')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('#previewContent')).toBeVisible({ timeout: 15000 });
@@ -136,6 +142,15 @@ export async function openHome(page, { userName = E2E_USER_NAME } = {}) {
   await expect.poll(async () => (
     page.locator('#fileTree .file-tree-item').count()
   ), { timeout: 15000 }).toBeGreaterThan(0);
+}
+
+export async function setHydrateDelay(page, delayMs = 0) {
+  const response = await page.request.post('http://127.0.0.1:4173/api/test/hydrate-delay', {
+    data: { delayMs },
+  });
+  if (!response.ok()) {
+    throw new Error(`hydrate-delay failed: ${response.status()} ${await response.text()}`);
+  }
 }
 
 export async function writeVaultFileAndResetCollab(page, { path, content }) {
