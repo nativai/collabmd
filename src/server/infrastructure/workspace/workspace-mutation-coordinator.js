@@ -26,6 +26,42 @@ function normalizePaths(paths = []) {
   return Array.from(new Set((paths ?? []).filter(Boolean)));
 }
 
+function workspaceEntriesEqual(left = {}, right = {}) {
+  return (
+    left.fileKind === right.fileKind
+    && left.name === right.name
+    && left.nodeType === right.nodeType
+    && left.parentPath === right.parentPath
+    && left.path === right.path
+    && left.type === right.type
+  );
+}
+
+function diffWorkspaceEntries(previousEntries = new Map(), nextEntries = new Map()) {
+  const upserts = new Map();
+  const deletes = [];
+
+  previousEntries.forEach((previousEntry, pathValue) => {
+    const nextEntry = nextEntries.get(pathValue);
+    if (!nextEntry) {
+      deletes.push(pathValue);
+      return;
+    }
+
+    if (!workspaceEntriesEqual(previousEntry, nextEntry)) {
+      upserts.set(pathValue, nextEntry);
+    }
+  });
+
+  nextEntries.forEach((nextEntry, pathValue) => {
+    if (!previousEntries.has(pathValue)) {
+      upserts.set(pathValue, nextEntry);
+    }
+  });
+
+  return { deletes, upserts };
+}
+
 export class WorkspaceMutationCoordinator {
   constructor({
     backlinkIndex,
@@ -44,6 +80,23 @@ export class WorkspaceMutationCoordinator {
 
   getWorkspaceRoom() {
     return this.roomRegistry?.getOrCreate?.(WORKSPACE_ROOM_NAME) ?? null;
+  }
+
+  syncWorkspaceEntries(nextState, {
+    previousState = this.workspaceState,
+  } = {}) {
+    const room = this.getWorkspaceRoom();
+    if (!room || !nextState) {
+      return false;
+    }
+
+    const patch = diffWorkspaceEntries(
+      previousState?.entries ?? new Map(),
+      nextState.entries ?? new Map(),
+    );
+    return room.applyWorkspaceEntryPatch(patch, {
+      generatedAt: nextState.scannedAt,
+    });
   }
 
   async initialize() {
@@ -188,6 +241,7 @@ export class WorkspaceMutationCoordinator {
     forceBacklinkRebuild = false,
   } = {}) {
     const normalizedChange = createWorkspaceChange(workspaceChange);
+    const previousState = this.workspaceState;
     const resolvedState = nextState ?? await this.vaultFileStore.scanWorkspaceState();
 
     await this.vaultFileStore.reconcileSidecars?.(normalizedChange);
@@ -202,10 +256,10 @@ export class WorkspaceMutationCoordinator {
     ).map((pathValue) => roomEffects.highlightRanges.find((entry) => entry.path === pathValue));
     const reloadRequiredPaths = normalizePaths(roomEffects.reloadRequiredPaths ?? []);
 
-    this.workspaceState = resolvedState;
-    this.getWorkspaceRoom()?.replaceWorkspaceEntries(resolvedState.entries, {
-      generatedAt: resolvedState.scannedAt,
+    this.syncWorkspaceEntries(resolvedState, {
+      previousState,
     });
+    this.workspaceState = resolvedState;
 
     if (!publishEvent) {
       return null;

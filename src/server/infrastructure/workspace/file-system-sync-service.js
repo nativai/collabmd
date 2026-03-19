@@ -331,16 +331,17 @@ export class FileSystemSyncService {
     const incrementalResult = await this.buildIncrementalSingleFileResult();
     this.consumePendingEvents();
 
+    const previousWorkspaceState = this.mutationCoordinator.workspaceState;
     const nextState = incrementalResult?.nextState ?? await this.vaultFileStore.scanWorkspaceState();
     const workspaceChange = incrementalResult?.workspaceChange ?? detectWorkspaceChange(this.lastState, nextState);
     this.lastState = nextState;
 
     const filteredChange = this.mutationCoordinator.filterManagedWorkspaceChange(workspaceChange);
     if (!filteredChange) {
-      this.mutationCoordinator.workspaceState = nextState;
-      this.mutationCoordinator.getWorkspaceRoom()?.replaceWorkspaceEntries(nextState.entries, {
-        generatedAt: nextState.scannedAt,
+      this.mutationCoordinator.syncWorkspaceEntries(nextState, {
+        previousState: previousWorkspaceState,
       });
+      this.mutationCoordinator.workspaceState = nextState;
       return;
     }
 

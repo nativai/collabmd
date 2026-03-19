@@ -710,6 +710,41 @@ export class CollaborationRoom {
     return true;
   }
 
+  applyWorkspaceEntryPatch({
+    deletes = [],
+    upserts = new Map(),
+  } = {}, {
+    generatedAt = Date.now(),
+  } = {}) {
+    if (!isWorkspaceRoom(this.name)) {
+      return false;
+    }
+
+    const normalizedUpserts = upserts instanceof Map ? upserts : new Map(upserts);
+    const normalizedDeletes = Array.from(new Set((deletes ?? []).filter(Boolean)));
+    if (normalizedUpserts.size === 0 && normalizedDeletes.length === 0) {
+      return false;
+    }
+
+    const entriesMap = this.doc.getMap('entries');
+    const metaMap = this.doc.getMap('meta');
+
+    this.doc.transact(() => {
+      normalizedDeletes.forEach((pathValue) => {
+        entriesMap.delete(pathValue);
+      });
+
+      normalizedUpserts.forEach((entry, pathValue) => {
+        entriesMap.set(pathValue, entry);
+      });
+
+      metaMap.set('lastSnapshotAt', generatedAt);
+      metaMap.set('revision', Number(metaMap.get('revision') || 0) + 1);
+    }, 'workspace-room-entry-patch');
+
+    return true;
+  }
+
   publishWorkspaceEvent(event) {
     if (!isWorkspaceRoom(this.name)) {
       return null;

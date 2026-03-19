@@ -51,36 +51,179 @@ function toEntryMap(value) {
   return new Map(Object.entries(value ?? {}));
 }
 
-function buildTree(rawEntries) {
-  const entriesMap = toEntryMap(rawEntries);
-  const nodesByPath = new Map();
-  const roots = [];
-
-  entriesMap.forEach((entry) => {
-    const node = createNode(entry);
-    if (node) {
-      nodesByPath.set(entry.path, node);
+function sortPathsByDepth(values = [], direction = 'asc') {
+  const factor = direction === 'desc' ? -1 : 1;
+  return [...values].sort((left, right) => {
+    const depthDelta = left.split('/').length - right.split('/').length;
+    if (depthDelta !== 0) {
+      return depthDelta * factor;
     }
-  });
 
-  Array.from(nodesByPath.entries()).forEach(([pathValue, node]) => {
-    const entry = entriesMap.get(pathValue);
-    const parentPath = entry?.parentPath || '';
-    if (!parentPath) {
-      roots.push(node);
+    return left.localeCompare(right, undefined, { sensitivity: 'base' }) * factor;
+  });
+}
+
+class WorkspaceTreeModel {
+  constructor() {
+    this.entriesByPath = new Map();
+    this.nodesByPath = new Map();
+    this.nodeParentPathByPath = new Map();
+    this.roots = [];
+  }
+
+  reset(rawEntries) {
+    this.entriesByPath = toEntryMap(rawEntries);
+    this.nodesByPath = new Map();
+    this.nodeParentPathByPath = new Map();
+    this.roots = [];
+
+    this.entriesByPath.forEach((entry) => {
+      const node = createNode(entry);
+      if (node) {
+        this.nodesByPath.set(entry.path, node);
+      }
+    });
+
+    sortPathsByDepth(Array.from(this.nodesByPath.keys())).forEach((pathValue) => {
+      const node = this.nodesByPath.get(pathValue);
+      if (node) {
+        this.attachNode(pathValue, node, this.entriesByPath.get(pathValue)?.parentPath || '');
+      }
+    });
+
+    sortNodes(this.roots);
+    return this.roots;
+  }
+
+  getTree() {
+    return this.roots;
+  }
+
+  applyMapChanges(changes, entriesMap) {
+    const deletePaths = [];
+    const upsertPaths = [];
+
+    changes.forEach((change, pathValue) => {
+      if (change.action === 'delete') {
+        deletePaths.push(pathValue);
+      } else {
+        upsertPaths.push(pathValue);
+      }
+    });
+
+    sortPathsByDepth(deletePaths, 'desc').forEach((pathValue) => {
+      this.removeEntry(pathValue);
+    });
+
+    sortPathsByDepth(upsertPaths).forEach((pathValue) => {
+      this.upsertEntry(pathValue, entriesMap.get(pathValue));
+    });
+
+    sortNodes(this.roots);
+    return this.roots;
+  }
+
+  removeEntry(pathValue) {
+    const node = this.nodesByPath.get(pathValue);
+    if (!node) {
+      this.entriesByPath.delete(pathValue);
+      this.nodeParentPathByPath.delete(pathValue);
       return;
     }
 
-    const parent = nodesByPath.get(parentPath);
-    if (parent?.type === 'directory') {
-      parent.children.push(node);
+    this.detachNode(pathValue, node);
+    this.nodesByPath.delete(pathValue);
+    this.entriesByPath.delete(pathValue);
+    this.nodeParentPathByPath.delete(pathValue);
+  }
+
+  upsertEntry(pathValue, entry) {
+    if (!entry?.path || !entry?.type) {
+      this.removeEntry(pathValue);
       return;
     }
 
-    roots.push(node);
-  });
+    const nextNode = createNode(entry);
+    if (!nextNode) {
+      this.removeEntry(pathValue);
+      return;
+    }
 
-  return sortNodes(roots);
+    const existingNode = this.nodesByPath.get(pathValue);
+    let node = existingNode;
+    if (!node || (node.type === 'directory') !== (nextNode.type === 'directory')) {
+      if (node) {
+        this.detachNode(pathValue, node);
+      }
+      node = nextNode;
+      this.nodesByPath.set(pathValue, node);
+    } else {
+      node.name = nextNode.name;
+      node.path = nextNode.path;
+      node.type = nextNode.type;
+      if (node.type === 'directory' && !Array.isArray(node.children)) {
+        node.children = [];
+      }
+      if (node.type !== 'directory' && Array.isArray(node.children)) {
+        delete node.children;
+      }
+    }
+
+    this.entriesByPath.set(pathValue, entry);
+    this.attachNode(pathValue, node, entry.parentPath || '');
+
+    if (node.type === 'directory') {
+      this.rehomeChildren(pathValue);
+    }
+  }
+
+  detachNode(pathValue, node) {
+    const currentParentPath = this.nodeParentPathByPath.get(pathValue) || '';
+    const siblings = currentParentPath
+      ? this.nodesByPath.get(currentParentPath)?.children
+      : this.roots;
+    const index = siblings?.indexOf?.(node) ?? -1;
+    if (index >= 0) {
+      siblings.splice(index, 1);
+    }
+    this.nodeParentPathByPath.delete(pathValue);
+  }
+
+  attachNode(pathValue, node, requestedParentPath = '') {
+    const parentPath = this.nodesByPath.get(requestedParentPath)?.type === 'directory'
+      ? requestedParentPath
+      : '';
+    const currentParentPath = this.nodeParentPathByPath.get(pathValue);
+
+    if (currentParentPath === parentPath) {
+      return;
+    }
+
+    if (currentParentPath !== undefined) {
+      this.detachNode(pathValue, node);
+    }
+
+    const siblings = parentPath
+      ? this.nodesByPath.get(parentPath)?.children
+      : this.roots;
+    if (!siblings.includes(node)) {
+      siblings.push(node);
+    }
+    this.nodeParentPathByPath.set(pathValue, parentPath);
+  }
+
+  rehomeChildren(parentPath) {
+    this.entriesByPath.forEach((entry, pathValue) => {
+      if (entry?.parentPath !== parentPath) {
+        return;
+      }
+
+      const node = this.nodesByPath.get(pathValue);
+      if (node) {
+        this.attachNode(pathValue, node, parentPath);
+      }
+    });
+  }
 }
 
 export class WorkspaceSyncClient {
@@ -96,9 +239,14 @@ export class WorkspaceSyncClient {
     this.provider = null;
     this._didInitialSync = false;
     this.seenEventIds = new Set();
+    this.treeModel = new WorkspaceTreeModel();
 
-    this.handleEntriesChange = () => {
-      this.onTreeChange(buildTree(this.entries.toJSON()));
+    this.handleEntriesChange = (event) => {
+      if (!this._didInitialSync || !event) {
+        return;
+      }
+
+      this.onTreeChange(this.treeModel.applyMapChanges(event.changes.keys, this.entries));
     };
     this.handleEventsChange = () => {
       if (!this._didInitialSync) {
@@ -130,7 +278,7 @@ export class WorkspaceSyncClient {
     });
     stopReconnectOnControlledClose(this.provider);
 
-    this.entries.observeDeep(this.handleEntriesChange);
+    this.entries.observe(this.handleEntriesChange);
     this.events.observe(this.handleEventsChange);
     this.provider.on('sync', (isSynced) => {
       if (!isSynced || this._didInitialSync) {
@@ -139,7 +287,7 @@ export class WorkspaceSyncClient {
 
       this._didInitialSync = true;
       this.primeEventCache();
-      this.handleEntriesChange();
+      this.onTreeChange(this.treeModel.reset(this.entries.toJSON()));
     });
   }
 
@@ -153,13 +301,14 @@ export class WorkspaceSyncClient {
   }
 
   disconnect() {
-    this.entries.unobserveDeep(this.handleEntriesChange);
+    this.entries.unobserve(this.handleEntriesChange);
     this.events.unobserve(this.handleEventsChange);
     this.provider?.disconnect();
     this.provider?.destroy();
     this.provider = null;
     this._didInitialSync = false;
     this.seenEventIds.clear();
+    this.treeModel.reset(new Map());
   }
 
   destroy() {
