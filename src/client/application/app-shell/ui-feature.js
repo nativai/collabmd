@@ -585,8 +585,14 @@ export const uiFeature = {
     }
   },
 
-  handleTabBlocked({ reason } = {}) {
+  async handleTabBlocked({ reason } = {}) {
     const wasActive = this.isTabActive;
+    const blockedFilePath = this.currentFilePath;
+    const shouldPrepareExcalidrawDisconnect = Boolean(
+      blockedFilePath
+      && this.isExcalidrawFile?.(blockedFilePath),
+    );
+
     this.isTabActive = false;
     if (this.elements.displayNameDialog?.open) {
       this.elements.displayNameDialog.close();
@@ -601,9 +607,14 @@ export const uiFeature = {
     this.followedUserClientId = null;
     this.followedCursorSignature = '';
     this.connectionState = { status: 'disconnected', unreachable: false };
+    this.showTabLockOverlay({ reason });
+
+    if (shouldPrepareExcalidrawDisconnect) {
+      await this.excalidrawEmbed.prepareFileDisconnect(blockedFilePath);
+    }
+
     this.showEmptyState();
     this.renderChat();
-    this.showTabLockOverlay({ reason });
 
     if (wasActive && reason === 'taken-over') {
       this.toastController.show('Another tab took over this session');

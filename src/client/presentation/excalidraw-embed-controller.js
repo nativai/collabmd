@@ -77,6 +77,8 @@ export class ExcalidrawEmbedController {
     this.maximizedRoot = null;
     this.placeholderObserver = null;
     this.followedPeerIdsByFilePath = new Map();
+    this.pendingDisconnectRequests = new Map();
+    this.disconnectRequestCounter = 0;
 
     this._onMessage = this._onMessage.bind(this);
     this._onKeyDown = this._onKeyDown.bind(this);
@@ -104,6 +106,10 @@ export class ExcalidrawEmbedController {
       entry.placeholder = null;
     });
     this.embedEntries.clear();
+    this.pendingDisconnectRequests.forEach((request) => {
+      request.resolve(false);
+    });
+    this.pendingDisconnectRequests.clear();
     this.followedPeerIdsByFilePath.clear();
     this.overlayRoot?.remove();
     this.overlayRoot = null;
@@ -239,6 +245,43 @@ export class ExcalidrawEmbedController {
   updateLocalUser(user) {
     this.embedEntries.forEach((entry) => {
       this._syncEntryUser(entry, user);
+    });
+  }
+
+  prepareFileDisconnect(filePath, { timeoutMs = 250 } = {}) {
+    const entry = this._findEntryByFilePath(filePath);
+    if (!entry?.iframe?.contentWindow) {
+      return Promise.resolve(false);
+    }
+
+    const requestId = `disconnect-${++this.disconnectRequestCounter}`;
+    return new Promise((resolve) => {
+      const finish = (value) => {
+        if (!this.pendingDisconnectRequests.has(requestId)) {
+          return;
+        }
+
+        const request = this.pendingDisconnectRequests.get(requestId);
+        window.clearTimeout(request.timeoutId);
+        this.pendingDisconnectRequests.delete(requestId);
+        resolve(value);
+      };
+
+      const timeoutId = window.setTimeout(() => {
+        finish(false);
+      }, timeoutMs);
+
+      this.pendingDisconnectRequests.set(requestId, {
+        entry,
+        resolve: finish,
+        timeoutId,
+      });
+
+      this._postMessageToEntry(entry, {
+        source: 'collabmd-host',
+        type: 'prepare-disconnect',
+        requestId,
+      });
     });
   }
 
@@ -422,6 +465,13 @@ export class ExcalidrawEmbedController {
   }
 
   _destroyEntry(entry) {
+    this.pendingDisconnectRequests.forEach((request, requestId) => {
+      if (request.entry === entry) {
+        request.resolve(false);
+        this.pendingDisconnectRequests.delete(requestId);
+      }
+    });
+
     if (this.maximizedEmbed?.wrapper === entry.wrapper) {
       this._exitMaximizedEmbed();
     }
@@ -915,6 +965,14 @@ export class ExcalidrawEmbedController {
     if (msg.type === 'error') {
       entry.isReady = false;
       void this._handleEntryBootTimeout(entry);
+      return;
+    }
+
+    if (msg.type === 'disconnect-ready') {
+      const request = this.pendingDisconnectRequests.get(msg.requestId);
+      if (request?.entry === entry) {
+        request.resolve(true);
+      }
     }
   }
 

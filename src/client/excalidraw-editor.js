@@ -317,6 +317,12 @@ function applyLocalScene(scene, {
     ...buildApiSceneUpdate(normalizedScene),
     captureUpdate,
   });
+
+  if (suppressOnChange) {
+    roomClient.commitSceneJson(normalizedJson, {
+      origin: 'excalidraw-local-scene-apply',
+    });
+  }
 }
 
 function onRoomTextUpdate() {
@@ -469,9 +475,42 @@ function disconnectRealtimeRoom() {
   roomClient.disconnect();
 }
 
-window.addEventListener('pagehide', () => {
+let didDisconnectRealtimeRoom = false;
+
+function disconnectRealtimeRoomOnce() {
+  if (didDisconnectRealtimeRoom) {
+    return;
+  }
+
+  didDisconnectRealtimeRoom = true;
   disconnectRealtimeRoom();
-});
+}
+
+async function waitForPendingRoomWrites({
+  intervalMs = 10,
+  maxWaitMs = 150,
+} = {}) {
+  const startedAt = performance.now();
+
+  while ((performance.now() - startedAt) < maxWaitMs) {
+    const ws = roomClient.provider?.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN || ws.bufferedAmount === 0) {
+      return;
+    }
+
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => window.setTimeout(resolve, intervalMs));
+  }
+}
+
+async function prepareRealtimeRoomDisconnect() {
+  roomClient.flushSceneSync();
+  await waitForPendingRoomWrites();
+}
+
+window.addEventListener('pagehide', disconnectRealtimeRoomOnce);
+window.addEventListener('beforeunload', disconnectRealtimeRoomOnce);
+window.addEventListener('unload', disconnectRealtimeRoomOnce);
 
 window.addEventListener('message', (event) => {
   if (event.origin !== parentOrigin) {
@@ -503,6 +542,16 @@ window.addEventListener('message', (event) => {
 
   if (message.type === 'follow-user') {
     applyHostFollowRequest(message.peerId || null);
+    return;
+  }
+
+  if (message.type === 'prepare-disconnect') {
+    void (async () => {
+      await prepareRealtimeRoomDisconnect();
+      postToParent('disconnect-ready', {
+        requestId: message.requestId || '',
+      });
+    })();
   }
 });
 
