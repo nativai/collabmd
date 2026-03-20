@@ -1,28 +1,5 @@
 /* ===== COLLABORATION UI ===== */
 
-.toolbar-btn {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-md);
-  font-size: var(--text-xs);
-}
-
-.toolbar-btn-label {
-  font-size: var(--text-xs);
-}
-
-.toolbar-name-btn {
-  max-width: 132px;
-}
-
-.toolbar-user-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .mobile-view-toggle {
   display: none;
 }

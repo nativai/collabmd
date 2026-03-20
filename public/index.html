@@ -64,12 +64,12 @@
           </button>
         </div>
       </div>
-      <div class="sidebar-tabs hidden" id="sidebarTabs">
-        <button class="sidebar-tab active" id="filesSidebarTab" type="button">
+      <div class="ui-nav-tabs hidden" id="sidebarTabs">
+        <button class="ui-nav-tab active" id="filesSidebarTab" type="button">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
           Files
         </button>
-        <button class="sidebar-tab hidden" id="gitSidebarTab" type="button">
+        <button class="ui-nav-tab hidden" id="gitSidebarTab" type="button">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/></svg>
           Git
         </button>
@@ -89,7 +89,7 @@
       <!-- Toolbar -->
       <header class="toolbar" role="banner">
         <div class="toolbar-left">
-          <button class="ui-button btn btn-ghost toolbar-btn" id="sidebarToggle" aria-label="Toggle sidebar" title="Toggle sidebar">
+          <button class="ui-button btn btn-ghost ui-toolbar-button" id="sidebarToggle" aria-label="Toggle sidebar" title="Toggle sidebar">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
           </button>
           <div class="toolbar-room-info">
@@ -115,20 +115,20 @@
         </div>
 
         <div class="toolbar-right">
-          <button class="ui-button btn btn-ghost toolbar-btn mobile-view-toggle" id="mobileViewToggle" aria-label="Toggle editor/preview" title="Toggle view">
+          <button class="ui-button btn btn-ghost ui-toolbar-button mobile-view-toggle" id="mobileViewToggle" aria-label="Toggle editor/preview" title="Toggle view">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            <span class="toolbar-btn-label">Preview</span>
+            <span class="ui-toolbar-button-label">Preview</span>
           </button>
 
-          <button class="ui-button btn btn-ghost toolbar-btn toolbar-name-btn" id="editNameBtn" aria-label="Set name. Change display name" title="Change display name">
+          <button class="ui-button btn btn-ghost ui-toolbar-button ui-toolbar-button--name" id="editNameBtn" aria-label="Set name. Change display name" title="Change display name">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg>
-            <span class="toolbar-btn-label toolbar-user-name" id="currentUserName">Set name</span>
+            <span class="ui-toolbar-button-label ui-toolbar-button-text" id="currentUserName">Set name</span>
           </button>
           <div class="user-avatars" id="userAvatars"></div>
           <div class="chat-container" id="chatContainer">
-            <button class="ui-button btn btn-ghost toolbar-btn chat-toggle-btn" id="chatToggleBtn" aria-label="Open team chat" aria-expanded="false" title="Team chat">
+            <button class="ui-button btn btn-ghost ui-toolbar-button chat-toggle-btn" id="chatToggleBtn" aria-label="Open team chat" aria-expanded="false" title="Team chat">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              <span class="toolbar-btn-label">Chat</span>
+              <span class="ui-toolbar-button-label">Chat</span>
               <span class="chat-toggle-badge hidden" id="chatToggleBadge">0</span>
             </button>
             <div class="toast-container chat-toast-container" id="chatToastContainer" aria-live="polite" aria-atomic="true"></div>
@@ -153,11 +153,11 @@
               </form>
             </section>
           </div>
-          <button class="ui-button btn btn-ghost toolbar-btn" id="shareBtn" aria-label="Share. Copy link" title="Share link">
+          <button class="ui-button btn btn-ghost ui-toolbar-button" id="shareBtn" aria-label="Share. Copy link" title="Share link">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-            <span class="toolbar-btn-label">Share</span>
+            <span class="ui-toolbar-button-label">Share</span>
           </button>
-          <button class="ui-button btn btn-ghost toolbar-btn" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">
+          <button class="ui-button btn btn-ghost ui-toolbar-button" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
           </button>
         </div>
@@ -204,7 +204,7 @@
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                   </svg>
-                  <span class="pane-header-btn-label">Comment</span>
+                  <span class="ui-action-label">Comment</span>
                 </button>
                 <button class="ui-button ui-button--compact ui-button--toggle btn btn-ghost" id="toggleWrapBtn" aria-label="Disable line wrap" title="Disable line wrap">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -354,7 +354,7 @@
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                   </svg>
-                  <span class="pane-header-btn-label">Comments</span>
+                  <span class="ui-action-label">Comments</span>
                 </button>
                 <button class="ui-button ui-button--compact ui-button--toggle btn btn-ghost" id="outlineToggle" aria-label="Toggle outline" title="Toggle outline">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>

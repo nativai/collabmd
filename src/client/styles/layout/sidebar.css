@@ -76,39 +76,6 @@
   border-color: var(--color-primary);
 }
 
-.sidebar-tabs {
-  display: flex;
-  padding: 0 var(--space-2);
-  border-bottom: 1px solid var(--color-divider);
-}
-
-.sidebar-tab {
-  position: relative;
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 2px solid transparent;
-  color: var(--color-text-muted);
-  transition: all var(--transition-interactive);
-  font-size: var(--text-xs);
-  font-weight: 500;
-}
-
-.sidebar-tab.has-changes::after {
-  content: '';
-  position: absolute;
-  top: 8px;
-  right: 12px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: var(--color-success);
-  animation: pulse-dot 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
 @keyframes pulse-dot {
   0%,
   100% {
@@ -120,16 +87,6 @@
     opacity: 0.5;
     transform: scale(0.8);
   }
-}
-
-.sidebar-tab:hover {
-  background: var(--color-surface-offset);
-  color: var(--color-text);
-}
-
-.sidebar-tab.active {
-  border-bottom-color: var(--color-primary);
-  color: var(--color-primary);
 }
 
 .file-tree {

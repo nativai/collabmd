@@ -700,7 +700,7 @@ export class CommentUiController {
       this.commentsToggleButton.classList.toggle('active', this.drawerOpen);
       this.commentsToggleButton.setAttribute('aria-expanded', String(this.drawerOpen));
       const label = totalCount > 0 ? `Comments ${totalCount}` : 'Comments';
-      const labelElement = this.commentsToggleButton.querySelector('.pane-header-btn-label');
+      const labelElement = this.commentsToggleButton.querySelector('.ui-action-label');
       if (labelElement) {
         labelElement.textContent = label;
       } else {

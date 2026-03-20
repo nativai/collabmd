@@ -22,7 +22,7 @@
     display: none;
   }
 
-  .toolbar-btn-label {
+  .ui-toolbar-button-label {
     display: none;
   }
 
@@ -34,7 +34,7 @@
     display: flex !important;
   }
 
-  .toolbar-name-btn {
+  .ui-toolbar-button--name {
     max-width: none;
   }
 
@@ -42,11 +42,11 @@
     display: inline-flex;
   }
 
-  .sidebar-tabs {
+  .ui-nav-tabs {
     padding: 0 var(--space-1);
   }
 
-  .sidebar-tab {
+  .ui-nav-tab {
     padding: var(--space-2);
   }
 
