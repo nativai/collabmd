@@ -1357,13 +1357,13 @@ export class CommentUiController {
 
     const cancel = document.createElement('button');
     cancel.type = 'button';
-    cancel.className = 'btn btn-secondary';
+    cancel.className = 'ui-button btn btn-secondary';
     cancel.textContent = 'Cancel';
     cancel.addEventListener('click', () => this.closeCard());
 
     const submit = document.createElement('button');
     submit.type = 'submit';
-    submit.className = 'btn btn-primary';
+    submit.className = 'ui-button btn btn-primary';
     submit.textContent = 'Post comment';
 
     actions.append(cancel, submit);
@@ -1410,13 +1410,13 @@ export class CommentUiController {
 
     const jump = document.createElement('button');
     jump.type = 'button';
-    jump.className = 'comment-thread-card-action';
+    jump.className = 'ui-pill-button comment-thread-card-action';
     jump.textContent = 'Jump';
     jump.addEventListener('click', () => this.onNavigateToLine?.(thread.anchor?.startLine ?? 1));
 
     const reply = document.createElement('button');
     reply.type = 'button';
-    reply.className = 'comment-thread-card-action';
+    reply.className = 'ui-pill-button comment-thread-card-action';
     const isReplying = this.activeCard?.replyThreadId === thread.id;
     reply.classList.toggle('is-active', isReplying);
     reply.textContent = 'Reply';
@@ -1433,7 +1433,7 @@ export class CommentUiController {
 
     const resolve = document.createElement('button');
     resolve.type = 'button';
-    resolve.className = 'comment-thread-card-action is-danger';
+    resolve.className = 'ui-pill-button comment-thread-card-action is-danger';
     resolve.textContent = 'Resolve';
     resolve.addEventListener('click', async () => {
       await this.onResolveThread?.(thread.id);
@@ -1613,7 +1613,7 @@ export class CommentUiController {
 
     const cancel = document.createElement('button');
     cancel.type = 'button';
-    cancel.className = 'btn btn-secondary';
+    cancel.className = 'ui-button btn btn-secondary';
     cancel.textContent = 'Cancel';
     cancel.addEventListener('click', () => {
       this.activeCard = {
@@ -1625,7 +1625,7 @@ export class CommentUiController {
 
     const submit = document.createElement('button');
     submit.type = 'submit';
-    submit.className = 'btn btn-primary';
+    submit.className = 'ui-button btn btn-primary';
     submit.textContent = 'Reply';
 
     actions.append(cancel, submit);

@@ -75,8 +75,8 @@ function renderBranchMetrics(summary = {}, branch = {}) {
   if (branch.upstream || Number(branch.ahead || 0) > 0 || Number(branch.behind || 0) > 0) {
     return `
       <span class="git-sync-info" aria-label="Remote sync status">
-        <span style="color: var(--color-success);">&#8593;${Number(branch.ahead || 0)}</span>
-        <span style="color: var(--color-text-faint);">&#8595;${Number(branch.behind || 0)}</span>
+        <span class="git-sync-metric git-sync-metric--ahead">&#8593;${Number(branch.ahead || 0)}</span>
+        <span class="git-sync-metric git-sync-metric--behind">&#8595;${Number(branch.behind || 0)}</span>
       </span>
     `;
   }
