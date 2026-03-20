@@ -652,17 +652,17 @@ export class GitDiffViewController {
       const dirPath = getPathDir(file.path);
       return `
         <button
-          class="diff-index-item${isActive ? ' active' : ''}"
+          class="ui-record-surface diff-index-item${isActive ? ' active' : ''}"
           type="button"
           data-diff-index-path="${escapeHtml(file.path)}"
           aria-current="${isActive ? 'true' : 'false'}"
         >
-          <span class="diff-index-item-top">
-            <span class="diff-index-item-name">${escapeHtml(getPathLeaf(file.path))}</span>
+          <span class="ui-record-header diff-index-item-top">
+            <span class="ui-record-title diff-index-item-name">${escapeHtml(getPathLeaf(file.path))}</span>
             <span class="git-status-badge ${badgeClass(file.status)}">${escapeHtml(file.status)}</span>
           </span>
-          ${dirPath ? `<span class="diff-index-item-path">${escapeHtml(dirPath)}</span>` : ''}
-          <span class="diff-index-item-meta">
+          ${dirPath ? `<span class="ui-record-subtitle diff-index-item-path">${escapeHtml(dirPath)}</span>` : ''}
+          <span class="ui-record-meta diff-index-item-meta">
             <span>${index + 1}</span>
             <span class="diff-stats-add">+${file.stats?.additions ?? 0}</span>
             <span class="diff-stats-del">-${file.stats?.deletions ?? 0}</span>

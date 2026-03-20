@@ -166,29 +166,12 @@
 }
 
 .git-file-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
   margin: 0 var(--space-2) 2px;
-  padding: 2px;
-  border-radius: var(--radius-md);
-  transition: background var(--transition-interactive), color var(--transition-interactive);
-}
-
-.git-file-row:hover {
-  background: var(--color-surface-offset);
-}
-
-.git-file-row.active {
-  background: var(--color-primary-highlight);
+  --ui-item-row-bg-hover: var(--color-surface-offset);
+  --ui-item-row-bg-active: var(--color-primary-highlight);
 }
 
 .git-file-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-  flex: 1;
   padding: 5px var(--space-2) 5px calc(var(--space-2) + 10px);
   border-radius: calc(var(--radius-md) - 2px);
   background: transparent;
@@ -215,9 +198,6 @@
 }
 
 .git-file-copy {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
   min-width: 0;
 }
 
@@ -273,10 +253,6 @@
 }
 
 .git-file-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
   padding-right: 4px;
 }
 
@@ -331,54 +307,27 @@
 }
 
 .git-history-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 100%;
-  padding: 10px 11px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: color-mix(in oklab, var(--color-surface) 90%, transparent);
-  color: var(--color-text-muted);
-  text-align: left;
-  transition: border-color var(--transition-interactive), background var(--transition-interactive), box-shadow var(--transition-interactive);
+  --ui-record-padding: 10px 11px;
+  --ui-record-gap: 4px;
+  --ui-record-border: var(--color-border);
+  --ui-record-bg: color-mix(in oklab, var(--color-surface) 90%, transparent);
+  --ui-record-border-hover: color-mix(in oklab, var(--color-primary) 24%, var(--color-border));
+  --ui-record-bg-hover: color-mix(in oklab, var(--color-surface-offset) 92%, transparent);
+  --ui-record-border-active: color-mix(in oklab, var(--color-primary) 40%, var(--color-border));
+  --ui-record-bg-active: color-mix(in oklab, var(--color-primary) 8%, var(--color-surface));
+  --ui-record-shadow-active: inset 0 0 0 1px color-mix(in oklab, var(--color-primary) 12%, transparent);
 }
 
-.git-history-row:hover {
-  background: color-mix(in oklab, var(--color-surface-offset) 92%, transparent);
-  border-color: color-mix(in oklab, var(--color-primary) 24%, var(--color-border));
+.git-history-subject {
   color: var(--color-text);
-}
-
-.git-history-row.active {
-  background: color-mix(in oklab, var(--color-primary) 8%, var(--color-surface));
-  border-color: color-mix(in oklab, var(--color-primary) 40%, var(--color-border));
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-primary) 12%, transparent);
-  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .git-history-row-top,
 .git-history-row-meta,
 .git-history-row-stats {
-  display: flex;
-  align-items: center;
   gap: 6px;
-  min-width: 0;
-  flex-wrap: wrap;
-}
-
-.git-history-row-top {
-  justify-content: space-between;
-}
-
-.git-history-subject {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--color-text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  font-weight: 700;
 }
 
 .git-history-hash {

@@ -713,16 +713,16 @@ export class GitPanelController {
     const fileCount = Number(backup?.fileCount || 0);
 
     return `
-      <div class="git-file-row">
+      <div class="ui-item-row git-file-row">
         <button
-          class="git-file-item"
+          class="ui-item-main git-file-item"
           type="button"
           data-git-pull-backup-path="${escapeHtml(backup.summaryPath || '')}"
         >
           ${fileIconSvg()}
-          <span class="git-file-copy">
-            <span class="git-file-name">Pull backup ${escapeHtml(backup.id || '')}</span>
-            <span class="git-file-path">${escapeHtml(`${createdAt} · ${backup.branch || 'HEAD'} · ${fileCount} file${fileCount === 1 ? '' : 's'}`)}</span>
+          <span class="ui-item-copy git-file-copy">
+            <span class="ui-item-title git-file-name">Pull backup ${escapeHtml(backup.id || '')}</span>
+            <span class="ui-item-subtitle git-file-path">${escapeHtml(`${createdAt} · ${backup.branch || 'HEAD'} · ${fileCount} file${fileCount === 1 ? '' : 's'}`)}</span>
           </span>
           <span class="git-status-badge modified">BK</span>
         </button>
@@ -746,21 +746,21 @@ export class GitPanelController {
     const isResetPending = this.pendingActionKey === resetActionKey;
 
     return `
-      <div class="git-file-row${isActive ? ' active' : ''}">
+      <div class="ui-item-row git-file-row${isActive ? ' active' : ''}">
         <button
-          class="git-file-item${isActive ? ' active' : ''}"
+          class="ui-item-main git-file-item${isActive ? ' active' : ''}"
           type="button"
           data-git-path="${escapeHtml(file.path)}"
           data-git-scope="${escapeHtml(file.scope)}"
         >
           ${fileIconSvg()}
-          <span class="git-file-copy">
-            <span class="git-file-name">${escapeHtml(displayName)}</span>
-            ${dirPath ? `<span class="git-file-path">${escapeHtml(dirPath)}</span>` : ''}
+          <span class="ui-item-copy git-file-copy">
+            <span class="ui-item-title git-file-name">${escapeHtml(displayName)}</span>
+            ${dirPath ? `<span class="ui-item-subtitle git-file-path">${escapeHtml(dirPath)}</span>` : ''}
           </span>
           <span class="git-status-badge ${statusClass}">${escapeHtml(file.code)}</span>
         </button>
-        <div class="git-file-actions">
+        <div class="ui-item-actions git-file-actions">
           <button
             class="ui-icon-button ui-action-icon ui-action-icon--surface"
             type="button"
@@ -819,22 +819,22 @@ export class GitPanelController {
 
     return `
       <button
-        class="git-history-row${isActive ? ' active' : ''}"
+        class="ui-record-surface git-history-row${isActive ? ' active' : ''}"
         type="button"
         data-git-commit-hash="${escapeHtml(commit.hash || '')}"
         title="${escapeHtml(commit.authoredAt || '')}"
       >
-        <span class="git-history-row-top">
-          <span class="git-history-subject">${renderHistoryRowTitle(commit)}</span>
+        <span class="ui-record-header git-history-row-top">
+          <span class="ui-record-title git-history-subject">${renderHistoryRowTitle(commit)}</span>
           <span class="git-history-hash">${escapeHtml(commit.shortHash || '')}</span>
         </span>
-        <span class="git-history-row-meta">
+        <span class="ui-record-meta git-history-row-meta">
           <span>${escapeHtml(commit.authorName || 'Unknown')}</span>
           <span>${escapeHtml(commit.relativeDateLabel || '')}</span>
           <span>${fileCount} file${fileCount === 1 ? '' : 's'}</span>
           ${commit.isMergeCommit ? '<span>Merge</span>' : ''}
         </span>
-        <span class="git-history-row-stats">
+        <span class="ui-record-meta git-history-row-stats">
           <span class="git-change-add">+${Number(commit.additions || 0)}</span>
           <span class="git-change-del">-${Number(commit.deletions || 0)}</span>
         </span>

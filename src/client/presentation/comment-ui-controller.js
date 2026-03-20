@@ -726,7 +726,7 @@ export class CommentUiController {
     groups.forEach((group) => {
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'comments-drawer-item';
+      button.className = 'ui-record-surface comments-drawer-item';
       button.classList.toggle('is-active', this.activeCard?.groupKey === group.key);
       button.addEventListener('pointerdown', (event) => {
         event.preventDefault();
@@ -740,7 +740,7 @@ export class CommentUiController {
       });
 
       const header = document.createElement('div');
-      header.className = 'comments-drawer-item-header';
+      header.className = 'ui-record-header comments-drawer-item-header';
 
       const title = document.createElement('span');
       title.className = 'comments-drawer-item-title';
@@ -763,7 +763,7 @@ export class CommentUiController {
       );
 
       const footer = document.createElement('div');
-      footer.className = 'comments-drawer-item-footer';
+      footer.className = 'ui-record-meta comments-drawer-item-footer';
       const countLabel = document.createElement('span');
       countLabel.textContent = `${group.threads.length} thread${group.threads.length === 1 ? '' : 's'}`;
 
@@ -1180,7 +1180,7 @@ export class CommentUiController {
     });
 
     const header = document.createElement('div');
-    header.className = 'comment-card-header';
+    header.className = 'ui-record-header comment-card-header';
 
     const titleWrap = document.createElement('div');
     titleWrap.className = 'comment-card-title-wrap';
@@ -1197,7 +1197,7 @@ export class CommentUiController {
 
     const closeButton = document.createElement('button');
     closeButton.type = 'button';
-    closeButton.className = 'ui-button ui-button--compact btn btn-ghost ui-pill-button comment-card-close';
+    closeButton.className = 'ui-button ui-button--compact btn btn-ghost ui-pill-button ui-action-pill comment-card-close';
     closeButton.setAttribute('aria-label', 'Close comments');
     closeButton.textContent = 'Close';
     closeButton.addEventListener('click', () => this.closeCard());
@@ -1353,7 +1353,7 @@ export class CommentUiController {
     textarea.placeholder = 'Add context, feedback, or a question...';
 
     const actions = document.createElement('div');
-    actions.className = 'comment-card-actions';
+    actions.className = 'ui-record-actions comment-card-actions';
 
     const cancel = document.createElement('button');
     cancel.type = 'button';
@@ -1392,7 +1392,7 @@ export class CommentUiController {
     article.className = 'comment-thread-card';
 
     const header = document.createElement('div');
-    header.className = 'comment-thread-card-header';
+    header.className = 'ui-record-header comment-thread-card-header';
 
     const heading = document.createElement('div');
     heading.className = 'comment-thread-card-heading';
@@ -1406,17 +1406,17 @@ export class CommentUiController {
     time.textContent = this.formatTimestamp(thread.createdAt);
 
     const actions = document.createElement('div');
-    actions.className = 'comment-thread-card-actions';
+    actions.className = 'ui-record-actions comment-thread-card-actions';
 
     const jump = document.createElement('button');
     jump.type = 'button';
-    jump.className = 'ui-button ui-button--compact btn btn-ghost ui-pill-button comment-thread-card-action';
+    jump.className = 'ui-button ui-button--compact btn btn-ghost ui-pill-button ui-action-pill comment-thread-card-action';
     jump.textContent = 'Jump';
     jump.addEventListener('click', () => this.onNavigateToLine?.(thread.anchor?.startLine ?? 1));
 
     const reply = document.createElement('button');
     reply.type = 'button';
-    reply.className = 'ui-button ui-button--compact btn btn-ghost ui-pill-button comment-thread-card-action';
+    reply.className = 'ui-button ui-button--compact btn btn-ghost ui-pill-button ui-action-pill comment-thread-card-action';
     const isReplying = this.activeCard?.replyThreadId === thread.id;
     reply.classList.toggle('is-active', isReplying);
     reply.textContent = 'Reply';
@@ -1433,7 +1433,7 @@ export class CommentUiController {
 
     const resolve = document.createElement('button');
     resolve.type = 'button';
-    resolve.className = 'ui-button ui-button--compact btn btn-ghost ui-pill-button comment-thread-card-action is-danger';
+    resolve.className = 'ui-button ui-button--compact btn btn-ghost ui-pill-button ui-action-pill comment-thread-card-action is-danger';
     resolve.textContent = 'Resolve';
     resolve.addEventListener('click', async () => {
       await this.onResolveThread?.(thread.id);
@@ -1461,7 +1461,7 @@ export class CommentUiController {
     container.className = 'comment-message-card';
 
     const meta = document.createElement('div');
-    meta.className = 'comment-message-card-meta';
+    meta.className = 'ui-record-meta comment-message-card-meta';
 
     const author = document.createElement('span');
     author.className = 'comment-message-card-author';
@@ -1609,7 +1609,7 @@ export class CommentUiController {
     textarea.placeholder = 'Reply to thread...';
 
     const actions = document.createElement('div');
-    actions.className = 'comment-card-actions';
+    actions.className = 'ui-record-actions comment-card-actions';
 
     const cancel = document.createElement('button');
     cancel.type = 'button';

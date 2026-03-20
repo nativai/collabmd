@@ -173,62 +173,32 @@
 }
 
 .diff-index-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 100%;
-  padding: 8px 9px;
-  border: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent);
-  border-radius: var(--radius-md);
-  background: color-mix(in oklab, var(--color-surface-offset) 84%, transparent);
-  color: var(--color-text-muted);
-  text-align: left;
-  transition: background var(--transition-interactive), border-color var(--transition-interactive), color var(--transition-interactive), transform var(--transition-interactive);
-}
-
-.diff-index-item:hover {
-  background: color-mix(in oklab, var(--color-surface-offset-2) 88%, transparent);
-  color: var(--color-text);
-}
-
-.diff-index-item.active {
-  border-color: color-mix(in oklab, var(--color-primary) 34%, var(--color-border));
-  background: color-mix(in oklab, var(--color-primary) 8%, var(--color-surface));
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-primary) 14%, transparent);
-  color: var(--color-text);
+  --ui-record-padding: 8px 9px;
+  --ui-record-gap: 4px;
+  --ui-record-border: color-mix(in oklab, var(--color-border) 80%, transparent);
+  --ui-record-bg: color-mix(in oklab, var(--color-surface-offset) 84%, transparent);
+  --ui-record-border-hover: color-mix(in oklab, var(--color-border) 80%, transparent);
+  --ui-record-bg-hover: color-mix(in oklab, var(--color-surface-offset-2) 88%, transparent);
+  --ui-record-border-active: color-mix(in oklab, var(--color-primary) 34%, var(--color-border));
+  --ui-record-bg-active: color-mix(in oklab, var(--color-primary) 8%, var(--color-surface));
+  --ui-record-shadow-active: inset 0 0 0 1px color-mix(in oklab, var(--color-primary) 14%, transparent);
 }
 
 .diff-index-item-top,
 .diff-index-item-meta {
-  display: flex;
-  align-items: center;
   gap: 6px;
 }
 
-.diff-index-item-top {
-  justify-content: space-between;
-}
-
 .diff-index-item-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 12px;
   font-weight: 700;
 }
 
 .diff-index-item-path {
-  overflow: hidden;
-  color: var(--color-text-faint);
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 10px;
 }
 
 .diff-index-item-meta {
-  flex-wrap: wrap;
-  color: var(--color-text-faint);
   font-family: var(--font-mono);
   font-size: 10px;
 }
