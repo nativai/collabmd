@@ -25,7 +25,7 @@
   border: 1px solid var(--color-divider);
   border-radius: var(--radius-xl-plus);
   background: var(--surface-overlay);
-  box-shadow: 0 14px 34px oklch(0 0 0 / 0.18);
+  box-shadow: var(--shadow-floating-soft);
   backdrop-filter: blur(16px);
   pointer-events: auto;
   transition: box-shadow 160ms ease, transform 160ms ease, background-color 160ms ease, border-color 160ms ease;
@@ -33,7 +33,7 @@
 
 .backlinks-panel-dock:hover {
   transform: translateY(-1px);
-  box-shadow: 0 18px 40px oklch(0 0 0 / 0.2);
+  box-shadow: var(--shadow-floating-hover);
 }
 
 .backlinks-panel-inline {
@@ -94,7 +94,7 @@
   min-width: 22px;
   padding: 1px 7px;
   border-radius: var(--radius-full);
-  background: oklch(from var(--color-primary) l c h / 0.14);
+  background: var(--interactive-surface);
   color: var(--color-primary);
   text-align: center;
   font-size: var(--text-xs);
@@ -166,7 +166,7 @@
 
 .backlink-item:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px oklch(from var(--color-primary) l c h / 0.45);
+  box-shadow: var(--shadow-focus-compact);
 }
 
 .backlink-file-name {

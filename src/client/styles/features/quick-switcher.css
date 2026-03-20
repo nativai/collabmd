@@ -140,7 +140,7 @@
 
 .qs-result-name mark {
   padding: 0 1px;
-  border-radius: 2px;
+  border-radius: var(--radius-2xs);
   background: oklch(from var(--color-primary) l c h / 0.2);
   color: var(--color-primary);
 }

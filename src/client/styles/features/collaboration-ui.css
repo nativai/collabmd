@@ -45,7 +45,7 @@
   padding: 0 8px 0 6px;
   gap: 4px;
   border-radius: var(--radius-full);
-  box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px oklch(from var(--color-primary) l c h / 0.18);
+  box-shadow: var(--shadow-accent-ring);
 }
 
 .user-avatar.is-local + .user-avatar {
@@ -57,7 +57,7 @@
   height: 14px;
   border-radius: var(--radius-full);
   background: rgb(255 255 255 / 0.22);
-  font-size: 9px;
+  font-size: var(--text-micro);
 }
 
 .user-avatar-self-label {
@@ -65,7 +65,7 @@
   border-radius: var(--radius-full);
   background: rgb(15 17 23 / 0.84);
   color: #fff;
-  font-size: 9px;
+  font-size: var(--text-micro);
   font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 1;
@@ -86,12 +86,12 @@
 .user-avatar-button:focus-visible {
   z-index: 3;
   outline: none;
-  box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px oklch(from var(--color-primary) l c h / 0.45);
+  box-shadow: var(--shadow-accent-ring-strong);
 }
 
 .user-avatar.is-following {
   z-index: 4;
-  box-shadow: 0 0 0 2px var(--color-primary), 0 0 0 4px oklch(from var(--color-primary) l c h / 0.2);
+  box-shadow: var(--shadow-accent-ring-solid);
 }
 
 .user-avatar-button.different-file {
@@ -117,12 +117,12 @@
 
 .chat-toggle-btn.is-unread:not(.is-active) {
   color: var(--color-primary);
-  background: oklch(from var(--color-primary) l c h / 0.12);
-  box-shadow: inset 0 0 0 1px oklch(from var(--color-primary) l c h / 0.22);
+  background: var(--interactive-surface);
+  box-shadow: var(--shadow-accent-inset);
 }
 
 .chat-toggle-btn.is-unread:not(.is-active):hover {
-  background: oklch(from var(--color-primary) l c h / 0.18);
+  background: var(--surface-accent-soft);
 }
 
 .chat-toggle-badge {
@@ -133,7 +133,7 @@
 }
 
 .chat-toggle-btn.is-unread:not(.is-active) .chat-toggle-badge {
-  box-shadow: 0 0 0 3px oklch(from var(--color-primary) l c h / 0.16);
+  box-shadow: var(--shadow-accent-halo);
 }
 
 .chat-panel {

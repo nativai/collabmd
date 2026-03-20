@@ -125,11 +125,7 @@ body.excalidraw-maximized-open .resizer {
 }
 
 .excalidraw-embed:hover {
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-}
-
-[data-theme="dark"] .excalidraw-embed:hover {
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-elevated-soft);
 }
 
 .excalidraw-embed-placeholder.is-hydrated {
@@ -179,7 +175,7 @@ body.excalidraw-maximized-open .resizer {
   margin: 0;
   box-sizing: border-box;
   border-radius: var(--radius-lg-plus);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-media-modal);
 }
 
 .excalidraw-embed.is-maximized .excalidraw-embed-header {
@@ -194,10 +190,6 @@ body.excalidraw-maximized-open .resizer {
 
 .excalidraw-embed.is-maximized .excalidraw-embed-resizer {
   display: none;
-}
-
-[data-theme="dark"] .excalidraw-embed.is-maximized {
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
 }
 
 .excalidraw-embed-resizer {
@@ -215,7 +207,7 @@ body.excalidraw-maximized-open .resizer {
   left: 50%;
   width: 32px;
   height: 3px;
-  border-radius: 2px;
+  border-radius: var(--radius-2xs);
   background: var(--color-text-faint);
   opacity: 0;
   transform: translate(-50%, -50%);

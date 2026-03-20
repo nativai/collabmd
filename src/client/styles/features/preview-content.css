@@ -138,7 +138,7 @@
   padding: var(--space-4);
   background: none;
   color: var(--color-text);
-  font-size: 13px;
+  font-size: var(--text-ui-sm);
   line-height: 1.6;
   white-space: pre;
   word-wrap: normal;
@@ -245,13 +245,13 @@
   min-width: 0;
   overflow: hidden;
   padding: 8px 12px;
-  border-radius: 999px;
-  background: oklch(0.18 0.02 260 / 0.68);
+  border-radius: var(--radius-full);
+  background: var(--surface-inverse-glass);
   color: white;
   text-overflow: ellipsis;
   white-space: nowrap;
   backdrop-filter: blur(12px);
-  box-shadow: 0 16px 40px oklch(0 0 0 / 0.24);
+  box-shadow: var(--shadow-media-soft);
   pointer-events: auto;
   font-size: var(--text-xs);
   font-weight: 600;
@@ -270,18 +270,18 @@
   min-width: 0;
   padding: 8px 12px;
   border: none;
-  border-radius: 999px;
-  background: oklch(0.18 0.02 260 / 0.68);
+  border-radius: var(--radius-full);
+  background: var(--surface-inverse-glass);
   color: white;
   backdrop-filter: blur(12px);
-  box-shadow: 0 16px 40px oklch(0 0 0 / 0.24);
+  box-shadow: var(--shadow-media-soft);
   transition: background 0.18s ease, transform 0.18s ease;
   font-size: var(--text-xs);
   font-weight: 600;
 }
 
 .image-lightbox-btn:hover:not(:disabled) {
-  background: oklch(0.24 0.02 260 / 0.82);
+  background: var(--surface-inverse-glass-hover);
 }
 
 .image-lightbox-btn:disabled {
@@ -292,12 +292,12 @@
 .image-lightbox-zoom-label {
   min-width: 58px;
   padding: 8px 12px;
-  border-radius: 999px;
-  background: oklch(0.18 0.02 260 / 0.68);
+  border-radius: var(--radius-full);
+  background: var(--surface-inverse-glass);
   color: white;
   text-align: center;
   backdrop-filter: blur(12px);
-  box-shadow: 0 16px 40px oklch(0 0 0 / 0.24);
+  box-shadow: var(--shadow-media-soft);
   font-size: var(--text-xs);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -326,7 +326,7 @@
   object-fit: contain;
   transform-origin: center center;
   will-change: transform;
-  box-shadow: 0 28px 80px oklch(0 0 0 / 0.28);
+  box-shadow: var(--shadow-media-stage);
 }
 
 body.image-lightbox-open {

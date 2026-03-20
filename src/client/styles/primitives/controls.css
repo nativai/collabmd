@@ -210,7 +210,7 @@
 .input:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px oklch(from var(--color-primary) l c h / 0.15);
+  box-shadow: var(--shadow-focus);
 }
 
 .ui-input::placeholder,
