@@ -88,3 +88,12 @@ PlantUML resource base name.
 {{- define "collabmd.plantumlFullname" -}}
 {{- printf "%s-plantuml" (include "collabmd.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
+
+{{/*
+PlantUML selector labels.
+*/}}
+{{- define "collabmd.plantumlSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "collabmd.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: plantuml
+{{- end }}
