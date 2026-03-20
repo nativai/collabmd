@@ -97,58 +97,20 @@
 .git-panel-mode-switch {
   display: inline-grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px;
-  padding: 3px;
-  border-radius: 999px;
-  background: var(--color-surface-offset);
 }
 
 .git-panel-mode-btn {
-  min-height: 28px;
-  padding: 0 12px;
-  border-radius: 999px;
-  color: var(--color-text-muted);
-  font-size: 11px;
-  font-weight: 700;
-  transition: background var(--transition-interactive), color var(--transition-interactive), box-shadow var(--transition-interactive);
-}
-
-.git-panel-mode-btn:hover {
-  color: var(--color-text);
-}
-
-.git-panel-mode-btn.active {
-  background: var(--color-surface);
-  color: var(--color-text);
-  box-shadow: var(--shadow-sm);
+  min-width: 0;
 }
 
 .git-branch-action-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
   width: 100%;
   min-width: 0;
-  min-height: 30px;
-  padding: 0 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
   background: var(--color-surface-offset);
-  color: var(--color-text-muted);
-  font-size: 11px;
-  font-weight: 600;
-  transition: all var(--transition-interactive);
 }
 
 .git-branch-action-btn:hover:not(:disabled) {
   background: var(--color-surface-dynamic);
-  color: var(--color-text);
-}
-
-.git-branch-action-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 .git-branch-action-btn svg {
@@ -324,51 +286,13 @@
 }
 
 .git-file-action-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: 30px;
-  min-height: 26px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 999px;
   background: color-mix(in oklab, var(--color-surface-offset) 82%, transparent);
-  color: var(--color-text-muted);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  transition: background var(--transition-interactive), color var(--transition-interactive), border-color var(--transition-interactive);
-}
-
-.git-file-action-btn:hover:not(:disabled) {
-  background: var(--color-surface-dynamic);
-  color: var(--color-text);
-}
-
-.git-file-action-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.git-file-action-btn svg {
-  flex-shrink: 0;
-}
-
-.git-file-action-btn-primary {
-  background: color-mix(in oklab, var(--color-primary) 14%, transparent);
-  color: var(--color-primary);
-  border-color: color-mix(in oklab, var(--color-primary) 20%, transparent);
 }
 
 .git-file-row.active .git-file-action-btn {
   background: color-mix(in oklab, var(--color-surface) 30%, var(--color-primary-highlight));
   color: var(--color-text);
-}
-
-.git-file-row.active .git-file-action-btn-primary {
-  background: color-mix(in oklab, var(--color-primary) 18%, transparent);
-  color: var(--color-primary);
 }
 
 .git-panel-footer {
@@ -384,48 +308,23 @@
 }
 
 .git-view-all-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
   width: 100%;
-  padding: var(--space-2);
-  border-radius: var(--radius-md);
   background: var(--color-surface-offset);
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  transition: all var(--transition-interactive);
 }
 
 .git-view-all-btn:hover {
   background: var(--color-surface-dynamic);
-  color: var(--color-text);
 }
 
 .git-footer-commit-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: 100%;
-  min-height: 34px;
-  padding: 0 var(--space-3);
   border: 1px solid color-mix(in oklab, var(--color-primary) 22%, transparent);
-  border-radius: var(--radius-md);
   background: color-mix(in oklab, var(--color-primary) 16%, transparent);
   color: var(--color-primary);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  transition: all var(--transition-interactive);
 }
 
 .git-footer-commit-btn:hover:not(:disabled) {
   background: color-mix(in oklab, var(--color-primary) 22%, transparent);
-}
-
-.git-footer-commit-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 .git-panel-empty {
@@ -522,22 +421,9 @@
 
 .git-history-load-more {
   width: 100%;
-  min-height: 34px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
   background: var(--color-surface-offset);
-  color: var(--color-text-muted);
-  font-size: 12px;
-  font-weight: 600;
-  transition: background var(--transition-interactive), color var(--transition-interactive);
 }
 
 .git-history-load-more:hover:not(:disabled) {
   background: var(--color-surface-dynamic);
-  color: var(--color-text);
-}
-
-.git-history-load-more:disabled {
-  opacity: 0.6;
-  cursor: default;
 }

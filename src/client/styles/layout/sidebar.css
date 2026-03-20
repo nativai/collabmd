@@ -47,30 +47,6 @@
   gap: 4px;
 }
 
-.sidebar-action-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  min-height: 28px;
-  padding: 4px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: color var(--transition-interactive), background var(--transition-interactive);
-}
-
-.sidebar-action-btn:hover {
-  background: var(--color-surface-offset);
-  color: var(--color-text);
-}
-
-.sidebar-action-btn:active {
-  transform: scale(0.95);
-}
-
 .sidebar-close-btn {
   display: none;
 }

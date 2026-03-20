@@ -239,8 +239,6 @@
 
 .chat-alert-btn {
   flex-shrink: 0;
-  padding: 6px 10px;
-  font-size: 11px;
 }
 
 .chat-alert-btn.is-enabled {

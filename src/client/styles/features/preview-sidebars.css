@@ -1,27 +1,5 @@
 /* ===== PREVIEW SIDEBARS ===== */
 
-.pane-header-btn {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
-  white-space: nowrap;
-  transition: color var(--transition-interactive), background var(--transition-interactive);
-  font-size: 11px;
-}
-
-.pane-header-btn:hover {
-  color: var(--color-text);
-  background: var(--color-surface-dynamic);
-}
-
-.pane-header-btn.active {
-  color: var(--color-primary);
-  background: oklch(from var(--color-primary) l c h / 0.1);
-}
-
 .backlinks-panel.hidden,
 .backlinks-panel-layer.hidden {
   display: none;

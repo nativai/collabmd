@@ -327,14 +327,10 @@
 
 .comment-card-close,
 .comment-thread-card-action {
-  padding: 5px 8px;
   border: 1px solid transparent;
-  border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--color-surface-offset) 88%, var(--color-comment) 12%);
   color: var(--color-text-muted);
   transition: color var(--transition-interactive), background var(--transition-interactive), border-color var(--transition-interactive);
-  font-size: 11px;
-  font-weight: 700;
 }
 
 .comment-card-close:hover,

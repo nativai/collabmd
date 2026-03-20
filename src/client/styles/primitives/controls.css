@@ -80,6 +80,25 @@
   font-weight: 600;
 }
 
+.ui-button--compact,
+.btn-compact {
+  min-height: var(--control-h-xs);
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.ui-button--toggle.active,
+.ui-button--toggle.is-active,
+.ui-button--toggle[aria-pressed='true'],
+.ui-button--toggle[aria-selected='true'] {
+  border-color: var(--interactive-border);
+  background: var(--interactive-surface);
+  color: var(--color-primary);
+}
+
 .ui-icon-button {
   display: inline-flex;
   align-items: center;
@@ -104,8 +123,74 @@
   color: var(--color-text);
 }
 
+.ui-icon-button--toolbar {
+  width: 36px;
+  min-width: 36px;
+}
+
 .ui-pill-button {
   border-radius: var(--radius-full);
+}
+
+.ui-segmented-control {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-offset);
+}
+
+.ui-segmented-control--pill {
+  padding: 3px;
+  border-radius: var(--radius-full);
+}
+
+.ui-segmented-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: var(--control-h-xs);
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-faint);
+  white-space: nowrap;
+  transition:
+    transform var(--transition-interactive),
+    background var(--transition-interactive),
+    color var(--transition-interactive),
+    border-color var(--transition-interactive),
+    box-shadow var(--transition-interactive);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.ui-segmented-control--pill .ui-segmented-btn {
+  border-radius: var(--radius-full);
+}
+
+.ui-segmented-btn:hover {
+  color: var(--color-text-muted);
+}
+
+.ui-segmented-btn.active,
+.ui-segmented-btn.is-active,
+.ui-segmented-btn[aria-pressed='true'],
+.ui-segmented-btn[aria-selected='true'] {
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+}
+
+.ui-button:disabled,
+.btn:disabled,
+.ui-icon-button:disabled,
+.ui-segmented-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .ui-input,

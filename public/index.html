@@ -38,28 +38,28 @@
           <span class="sidebar-title">CollabMD</span>
         </div>
         <div class="sidebar-actions">
-          <button class="ui-icon-button sidebar-action-btn sidebar-close-btn" id="sidebarClose" aria-label="Close sidebar" title="Close sidebar">
+          <button class="ui-icon-button sidebar-close-btn" id="sidebarClose" aria-label="Close sidebar" title="Close sidebar">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
               <line x1="18" y1="6" x2="6" y2="18"/>
               <line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
           </button>
-          <button class="ui-icon-button sidebar-action-btn" id="newFileBtn" aria-label="New file" title="New file">
+          <button class="ui-icon-button" id="newFileBtn" aria-label="New file" title="New file">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           </button>
-          <button class="ui-icon-button sidebar-action-btn" id="newDrawingBtn" aria-label="New drawing" title="New Excalidraw drawing">
+          <button class="ui-icon-button" id="newDrawingBtn" aria-label="New drawing" title="New Excalidraw drawing">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
           </button>
-          <button class="ui-icon-button sidebar-action-btn" id="newMermaidBtn" aria-label="New Mermaid diagram" title="New Mermaid diagram">
+          <button class="ui-icon-button" id="newMermaidBtn" aria-label="New Mermaid diagram" title="New Mermaid diagram">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7.5c0-1.38 1.12-2.5 2.5-2.5 1.04 0 1.93.64 2.3 1.56A2.5 2.5 0 0 1 14 8.5v1"/><path d="M19 16.5c0 1.38-1.12 2.5-2.5 2.5-1.04 0-1.93-.64-2.3-1.56A2.5 2.5 0 0 1 10 15.5v-1"/><path d="M8 10.5h8"/><path d="M8 13.5h8"/><path d="M10 8.5v7"/><path d="M14 8.5v7"/></svg>
           </button>
-          <button class="ui-icon-button sidebar-action-btn" id="newPlantumlBtn" aria-label="New PlantUML diagram" title="New PlantUML diagram">
+          <button class="ui-icon-button" id="newPlantumlBtn" aria-label="New PlantUML diagram" title="New PlantUML diagram">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="6" rx="1"/><rect x="14" y="4" width="7" height="6" rx="1"/><rect x="8.5" y="14" width="7" height="6" rx="1"/><path d="M10 7h4"/><path d="M17.5 10v2.5"/><path d="M6.5 10v2.5"/><path d="M6.5 12.5h11"/></svg>
           </button>
-          <button class="ui-icon-button sidebar-action-btn" id="newFolderBtn" aria-label="New folder" title="New folder">
+          <button class="ui-icon-button" id="newFolderBtn" aria-label="New folder" title="New folder">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
           </button>
-          <button class="ui-icon-button sidebar-action-btn" id="refreshFilesBtn" aria-label="Refresh" title="Refresh file list">
+          <button class="ui-icon-button" id="refreshFilesBtn" aria-label="Refresh" title="Refresh file list">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           </button>
         </div>
@@ -101,14 +101,14 @@
         </div>
 
         <div class="toolbar-center" id="toolbarCenter">
-          <div class="view-toggle" role="group" aria-label="View mode">
-            <button class="view-btn active" data-view="split" aria-label="Split view" aria-pressed="true" title="Split view">
+          <div class="ui-segmented-control view-toggle" role="group" aria-label="View mode">
+            <button class="ui-segmented-btn view-btn active" data-view="split" aria-label="Split view" aria-pressed="true" title="Split view">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
             </button>
-            <button class="view-btn" data-view="editor" aria-label="Editor only" aria-pressed="false" title="Editor only">
+            <button class="ui-segmented-btn view-btn" data-view="editor" aria-label="Editor only" aria-pressed="false" title="Editor only">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="14" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg>
             </button>
-            <button class="view-btn" data-view="preview" aria-label="Preview only" aria-pressed="false" title="Preview only">
+            <button class="ui-segmented-btn view-btn" data-view="preview" aria-label="Preview only" aria-pressed="false" title="Preview only">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
           </div>
@@ -139,7 +139,7 @@
                   <h2 class="chat-panel-title">Team chat</h2>
                   <p class="chat-panel-status" id="chatStatus">Syncing...</p>
                 </div>
-                <button class="ui-button ui-pill-button btn btn-secondary chat-alert-btn" id="chatNotificationBtn" type="button">Enable alerts</button>
+                <button class="ui-button ui-button--compact ui-pill-button btn btn-secondary chat-alert-btn" id="chatNotificationBtn" type="button">Enable alerts</button>
               </div>
 
               <div class="chat-empty-state" id="chatEmptyState">
@@ -200,13 +200,13 @@
                 <span class="pane-label-meta" id="lineInfo">Ln 1, Col 1</span>
               </div>
               <div class="pane-header-actions">
-                <button class="ui-button btn btn-ghost pane-header-btn hidden" id="commentSelectionBtn" aria-label="Comment current line or selection" title="Comment current line or selection">
+                <button class="ui-button ui-button--compact ui-button--toggle btn btn-ghost hidden" id="commentSelectionBtn" aria-label="Comment current line or selection" title="Comment current line or selection">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                   </svg>
                   <span class="pane-header-btn-label">Comment</span>
                 </button>
-                <button class="ui-button btn btn-ghost pane-header-btn" id="toggleWrapBtn" aria-label="Disable line wrap" title="Disable line wrap">
+                <button class="ui-button ui-button--compact ui-button--toggle btn btn-ghost" id="toggleWrapBtn" aria-label="Disable line wrap" title="Disable line wrap">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M3 6h14a4 4 0 1 1 0 8H9"/>
                     <path d="m9 10-4 4 4 4"/>
@@ -217,7 +217,7 @@
               </div>
             </div>
             <div id="markdownToolbar" class="markdown-toolbar hidden" role="toolbar" aria-label="Markdown formatting">
-              <button type="button" class="ui-icon-button btn btn-ghost markdown-toolbar-btn" data-markdown-action="heading" aria-label="Toggle heading" title="Toggle heading">
+              <button type="button" class="ui-icon-button ui-icon-button--toolbar markdown-toolbar-btn" data-markdown-action="heading" aria-label="Toggle heading" title="Toggle heading">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M4 6v12"/>
                   <path d="M14 6v12"/>
@@ -226,52 +226,52 @@
                   <path d="M19.5 6v12"/>
                 </svg>
               </button>
-              <button type="button" class="ui-icon-button btn btn-ghost markdown-toolbar-btn" data-markdown-action="bold" aria-label="Bold" title="Bold">
+              <button type="button" class="ui-icon-button ui-icon-button--toolbar markdown-toolbar-btn" data-markdown-action="bold" aria-label="Bold" title="Bold">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M7 5h6a4 4 0 0 1 0 8H7z"/>
                   <path d="M7 13h7a4 4 0 0 1 0 8H7z"/>
                 </svg>
               </button>
-              <button type="button" class="ui-icon-button btn btn-ghost markdown-toolbar-btn" data-markdown-action="italic" aria-label="Italic" title="Italic">
+              <button type="button" class="ui-icon-button ui-icon-button--toolbar markdown-toolbar-btn" data-markdown-action="italic" aria-label="Italic" title="Italic">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M14 4h6"/>
                   <path d="M4 20h6"/>
                   <path d="M14 4 10 20"/>
                 </svg>
               </button>
-              <button type="button" class="ui-icon-button btn btn-ghost markdown-toolbar-btn" data-markdown-action="strikethrough" aria-label="Strikethrough" title="Strikethrough">
+              <button type="button" class="ui-icon-button ui-icon-button--toolbar markdown-toolbar-btn" data-markdown-action="strikethrough" aria-label="Strikethrough" title="Strikethrough">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M6 6.5c1.4-1.2 3.2-1.9 5.4-1.9 3.1 0 5.6 1.4 5.6 3.9 0 2.1-1.7 3-4.3 3.5l-2.4.5c-2.7.5-4.3 1.6-4.3 3.6 0 2.7 2.7 4.2 6 4.2 2.1 0 4.2-.6 5.7-1.8"/>
                   <path d="M3 12h18"/>
                 </svg>
               </button>
-              <button type="button" class="ui-icon-button btn btn-ghost markdown-toolbar-btn" data-markdown-action="link" aria-label="Insert link" title="Insert link">
+              <button type="button" class="ui-icon-button ui-icon-button--toolbar markdown-toolbar-btn" data-markdown-action="link" aria-label="Insert link" title="Insert link">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M10 13a5 5 0 0 0 7.54.54l2.92-2.92a5 5 0 0 0-7.07-7.07L11.5 5.4"/>
                   <path d="M14 11a5 5 0 0 0-7.54-.54L3.54 13.38a5 5 0 1 0 7.07 7.07L12.5 18.6"/>
                 </svg>
               </button>
-              <button type="button" class="ui-icon-button btn btn-ghost markdown-toolbar-btn" data-markdown-action="image" aria-label="Insert image" title="Insert image">
+              <button type="button" class="ui-icon-button ui-icon-button--toolbar markdown-toolbar-btn" data-markdown-action="image" aria-label="Insert image" title="Insert image">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <rect x="3" y="5" width="18" height="14" rx="2"/>
                   <circle cx="9" cy="10" r="1.5"/>
                   <path d="m21 16-5.5-5.5L7 19"/>
                 </svg>
               </button>
-              <button type="button" class="ui-icon-button btn btn-ghost markdown-toolbar-btn" data-markdown-action="video" aria-label="Insert video" title="Insert video">
+              <button type="button" class="ui-icon-button ui-icon-button--toolbar markdown-toolbar-btn" data-markdown-action="video" aria-label="Insert video" title="Insert video">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <rect x="3" y="5" width="18" height="14" rx="2"/>
                   <path d="m10 9 5 3-5 3z" fill="currentColor" stroke="none"/>
                 </svg>
               </button>
               <span class="markdown-toolbar-separator" aria-hidden="true"></span>
-              <button type="button" class="ui-icon-button btn btn-ghost markdown-toolbar-btn" data-markdown-action="quote" aria-label="Toggle quote" title="Toggle quote">
+              <button type="button" class="ui-icon-button ui-icon-button--toolbar markdown-toolbar-btn" data-markdown-action="quote" aria-label="Toggle quote" title="Toggle quote">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M8 17H5a2 2 0 0 1-2-2v-3a6 6 0 0 1 6-6"/>
                   <path d="M19 17h-3a2 2 0 0 1-2-2v-3a6 6 0 0 1 6-6"/>
                 </svg>
               </button>
-              <button type="button" class="ui-icon-button btn btn-ghost markdown-toolbar-btn" data-markdown-action="bullet-list" aria-label="Toggle bullet list" title="Toggle bullet list">
+              <button type="button" class="ui-icon-button ui-icon-button--toolbar markdown-toolbar-btn" data-markdown-action="bullet-list" aria-label="Toggle bullet list" title="Toggle bullet list">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                   <circle cx="5" cy="7" r="1.25" fill="currentColor" stroke="none"/>
                   <circle cx="5" cy="12" r="1.25" fill="currentColor" stroke="none"/>
@@ -281,7 +281,7 @@
                   <path d="M9 17h10"/>
                 </svg>
               </button>
-              <button type="button" class="ui-icon-button btn btn-ghost markdown-toolbar-btn" data-markdown-action="numbered-list" aria-label="Toggle numbered list" title="Toggle numbered list">
+              <button type="button" class="ui-icon-button ui-icon-button--toolbar markdown-toolbar-btn" data-markdown-action="numbered-list" aria-label="Toggle numbered list" title="Toggle numbered list">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M10 7h10"/>
                   <path d="M10 12h10"/>
@@ -291,7 +291,7 @@
                   <path d="M4 17h2"/>
                 </svg>
               </button>
-              <button type="button" class="ui-icon-button btn btn-ghost markdown-toolbar-btn" data-markdown-action="task-list" aria-label="Toggle task list" title="Toggle task list">
+              <button type="button" class="ui-icon-button ui-icon-button--toolbar markdown-toolbar-btn" data-markdown-action="task-list" aria-label="Toggle task list" title="Toggle task list">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <rect x="3.5" y="4.5" width="4" height="4" rx="1"/>
                   <rect x="3.5" y="10.5" width="4" height="4" rx="1"/>
@@ -301,7 +301,7 @@
                   <path d="M10 18.5h10"/>
                 </svg>
               </button>
-              <button type="button" class="ui-icon-button btn btn-ghost markdown-toolbar-btn" data-markdown-action="table" aria-label="Insert table" title="Insert table">
+              <button type="button" class="ui-icon-button ui-icon-button--toolbar markdown-toolbar-btn" data-markdown-action="table" aria-label="Insert table" title="Insert table">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <rect x="3" y="5" width="18" height="14" rx="1"/>
                   <path d="M3 10h18"/>
@@ -310,20 +310,20 @@
                 </svg>
               </button>
               <span class="markdown-toolbar-separator" aria-hidden="true"></span>
-              <button type="button" class="ui-icon-button btn btn-ghost markdown-toolbar-btn" data-markdown-action="code" aria-label="Inline code" title="Inline code">
+              <button type="button" class="ui-icon-button ui-icon-button--toolbar markdown-toolbar-btn" data-markdown-action="code" aria-label="Inline code" title="Inline code">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="m8 9-4 3 4 3"/>
                   <path d="m16 9 4 3-4 3"/>
                   <path d="m13 6-2 12"/>
                 </svg>
               </button>
-              <button type="button" class="ui-icon-button btn btn-ghost markdown-toolbar-btn" data-markdown-action="code-block" aria-label="Code block" title="Code block">
+              <button type="button" class="ui-icon-button ui-icon-button--toolbar markdown-toolbar-btn" data-markdown-action="code-block" aria-label="Code block" title="Code block">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="m9 18-6-6 6-6"/>
                   <path d="m15 6 6 6-6 6"/>
                 </svg>
               </button>
-              <button type="button" class="ui-icon-button btn btn-ghost markdown-toolbar-btn" data-markdown-action="horizontal-rule" aria-label="Insert horizontal rule" title="Insert horizontal rule">
+              <button type="button" class="ui-icon-button ui-icon-button--toolbar markdown-toolbar-btn" data-markdown-action="horizontal-rule" aria-label="Insert horizontal rule" title="Insert horizontal rule">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M4 12h16"/>
                   <path d="M9 8h6"/>
@@ -350,13 +350,13 @@
             <div class="pane-header">
               <span class="pane-label">Preview</span>
               <div class="pane-header-actions">
-                <button class="ui-button btn btn-ghost pane-header-btn hidden" id="commentsToggle" aria-label="Toggle comments" title="Toggle comments">
+                <button class="ui-button ui-button--compact ui-button--toggle btn btn-ghost hidden" id="commentsToggle" aria-label="Toggle comments" title="Toggle comments">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                   </svg>
                   <span class="pane-header-btn-label">Comments</span>
                 </button>
-                <button class="ui-button btn btn-ghost pane-header-btn" id="outlineToggle" aria-label="Toggle outline" title="Toggle outline">
+                <button class="ui-button ui-button--compact ui-button--toggle btn btn-ghost" id="outlineToggle" aria-label="Toggle outline" title="Toggle outline">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
                 </button>
               </div>
@@ -444,13 +444,13 @@
               <span class="diff-stats-add">+0</span>
               <span class="diff-stats-del">-0</span>
             </div>
-            <div class="view-toggle diff-layout-toggle hidden" id="diffLayoutToggle" role="group" aria-label="Commit diff layout">
-              <button class="view-btn diff-layout-btn" data-diff-layout="stacked" type="button">Stacked</button>
-              <button class="view-btn diff-layout-btn active" data-diff-layout="focused" type="button">Focused</button>
+            <div class="ui-segmented-control diff-layout-toggle hidden" id="diffLayoutToggle" role="group" aria-label="Commit diff layout">
+              <button class="ui-segmented-btn view-btn diff-layout-btn" data-diff-layout="stacked" type="button">Stacked</button>
+              <button class="ui-segmented-btn view-btn diff-layout-btn active" data-diff-layout="focused" type="button">Focused</button>
             </div>
-            <div class="view-toggle diff-mode-toggle" role="group" aria-label="Diff view mode">
-              <button class="view-btn diff-mode-btn active" data-diff-mode="unified" type="button">Unified</button>
-              <button class="view-btn diff-mode-btn" data-diff-mode="split" type="button">Split</button>
+            <div class="ui-segmented-control diff-mode-toggle" role="group" aria-label="Diff view mode">
+              <button class="ui-segmented-btn view-btn diff-mode-btn active" data-diff-mode="unified" type="button">Unified</button>
+              <button class="ui-segmented-btn view-btn diff-mode-btn" data-diff-mode="split" type="button">Split</button>
             </div>
           </div>
         </div>

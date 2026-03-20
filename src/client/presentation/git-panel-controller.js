@@ -762,7 +762,7 @@ export class GitPanelController {
         </button>
         <div class="git-file-actions">
           <button
-            class="git-file-action-btn"
+            class="ui-icon-button git-file-action-btn"
             type="button"
             data-git-file-action="reset"
             data-git-path="${escapeHtml(file.path)}"
@@ -774,7 +774,7 @@ export class GitPanelController {
             ${isResetPending ? '...' : actionIconSvg('reset')}
           </button>
           <button
-            class="git-file-action-btn"
+            class="ui-icon-button git-file-action-btn"
             type="button"
             data-git-file-action="${stageAction.value}"
             data-git-path="${escapeHtml(file.path)}"
@@ -792,9 +792,9 @@ export class GitPanelController {
 
   renderPanelModes() {
     return `
-      <div class="git-panel-mode-switch" role="tablist" aria-label="Git panel modes">
+      <div class="ui-segmented-control ui-segmented-control--pill git-panel-mode-switch" role="tablist" aria-label="Git panel modes">
         <button
-          class="git-panel-mode-btn${this.panelMode === 'changes' ? ' active' : ''}"
+          class="ui-segmented-btn git-panel-mode-btn${this.panelMode === 'changes' ? ' active' : ''}"
           type="button"
           data-git-panel-mode="changes"
           aria-selected="${this.panelMode === 'changes'}"
@@ -802,7 +802,7 @@ export class GitPanelController {
           Changes
         </button>
         <button
-          class="git-panel-mode-btn${this.panelMode === 'history' ? ' active' : ''}"
+          class="ui-segmented-btn git-panel-mode-btn${this.panelMode === 'history' ? ' active' : ''}"
           type="button"
           data-git-panel-mode="history"
           aria-selected="${this.panelMode === 'history'}"
@@ -868,7 +868,7 @@ export class GitPanelController {
       ${this.history.hasMore ? `
         <div class="git-history-footer">
           <button
-            class="git-history-load-more"
+            class="ui-button ui-button--compact btn btn-secondary git-history-load-more"
             type="button"
             data-git-history-load-more
             ${this.history.loadingMore ? 'disabled' : ''}
@@ -896,12 +896,12 @@ export class GitPanelController {
       ${hasChanges ? `
         <div class="git-panel-footer">
           <div class="git-panel-footer-actions">
-            <button class="git-view-all-btn" type="button" data-git-view-all>
+            <button class="ui-button ui-button--compact btn btn-secondary git-view-all-btn" type="button" data-git-view-all>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               View Full Diff
             </button>
             <button
-              class="git-footer-commit-btn"
+              class="ui-button btn btn-primary git-footer-commit-btn"
               type="button"
               data-git-commit-staged
               ${!hasStagedChanges || isCommitPending ? 'disabled' : ''}
@@ -953,7 +953,7 @@ export class GitPanelController {
         </div>
         <div class="git-branch-actions" role="group" aria-label="Remote sync actions">
           <button
-            class="git-branch-action-btn"
+            class="ui-button ui-button--compact ui-pill-button btn btn-secondary git-branch-action-btn"
             type="button"
             data-git-sync-action="pull"
             title="${hasUpstream ? 'Pull remote changes (fast-forward only)' : 'No upstream branch configured'}"
@@ -963,7 +963,7 @@ export class GitPanelController {
             ${isPullPending ? '...' : `${actionIconSvg('pull')}<span>Pull</span>`}
           </button>
           <button
-            class="git-branch-action-btn"
+            class="ui-button ui-button--compact ui-pill-button btn btn-secondary git-branch-action-btn"
             type="button"
             data-git-sync-action="push"
             title="${hasUpstream ? 'Push local commits' : 'No upstream branch configured'}"

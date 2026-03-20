@@ -78,23 +78,11 @@
 }
 
 .diff-nav-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
-}
-
-.diff-nav-btn:hover {
-  background: var(--color-surface-offset);
-  color: var(--color-text);
+  flex-shrink: 0;
 }
 
 .diff-nav-btn:disabled {
   opacity: 0.3;
-  cursor: not-allowed;
 }
 
 .diff-file-indicator {

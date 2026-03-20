@@ -1197,7 +1197,7 @@ export class CommentUiController {
 
     const closeButton = document.createElement('button');
     closeButton.type = 'button';
-    closeButton.className = 'comment-card-close';
+    closeButton.className = 'ui-button ui-button--compact btn btn-ghost ui-pill-button comment-card-close';
     closeButton.setAttribute('aria-label', 'Close comments');
     closeButton.textContent = 'Close';
     closeButton.addEventListener('click', () => this.closeCard());
@@ -1410,13 +1410,13 @@ export class CommentUiController {
 
     const jump = document.createElement('button');
     jump.type = 'button';
-    jump.className = 'ui-pill-button comment-thread-card-action';
+    jump.className = 'ui-button ui-button--compact btn btn-ghost ui-pill-button comment-thread-card-action';
     jump.textContent = 'Jump';
     jump.addEventListener('click', () => this.onNavigateToLine?.(thread.anchor?.startLine ?? 1));
 
     const reply = document.createElement('button');
     reply.type = 'button';
-    reply.className = 'ui-pill-button comment-thread-card-action';
+    reply.className = 'ui-button ui-button--compact btn btn-ghost ui-pill-button comment-thread-card-action';
     const isReplying = this.activeCard?.replyThreadId === thread.id;
     reply.classList.toggle('is-active', isReplying);
     reply.textContent = 'Reply';
@@ -1433,7 +1433,7 @@ export class CommentUiController {
 
     const resolve = document.createElement('button');
     resolve.type = 'button';
-    resolve.className = 'ui-pill-button comment-thread-card-action is-danger';
+    resolve.className = 'ui-button ui-button--compact btn btn-ghost ui-pill-button comment-thread-card-action is-danger';
     resolve.textContent = 'Resolve';
     resolve.addEventListener('click', async () => {
       await this.onResolveThread?.(thread.id);
