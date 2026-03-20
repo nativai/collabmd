@@ -263,7 +263,7 @@
 .ui-floating-dock {
   border: var(--panel-border-width) solid var(--color-divider);
   border-radius: calc(var(--radius-lg) + 2px);
-  background: color-mix(in srgb, var(--color-surface) 84%, var(--color-surface-offset) 16%);
+  background: var(--surface-overlay);
   box-shadow: var(--shadow-lg);
   backdrop-filter: blur(14px);
 }

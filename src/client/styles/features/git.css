@@ -220,7 +220,7 @@
 }
 
 .git-file-row.active .ui-action-icon--surface {
-  background: color-mix(in oklab, var(--color-surface) 30%, var(--color-primary-highlight));
+  background: var(--surface-accent-subtle);
   color: var(--color-text);
 }
 

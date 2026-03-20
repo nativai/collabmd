@@ -57,22 +57,22 @@
 
 .ui-status-badge--success {
   color: var(--color-success);
-  background: color-mix(in oklab, var(--color-success) 14%, transparent);
+  background: var(--surface-success-soft);
 }
 
 .ui-status-badge--warning {
   color: var(--color-warning);
-  background: color-mix(in oklab, var(--color-warning) 14%, transparent);
+  background: var(--surface-warning-soft);
 }
 
 .ui-status-badge--danger {
   color: var(--color-error);
-  background: color-mix(in oklab, var(--color-error) 14%, transparent);
+  background: var(--surface-danger-soft);
 }
 
 .ui-status-badge--accent {
   color: var(--color-primary);
-  background: color-mix(in oklab, var(--color-primary) 16%, transparent);
+  background: var(--surface-accent-soft);
 }
 
 .ui-status-badge--muted {
@@ -140,12 +140,12 @@
 }
 
 .ui-chip-button--comment {
-  --ui-chip-border: color-mix(in srgb, var(--color-divider) 88%, var(--color-comment) 12%);
-  --ui-chip-bg: color-mix(in srgb, var(--color-surface) 90%, var(--color-comment) 10%);
+  --ui-chip-border: var(--border-comment-muted);
+  --ui-chip-bg: var(--surface-comment-offset);
   --ui-chip-border-hover: oklch(from var(--color-comment) l c h / 0.22);
-  --ui-chip-bg-hover: color-mix(in srgb, var(--color-surface-offset) 76%, var(--color-comment) 24%);
+  --ui-chip-bg-hover: var(--surface-comment-offset-active);
   --ui-chip-border-active: oklch(from var(--color-comment) l c h / 0.28);
-  --ui-chip-bg-active: color-mix(in srgb, var(--color-surface-offset) 64%, var(--color-comment) 36%);
+  --ui-chip-bg-active: var(--surface-comment-selection);
   --ui-chip-color-active: var(--color-comment);
 }
 
@@ -176,13 +176,13 @@
 }
 
 .ui-icon-chip--comment {
-  --ui-icon-chip-border: color-mix(in srgb, var(--color-divider) 88%, var(--color-comment) 12%);
-  --ui-icon-chip-bg: color-mix(in srgb, var(--color-surface-2) 92%, var(--color-comment) 8%);
+  --ui-icon-chip-border: var(--border-comment-muted);
+  --ui-icon-chip-bg: var(--surface-comment-subtle-strong);
 }
 
 .ui-icon-chip--comment:hover {
   border-color: oklch(from var(--color-comment) l c h / 0.24);
-  background: color-mix(in srgb, var(--color-surface-offset) 78%, var(--color-comment) 22%);
+  background: var(--surface-comment-offset-active);
 }
 
 .ui-state-marker {
@@ -250,15 +250,15 @@
 
 .ui-state-marker--comment {
   --ui-marker-border: oklch(from var(--color-comment) l c h / 0.24);
-  --ui-marker-bg: color-mix(in srgb, var(--color-surface) 68%, var(--color-comment) 32%);
+  --ui-marker-bg: var(--surface-comment-offset-active);
   --ui-marker-color: var(--color-comment);
   --ui-marker-border-active: oklch(from var(--color-comment) l c h / 0.32);
-  --ui-marker-bg-active: color-mix(in srgb, var(--color-surface) 42%, var(--color-comment) 58%);
+  --ui-marker-bg-active: var(--surface-comment-selection);
   --ui-marker-color-active: var(--color-text-inverse);
   --ui-marker-border-passive: oklch(from var(--color-comment) l c h / 0.16);
-  --ui-marker-bg-passive: color-mix(in srgb, var(--color-surface) 76%, var(--color-comment) 24%);
+  --ui-marker-bg-passive: var(--surface-comment-offset-soft);
   --ui-marker-border-hover: oklch(from var(--color-comment) l c h / 0.28);
-  --ui-marker-bg-hover: color-mix(in srgb, var(--color-surface) 56%, var(--color-comment) 44%);
+  --ui-marker-bg-hover: var(--surface-comment-offset-strong);
   --ui-marker-color-hover: var(--color-text-inverse);
 }
 
@@ -284,6 +284,6 @@
 
 .ui-selection-pill--comment {
   border-color: oklch(from var(--color-comment) l c h / 0.22);
-  background: color-mix(in srgb, var(--color-surface) 25%, var(--color-comment) 75%);
+  background: var(--surface-comment-selection);
   color: var(--color-text-inverse);
 }

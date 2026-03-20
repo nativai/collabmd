@@ -169,24 +169,13 @@
   padding: 12px 14px;
   border-width: 1px;
   border-style: solid;
-  border-color: color-mix(in oklab, #f59e0b 78%, white 10%);
+  border-color: var(--border-warning-toast);
   border-left-width: 4px;
-  background:
-    linear-gradient(135deg, color-mix(in oklab, #f59e0b 32%, transparent), color-mix(in oklab, var(--color-surface) 86%, #0b1022 14%) 42%),
-    color-mix(in oklab, var(--color-surface) 74%, #1b1320 26%);
-  color: color-mix(in oklab, white 92%, #fef3c7 8%);
+  background: var(--surface-warning-toast);
+  color: var(--text-warning-toast);
   font-size: var(--text-ui-sm);
   font-weight: 600;
-  box-shadow: 0 18px 34px rgb(0 0 0 / 0.38), 0 0 0 1px color-mix(in oklab, #f59e0b 18%, transparent);
-}
-
-:root[data-theme="light"] .chat-toast-container .toast {
-  border-color: color-mix(in oklab, #f59e0b 84%, #b45309 16%);
-  background:
-    linear-gradient(135deg, color-mix(in oklab, #fcd34d 42%, white 58%), color-mix(in oklab, white 94%, #fff7ed 6%) 42%),
-    #fff8e7;
-  color: #422006;
-  box-shadow: 0 16px 30px rgb(84 46 10 / 0.18), 0 0 0 1px rgb(245 158 11 / 0.12);
+  box-shadow: var(--shadow-warning-toast);
 }
 
 .chat-panel-header {
@@ -214,7 +203,7 @@
 
 .chat-notification-action.is-enabled {
   border-color: oklch(from var(--color-success) l c h / 0.45);
-  background: oklch(from var(--color-success) l c h / 0.12);
+  background: var(--surface-success-soft);
   color: var(--color-success);
 }
 

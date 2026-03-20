@@ -4,7 +4,7 @@
   width: min(300px, 34vw);
   min-width: 240px;
   border-left: 1px solid var(--color-divider);
-  background: linear-gradient(180deg, oklch(from var(--color-comment) l c h / 0.035), transparent 120px), color-mix(in srgb, var(--color-surface) 96%, var(--color-comment) 4%);
+  background: var(--surface-comment-shell);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -14,7 +14,7 @@
 .comments-drawer-header {
   padding: var(--space-4);
   border-bottom: 1px solid var(--color-divider);
-  background: color-mix(in srgb, var(--color-surface) 97%, var(--color-comment) 3%);
+  background: var(--surface-comment-shell-header);
 }
 
 .comments-drawer-title {
@@ -43,14 +43,14 @@
   --ui-record-padding: var(--space-4);
   --ui-record-gap: var(--space-3);
   --ui-record-radius: calc(var(--radius-lg) + 4px);
-  --ui-record-border: color-mix(in srgb, var(--color-divider) 90%, var(--color-comment) 10%);
-  --ui-record-bg: linear-gradient(180deg, oklch(from var(--color-comment) l c h / 0.028), transparent 70%), color-mix(in srgb, var(--color-surface-2) 95%, var(--color-comment) 5%);
+  --ui-record-border: var(--border-comment-soft);
+  --ui-record-bg: var(--surface-comment-record);
   --ui-record-border-hover: oklch(from var(--color-comment) l c h / 0.18);
-  --ui-record-bg-hover: linear-gradient(180deg, oklch(from var(--color-comment) l c h / 0.042), transparent 70%), color-mix(in srgb, var(--color-surface-2) 92%, var(--color-comment) 8%);
+  --ui-record-bg-hover: var(--surface-comment-record-hover);
   --ui-record-shadow-hover: var(--shadow-md);
-  --ui-record-border-active: color-mix(in srgb, var(--color-border) 78%, var(--color-comment) 22%);
-  --ui-record-bg-active: linear-gradient(180deg, oklch(from var(--color-comment) l c h / 0.055), transparent 72%), color-mix(in srgb, var(--color-surface-2) 90%, var(--color-comment) 10%);
-  --ui-record-shadow-active: 0 0 0 1px oklch(from var(--color-comment) l c h / 0.14);
+  --ui-record-border-active: var(--border-comment-active);
+  --ui-record-bg-active: var(--surface-comment-record-active);
+  --ui-record-shadow-active: var(--shadow-comment-outline);
   --ui-record-hover-transform: translateY(-1px);
 }
 
@@ -77,9 +77,9 @@
   overflow-wrap: anywhere;
   padding: var(--space-3);
   padding-bottom: calc(var(--space-3) + 2px);
-  border: 1px solid color-mix(in srgb, var(--color-divider) 90%, var(--color-comment) 10%);
+  border: 1px solid var(--border-comment-soft);
   border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--color-surface-offset) 90%, var(--color-comment) 10%);
+  background: var(--surface-comment-offset);
   color: var(--color-text-muted);
   white-space: pre-wrap;
   word-break: break-word;
@@ -101,7 +101,7 @@
   position: absolute;
   inset: auto 0 0 0;
   height: 2.5rem;
-  background: linear-gradient(180deg, oklch(0 0 0 / 0), color-mix(in srgb, var(--color-surface-2) 95%, var(--color-comment) 5%));
+  background: var(--surface-comment-preview-fade);
   pointer-events: none;
 }
 
@@ -168,13 +168,13 @@
 .comment-preview-highlight.is-hovered {
   opacity: 0.72;
   border-color: oklch(from var(--color-comment) l c h / 0.24);
-  background: color-mix(in srgb, var(--color-comment-soft) 74%, var(--color-comment) 26%);
+  background: var(--surface-comment-highlight-hover);
 }
 
 .comment-preview-highlight.is-active {
   opacity: 0.9;
   border-color: oklch(from var(--color-comment) l c h / 0.3);
-  background: color-mix(in srgb, var(--color-comment-soft) 62%, var(--color-comment) 38%);
+  background: var(--surface-comment-highlight-active);
 }
 
 .comment-card-root {
@@ -190,9 +190,9 @@
   max-height: min(78vh, 720px);
   overflow: hidden;
   padding: var(--space-4);
-  border: 1px solid color-mix(in srgb, var(--color-border) 82%, var(--color-comment) 18%);
+  border: 1px solid var(--border-comment-strong);
   border-radius: var(--radius-xl-plus);
-  background: color-mix(in srgb, var(--color-surface) 94%, var(--color-comment) 6%);
+  background: var(--surface-comment-card);
   box-shadow: 0 20px 56px oklch(0 0 0 / 0.24);
   animation: comment-card-in 140ms cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -228,7 +228,7 @@
 .comment-card-close,
 .comment-thread-card-action {
   border: 1px solid transparent;
-  background: color-mix(in srgb, var(--color-surface-offset) 88%, var(--color-comment) 12%);
+  background: var(--surface-comment-offset-soft);
   color: var(--color-text-muted);
   transition: color var(--transition-interactive), background var(--transition-interactive), border-color var(--transition-interactive);
 }
@@ -241,7 +241,7 @@
 
 .comment-thread-card-action.is-active {
   border-color: oklch(from var(--color-comment) l c h / 0.2);
-  background: color-mix(in srgb, var(--color-surface-offset) 72%, var(--color-comment) 28%);
+  background: var(--surface-comment-offset-active);
   color: var(--color-text);
 }
 
@@ -252,9 +252,9 @@
 .comment-card-quote,
 .comment-thread-card-excerpt {
   padding: var(--space-2) var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--color-divider) 88%, var(--color-comment) 12%);
+  border: 1px solid var(--border-comment-muted);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--color-surface-offset) 90%, var(--color-comment) 10%);
+  background: var(--surface-comment-offset);
   color: var(--color-text-muted);
   font-size: var(--text-label);
 }
@@ -328,9 +328,9 @@
 
 .comment-message-card {
   padding: var(--space-2) var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--color-divider) 90%, var(--color-comment) 10%);
+  border: 1px solid var(--border-comment-soft);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--color-surface-2) 92%, var(--color-comment) 8%);
+  background: var(--surface-comment-subtle-strong);
 }
 
 .comment-message-card-body {
@@ -382,9 +382,9 @@
   min-width: 220px;
   overflow: auto;
   padding: var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--color-border) 82%, var(--color-comment) 18%);
+  border: 1px solid var(--border-comment-strong);
   border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--color-surface) 96%, var(--color-comment) 4%);
+  background: var(--surface-comment-elevated);
   box-shadow: var(--shadow-lg);
   scrollbar-width: thin;
 }
@@ -452,14 +452,14 @@
   padding: var(--space-2) var(--space-3);
   border-left: 3px solid oklch(from var(--color-comment) l c h / 0.45);
   border-radius: 0 var(--radius-md) var(--radius-md) 0;
-  background: color-mix(in srgb, var(--color-surface-offset) 84%, var(--color-comment) 16%);
+  background: var(--surface-comment-offset-strong);
   color: var(--color-text-muted);
 }
 
 .comment-markdown code {
   padding: 2px 6px;
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--color-surface-offset) 88%, var(--color-comment) 12%);
+  background: var(--surface-comment-offset-soft);
   color: var(--color-primary);
   font-family: var(--font-mono);
   font-size: 0.9em;
@@ -468,9 +468,9 @@
 .comment-markdown pre {
   max-width: 100%;
   overflow: auto;
-  border: 1px solid color-mix(in srgb, var(--color-divider) 88%, var(--color-comment) 12%);
+  border: 1px solid var(--border-comment-muted);
   border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--color-surface) 96%, var(--color-comment) 4%);
+  background: var(--surface-comment-elevated);
 }
 
 .comment-markdown pre code {
@@ -487,7 +487,7 @@
 
 .comment-markdown .comment-markdown-table {
   overflow: auto;
-  border: 1px solid color-mix(in srgb, var(--color-divider) 88%, var(--color-comment) 12%);
+  border: 1px solid var(--border-comment-muted);
   border-radius: var(--radius-md);
 }
 
@@ -505,7 +505,7 @@
 }
 
 .comment-markdown th {
-  background: color-mix(in srgb, var(--color-surface-offset) 90%, var(--color-comment) 10%);
+  background: var(--surface-comment-offset);
 }
 
 .comment-markdown-preview > :not(pre):not(blockquote):not(.comment-markdown-table) {

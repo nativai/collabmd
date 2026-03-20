@@ -33,7 +33,7 @@
   padding: 3px;
   border: 1px solid var(--color-divider);
   border-radius: var(--radius-lg);
-  background: color-mix(in oklab, var(--color-surface) 78%, transparent);
+  background: var(--surface-overlay);
   box-shadow: var(--shadow-sheet-inset);
 }
 
@@ -165,10 +165,10 @@
 .diff-index-item {
   --ui-record-padding: 8px 9px;
   --ui-record-gap: 4px;
-  --ui-record-border: color-mix(in oklab, var(--color-border) 80%, transparent);
+  --ui-record-border: var(--color-border);
   --ui-record-bg: var(--surface-overlay-offset);
-  --ui-record-border-hover: color-mix(in oklab, var(--color-border) 80%, transparent);
-  --ui-record-bg-hover: color-mix(in oklab, var(--color-surface-offset-2) 88%, transparent);
+  --ui-record-border-hover: var(--color-border);
+  --ui-record-bg-hover: var(--surface-fill-strong);
   --ui-record-border-active: var(--border-accent-strong);
   --ui-record-bg-active: var(--surface-accent-subtle);
   --ui-record-shadow-active: var(--shadow-accent-inset);
@@ -222,12 +222,12 @@
   gap: var(--space-3);
   width: 100%;
   padding: 10px 14px;
-  background: color-mix(in oklab, var(--color-surface-offset) 78%, transparent);
+  background: var(--surface-overlay-offset);
   text-align: left;
 }
 
 .diff-commit-section-header:hover {
-  background: color-mix(in oklab, var(--color-surface-offset-2) 82%, transparent);
+  background: var(--surface-fill-strong);
 }
 
 .diff-commit-section-main,
@@ -416,13 +416,13 @@
 .diff-highlight-add {
   padding: 0 1px;
   border-radius: var(--radius-2xs);
-  background: color-mix(in oklab, var(--diff-add-text) 24%, transparent);
+  background: var(--diff-add-line-bg);
 }
 
 .diff-highlight-del {
   padding: 0 1px;
   border-radius: var(--radius-2xs);
-  background: color-mix(in oklab, var(--diff-del-text) 24%, transparent);
+  background: var(--diff-del-line-bg);
 }
 
 .diff-split {
