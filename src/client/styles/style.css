@@ -2,7 +2,10 @@
 @import './foundation/themes.css';
 @import './foundation/utilities.css';
 @import './primitives/controls.css';
-@import './layout/core.css';
+@import './layout/overlays.css';
+@import './layout/sidebar.css';
+@import './layout/editor-page.css';
+@import './layout/shell.css';
 @import './features/git.css';
 @import './features/diff.css';
 @import './features/collaboration-ui.css';
