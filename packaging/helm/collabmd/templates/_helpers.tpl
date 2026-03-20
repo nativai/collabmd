@@ -97,3 +97,10 @@ app.kubernetes.io/name: {{ include "collabmd.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: plantuml
 {{- end }}
+
+{{/*
+Inline chart-managed secret name.
+*/}}
+{{- define "collabmd.secretName" -}}
+{{ include "collabmd.fullname" . }}
+{{- end }}

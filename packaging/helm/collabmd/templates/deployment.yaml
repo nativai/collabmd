@@ -34,6 +34,15 @@ spec:
       {{- end }}
       containers:
         - name: {{ include "collabmd.containerName" . }}
+          {{- $passwordSecretName := default (include "collabmd.secretName" .) .Values.auth.password.existingSecret }}
+          {{- $passwordSecretKey := default "AUTH_PASSWORD" .Values.auth.password.existingSecretKey }}
+          {{- $sessionSecretName := default (include "collabmd.secretName" .) .Values.auth.sessionSecret.existingSecret }}
+          {{- $sessionSecretKey := default "AUTH_SESSION_SECRET" .Values.auth.sessionSecret.existingSecretKey }}
+          {{- $oidcSecretName := default (include "collabmd.secretName" .) .Values.auth.oidc.existingSecret }}
+          {{- $oidcClientIdKey := default "AUTH_OIDC_CLIENT_ID" .Values.auth.oidc.clientIdKey }}
+          {{- $oidcClientSecretKey := default "AUTH_OIDC_CLIENT_SECRET" .Values.auth.oidc.clientSecretKey }}
+          {{- $gitSshSecretName := default (include "collabmd.secretName" .) .Values.git.ssh.existingSecret }}
+          {{- $gitSshSecretKey := default "COLLABMD_GIT_SSH_PRIVATE_KEY_B64" .Values.git.ssh.existingSecretKey }}
           image: "{{ .Values.image.repository }}:{{ include "collabmd.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
@@ -43,8 +52,32 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "collabmd.fullname" . }}
-            - secretRef:
-                name: {{ include "collabmd.fullname" . }}
+          env:
+            - name: AUTH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $passwordSecretName }}
+                  key: {{ $passwordSecretKey }}
+            - name: AUTH_SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $sessionSecretName }}
+                  key: {{ $sessionSecretKey }}
+            - name: AUTH_OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $oidcSecretName }}
+                  key: {{ $oidcClientIdKey }}
+            - name: AUTH_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $oidcSecretName }}
+                  key: {{ $oidcClientSecretKey }}
+            - name: COLLABMD_GIT_SSH_PRIVATE_KEY_B64
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $gitSshSecretName }}
+                  key: {{ $gitSshSecretKey }}
           livenessProbe:
             httpGet:
               path: /health
@@ -64,6 +97,18 @@ spec:
           volumeMounts:
             - name: data
               mountPath: {{ .Values.persistence.mountPath }}
+            {{- if .Values.git.ssh.privateKeyFileSecret }}
+            - name: git-private-key
+              mountPath: {{ .Values.git.ssh.mountPaths.privateKeyFile }}
+              subPath: {{ .Values.git.ssh.privateKeyFileSecretKey }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.git.ssh.knownHostsSecret }}
+            - name: git-known-hosts
+              mountPath: {{ .Values.git.ssh.mountPaths.knownHostsFile }}
+              subPath: {{ .Values.git.ssh.knownHostsSecretKey }}
+              readOnly: true
+            {{- end }}
           {{- with .Values.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
@@ -78,6 +123,16 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        {{- if .Values.git.ssh.privateKeyFileSecret }}
+        - name: git-private-key
+          secret:
+            secretName: {{ .Values.git.ssh.privateKeyFileSecret }}
+        {{- end }}
+        {{- if .Values.git.ssh.knownHostsSecret }}
+        - name: git-known-hosts
+          secret:
+            secretName: {{ .Values.git.ssh.knownHostsSecret }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

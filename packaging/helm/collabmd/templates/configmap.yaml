@@ -20,7 +20,11 @@ data:
   WS_MAX_BUFFERED_AMOUNT_BYTES: {{ int64 .Values.config.wsMaxBufferedAmountBytes | quote }}
   WS_MAX_PAYLOAD_BYTES: {{ int64 .Values.config.wsMaxPayloadBytes | quote }}
   AUTH_STRATEGY: {{ .Values.auth.strategy | quote }}
+  AUTH_OIDC_ALLOWED_EMAILS: {{ .Values.auth.oidc.allowedEmails | quote }}
+  AUTH_OIDC_ALLOWED_DOMAINS: {{ .Values.auth.oidc.allowedDomains | quote }}
   COLLABMD_GIT_ENABLED: {{ ternary "true" "false" .Values.git.enabled | quote }}
   COLLABMD_GIT_REPO_URL: {{ .Values.git.repoUrl | quote }}
   COLLABMD_GIT_USER_NAME: {{ .Values.git.userName | quote }}
   COLLABMD_GIT_USER_EMAIL: {{ .Values.git.userEmail | quote }}
+  COLLABMD_GIT_SSH_PRIVATE_KEY_FILE: {{ ternary .Values.git.ssh.mountPaths.privateKeyFile "" (ne .Values.git.ssh.privateKeyFileSecret "") | quote }}
+  COLLABMD_GIT_SSH_KNOWN_HOSTS_FILE: {{ ternary .Values.git.ssh.mountPaths.knownHostsFile "" (ne .Values.git.ssh.knownHostsSecret "") | quote }}
