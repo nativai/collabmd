@@ -1,6 +1,7 @@
 import { escapeHtml } from '../domain/vault-utils.js';
 import { resolveApiUrl } from '../domain/runtime-paths.js';
 
+const HISTORY_PAGE_SIZE = 30;
 const REFRESH_INTERVAL_MS = 10_000;
 
 function getPathDir(pathValue) {
@@ -83,6 +84,11 @@ function renderBranchMetrics(summary = {}, branch = {}) {
   return '<span class="git-sync-info git-sync-info-muted">Clean</span>';
 }
 
+function renderHistoryRowTitle(commit = {}) {
+  const subject = String(commit.subject || '').trim() || commit.shortHash || 'Commit';
+  return escapeHtml(subject);
+}
+
 export class GitPanelController {
   constructor({
     enabled = true,
@@ -92,6 +98,7 @@ export class GitPanelController {
     onPushBranch = () => {},
     onRepoChange = () => {},
     onResetFile = () => {},
+    onSelectCommit = () => {},
     onSelectDiff = () => {},
     onStageFile = () => {},
     onUnstageFile = () => {},
@@ -106,6 +113,7 @@ export class GitPanelController {
     this.onPushBranch = onPushBranch;
     this.onRepoChange = onRepoChange;
     this.onResetFile = onResetFile;
+    this.onSelectCommit = onSelectCommit;
     this.onSelectDiff = onSelectDiff;
     this.onStageFile = onStageFile;
     this.onUnstageFile = onUnstageFile;
@@ -118,22 +126,65 @@ export class GitPanelController {
     this.active = false;
     this.refreshTimer = null;
     this.searchQuery = '';
+    this.panelMode = 'changes';
     this.collapsedSections = new Set();
     this.selection = {
+      commitHash: null,
       path: null,
       scope: null,
+      source: 'workspace',
     };
     this.pendingActionKey = null;
+    this.history = {
+      commits: [],
+      error: '',
+      hasMore: false,
+      loaded: false,
+      loading: false,
+      loadingMore: false,
+      offset: 0,
+    };
   }
 
   initialize() {
     this.panel?.addEventListener('click', (event) => {
+      const modeButton = event.target instanceof Element
+        ? event.target.closest('[data-git-panel-mode]')
+        : null;
+      if (modeButton) {
+        const nextMode = modeButton.getAttribute('data-git-panel-mode');
+        if (nextMode === 'changes' || nextMode === 'history') {
+          void this.setMode(nextMode);
+        }
+        return;
+      }
+
       const toggleButton = event.target instanceof Element
         ? event.target.closest('[data-git-section-toggle]')
         : null;
       if (toggleButton) {
         const sectionKey = toggleButton.getAttribute('data-git-section-toggle');
         this.toggleSection(sectionKey);
+        return;
+      }
+
+      const historyButton = event.target instanceof Element
+        ? event.target.closest('[data-git-commit-hash]')
+        : null;
+      if (historyButton && !event.target.closest('[data-git-history-load-more]')) {
+        const hash = historyButton.getAttribute('data-git-commit-hash');
+        if (!hash) {
+          return;
+        }
+        this.onSelectCommit(hash, { path: this.selection.commitHash === hash ? this.selection.path : null });
+        return;
+      }
+
+      const loadMoreButton = event.target instanceof Element
+        ? event.target.closest('[data-git-history-load-more]')
+        : null;
+      if (loadMoreButton) {
+        void this.loadMoreHistory();
         return;
       }
 
@@ -210,31 +261,71 @@ export class GitPanelController {
       this.searchQuery = String(event.target?.value ?? '').trim().toLowerCase();
       this.render();
     });
+    this.syncSearchUi();
   }
 
   setActive(active) {
     const nextActive = Boolean(active);
-    if (this.active === nextActive && (!nextActive || this.refreshTimer)) {
+    if (this.active === nextActive && (!nextActive || this.refreshTimer || this.panelMode === 'history')) {
       return;
     }
 
     this.active = nextActive;
     if (!this.active) {
-      clearInterval(this.refreshTimer);
-      this.refreshTimer = null;
+      this.stopStatusPolling();
       return;
     }
 
-    void this.refresh();
-    if (!this.refreshTimer) {
-      this.refreshTimer = setInterval(() => {
-        void this.refresh();
-      }, REFRESH_INTERVAL_MS);
+    this.syncSearchUi();
+    void this.refresh({ force: false, includeHistory: this.panelMode === 'history' });
+    if (this.panelMode === 'changes') {
+      this.ensureStatusPolling();
+    } else {
+      this.stopStatusPolling();
     }
   }
 
-  setSelection({ path = null, scope = null } = {}) {
-    this.selection = { path, scope };
+  async setMode(mode, { forceHistoryRefresh = false } = {}) {
+    const normalizedMode = mode === 'history' ? 'history' : 'changes';
+    const modeChanged = this.panelMode !== normalizedMode;
+    this.panelMode = normalizedMode;
+    this.syncSearchUi();
+    this.render();
+
+    if (!this.active) {
+      return;
+    }
+
+    if (this.panelMode === 'changes') {
+      this.ensureStatusPolling();
+      if (modeChanged) {
+        await this.refresh({ force: false, includeHistory: false });
+      }
+      return;
+    }
+
+    this.stopStatusPolling();
+    if (forceHistoryRefresh || modeChanged || !this.history.loaded) {
+      await this.refreshHistory({ force: forceHistoryRefresh || modeChanged });
+    }
+  }
+
+  setSelection({
+    commitHash = null,
+    path = null,
+    scope = null,
+    source = 'workspace',
+  } = {}) {
+    this.selection = {
+      commitHash,
+      path,
+      scope,
+      source,
+    };
+    if (source === 'commit' || commitHash) {
+      this.panelMode = 'history';
+      this.syncSearchUi();
+    }
     this.render();
   }
 
@@ -251,7 +342,43 @@ export class GitPanelController {
     this.render();
   }
 
-  async refresh({ force = false } = {}) {
+  ensureStatusPolling() {
+    if (this.refreshTimer || !this.active || this.panelMode !== 'changes') {
+      return;
+    }
+    this.refreshTimer = setInterval(() => {
+      void this.refresh({ force: false, includeHistory: false });
+    }, REFRESH_INTERVAL_MS);
+  }
+
+  stopStatusPolling() {
+    clearInterval(this.refreshTimer);
+    this.refreshTimer = null;
+  }
+
+  syncSearchUi() {
+    if (!this.searchInput) {
+      return;
+    }
+    this.searchInput.setAttribute(
+      'placeholder',
+      this.panelMode === 'history' ? 'Filter loaded commits...' : 'Search changes...',
+    );
+    this.searchInput.setAttribute(
+      'aria-label',
+      this.panelMode === 'history' ? 'Filter loaded commits' : 'Search changed files',
+    );
+  }
+
+  async refresh({ force = false, includeHistory = this.panelMode === 'history' } = {}) {
+    const status = await this.refreshStatus({ force });
+    if (includeHistory && status.isGitRepo) {
+      await this.refreshHistory({ force });
+    }
+    return status;
+  }
+
+  async refreshStatus({ force = false } = {}) {
     if (!this.enabled) {
       this.status = {
         isGitRepo: false,
@@ -259,6 +386,16 @@ export class GitPanelController {
         summary: { changedFiles: 0 },
       };
       this.pullBackups = [];
+      this.history = {
+        ...this.history,
+        commits: [],
+        error: '',
+        hasMore: false,
+        loaded: false,
+        loading: false,
+        loadingMore: false,
+        offset: 0,
+      };
       this.onRepoChange(false, this.status);
       this.render();
       return this.status;
@@ -284,6 +421,17 @@ export class GitPanelController {
         } catch (backupError) {
           console.error('[git-panel] Failed to load pull backups:', backupError);
         }
+      } else {
+        this.history = {
+          ...this.history,
+          commits: [],
+          error: '',
+          hasMore: false,
+          loaded: false,
+          loading: false,
+          loadingMore: false,
+          offset: 0,
+        };
       }
       this.onRepoChange(Boolean(data.isGitRepo), data);
       this.render();
@@ -297,9 +445,141 @@ export class GitPanelController {
         summary: { changedFiles: 0 },
       };
       this.pullBackups = [];
+      this.history = {
+        ...this.history,
+        commits: [],
+        error: '',
+        hasMore: false,
+        loaded: false,
+        loading: false,
+        loadingMore: false,
+        offset: 0,
+      };
       this.onRepoChange(false, this.status);
       this.render();
       return this.status;
+    }
+  }
+
+  async refreshHistory({ force = false } = {}) {
+    if (!this.status?.isGitRepo) {
+      this.history = {
+        ...this.history,
+        commits: [],
+        error: '',
+        hasMore: false,
+        loaded: false,
+        loading: false,
+        loadingMore: false,
+        offset: 0,
+      };
+      this.render();
+      return this.history;
+    }
+
+    if (this.history.loading && !force) {
+      return this.history;
+    }
+
+    this.history = {
+      ...this.history,
+      error: '',
+      loading: true,
+      loadingMore: false,
+    };
+    if (force) {
+      this.history = {
+        ...this.history,
+        commits: [],
+        hasMore: false,
+        loaded: false,
+        offset: 0,
+      };
+    }
+    this.render();
+
+    try {
+      const query = new URLSearchParams();
+      query.set('limit', String(HISTORY_PAGE_SIZE));
+      query.set('offset', '0');
+      const response = await fetch(resolveApiUrl(`/git/history?${query.toString()}`));
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load git history');
+      }
+
+      this.history = {
+        commits: Array.isArray(data.commits) ? data.commits : [],
+        error: '',
+        hasMore: Boolean(data.hasMore),
+        loaded: true,
+        loading: false,
+        loadingMore: false,
+        offset: Array.isArray(data.commits) ? data.commits.length : 0,
+      };
+      this.render();
+      return this.history;
+    } catch (error) {
+      console.error('[git-panel] Failed to load git history:', error);
+      this.toastController?.show('Failed to load git history');
+      this.history = {
+        ...this.history,
+        error: 'Failed to load git history',
+        loading: false,
+        loadingMore: false,
+      };
+      this.render();
+      return this.history;
+    }
+  }
+
+  async loadMoreHistory() {
+    if (
+      !this.status?.isGitRepo
+      || this.history.loading
+      || this.history.loadingMore
+      || !this.history.hasMore
+    ) {
+      return;
+    }
+
+    this.history = {
+      ...this.history,
+      error: '',
+      loadingMore: true,
+    };
+    this.render();
+
+    try {
+      const query = new URLSearchParams();
+      query.set('limit', String(HISTORY_PAGE_SIZE));
+      query.set('offset', String(this.history.offset));
+      const response = await fetch(resolveApiUrl(`/git/history?${query.toString()}`));
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load git history');
+      }
+
+      const nextCommits = Array.isArray(data.commits) ? data.commits : [];
+      this.history = {
+        commits: [...this.history.commits, ...nextCommits],
+        error: '',
+        hasMore: Boolean(data.hasMore),
+        loaded: true,
+        loading: false,
+        loadingMore: false,
+        offset: this.history.offset + nextCommits.length,
+      };
+      this.render();
+    } catch (error) {
+      console.error('[git-panel] Failed to load more git history:', error);
+      this.toastController?.show('Failed to load git history');
+      this.history = {
+        ...this.history,
+        error: 'Failed to load git history',
+        loadingMore: false,
+      };
+      this.render();
     }
   }
 
@@ -311,6 +591,18 @@ export class GitPanelController {
     return files.filter((file) => (
       file.path.toLowerCase().includes(this.searchQuery)
       || String(file.oldPath || '').toLowerCase().includes(this.searchQuery)
+    ));
+  }
+
+  filterCommits(commits = []) {
+    if (!this.searchQuery) {
+      return commits;
+    }
+
+    return commits.filter((commit) => (
+      String(commit.subject || '').toLowerCase().includes(this.searchQuery)
+      || String(commit.shortHash || '').toLowerCase().includes(this.searchQuery)
+      || String(commit.authorName || '').toLowerCase().includes(this.searchQuery)
     ));
   }
 
@@ -439,7 +731,9 @@ export class GitPanelController {
   }
 
   renderFile(file) {
-    const isActive = this.selection.path === file.path && this.selection.scope === file.scope;
+    const isActive = this.selection.source === 'workspace'
+      && this.selection.path === file.path
+      && this.selection.scope === file.scope;
     const dirPath = getPathDir(file.path);
     const displayName = getPathLeaf(file.path);
     const statusClass = badgeClass(file.status);
@@ -496,6 +790,130 @@ export class GitPanelController {
     `;
   }
 
+  renderPanelModes() {
+    return `
+      <div class="git-panel-mode-switch" role="tablist" aria-label="Git panel modes">
+        <button
+          class="git-panel-mode-btn${this.panelMode === 'changes' ? ' active' : ''}"
+          type="button"
+          data-git-panel-mode="changes"
+          aria-selected="${this.panelMode === 'changes'}"
+        >
+          Changes
+        </button>
+        <button
+          class="git-panel-mode-btn${this.panelMode === 'history' ? ' active' : ''}"
+          type="button"
+          data-git-panel-mode="history"
+          aria-selected="${this.panelMode === 'history'}"
+        >
+          History
+        </button>
+      </div>
+    `;
+  }
+
+  renderHistoryRow(commit) {
+    const isActive = this.selection.source === 'commit' && this.selection.commitHash === commit.hash;
+    const fileCount = Number(commit.filesChanged || 0);
+
+    return `
+      <button
+        class="git-history-row${isActive ? ' active' : ''}"
+        type="button"
+        data-git-commit-hash="${escapeHtml(commit.hash || '')}"
+        title="${escapeHtml(commit.authoredAt || '')}"
+      >
+        <span class="git-history-row-top">
+          <span class="git-history-subject">${renderHistoryRowTitle(commit)}</span>
+          <span class="git-history-hash">${escapeHtml(commit.shortHash || '')}</span>
+        </span>
+        <span class="git-history-row-meta">
+          <span>${escapeHtml(commit.authorName || 'Unknown')}</span>
+          <span>${escapeHtml(commit.relativeDateLabel || '')}</span>
+          <span>${fileCount} file${fileCount === 1 ? '' : 's'}</span>
+          ${commit.isMergeCommit ? '<span>Merge</span>' : ''}
+        </span>
+        <span class="git-history-row-stats">
+          <span class="git-change-add">+${Number(commit.additions || 0)}</span>
+          <span class="git-change-del">-${Number(commit.deletions || 0)}</span>
+        </span>
+      </button>
+    `;
+  }
+
+  renderHistoryPanel() {
+    const commits = this.filterCommits(this.history.commits);
+
+    if (this.history.loading && !this.history.loaded) {
+      return '<div class="git-panel-empty">Loading git history...</div>';
+    }
+
+    if (this.history.error && !this.history.loaded) {
+      return `<div class="git-panel-empty">${escapeHtml(this.history.error)}</div>`;
+    }
+
+    if (this.history.loaded && commits.length === 0 && this.history.commits.length === 0) {
+      return '<div class="git-panel-empty">No commits yet on this branch.</div>';
+    }
+
+    if (this.history.loaded && commits.length === 0) {
+      return '<div class="git-panel-empty">No loaded commits match your filter.</div>';
+    }
+
+    return `
+      <div class="git-history-list">
+        ${commits.map((commit) => this.renderHistoryRow(commit)).join('')}
+      </div>
+      ${this.history.hasMore ? `
+        <div class="git-history-footer">
+          <button
+            class="git-history-load-more"
+            type="button"
+            data-git-history-load-more
+            ${this.history.loadingMore ? 'disabled' : ''}
+          >
+            ${this.history.loadingMore ? 'Loading...' : 'Load More'}
+          </button>
+        </div>
+      ` : ''}
+    `;
+  }
+
+  renderChangesPanel() {
+    const pullBackupsMarkup = this.renderPullBackupsSection();
+    const sectionMarkup = (this.status.sections ?? [])
+      .map((section) => this.renderSection(section))
+      .filter(Boolean)
+      .join('');
+    const hasChanges = Boolean(this.status.summary?.changedFiles);
+    const hasStagedChanges = Number(this.status.summary?.staged || 0) > 0;
+    const isCommitPending = this.pendingActionKey === 'commit-staged';
+
+    return `
+      ${pullBackupsMarkup}
+      ${sectionMarkup || '<div class="git-panel-empty">No local changes</div>'}
+      ${hasChanges ? `
+        <div class="git-panel-footer">
+          <div class="git-panel-footer-actions">
+            <button class="git-view-all-btn" type="button" data-git-view-all>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              View Full Diff
+            </button>
+            <button
+              class="git-footer-commit-btn"
+              type="button"
+              data-git-commit-staged
+              ${!hasStagedChanges || isCommitPending ? 'disabled' : ''}
+            >
+              ${isCommitPending ? 'Working...' : 'Commit Staged'}
+            </button>
+          </div>
+        </div>
+      ` : ''}
+    `;
+  }
+
   renderEmpty(message) {
     if (!this.panel) {
       return;
@@ -520,14 +938,6 @@ export class GitPanelController {
     }
 
     const branch = this.status.branch ?? {};
-    const pullBackupsMarkup = this.renderPullBackupsSection();
-    const sectionMarkup = (this.status.sections ?? [])
-      .map((section) => this.renderSection(section))
-      .filter(Boolean)
-      .join('');
-    const hasChanges = Boolean(this.status.summary?.changedFiles);
-    const hasStagedChanges = Number(this.status.summary?.staged || 0) > 0;
-    const isCommitPending = this.pendingActionKey === 'commit-staged';
     const hasUpstream = Boolean(branch.upstream);
     const isPullPending = this.pendingActionKey === 'sync:pull';
     const isPushPending = this.pendingActionKey === 'sync:push';
@@ -563,27 +973,9 @@ export class GitPanelController {
             ${isPushPending ? '...' : `${actionIconSvg('push')}<span>Push</span>`}
           </button>
         </div>
+        ${this.renderPanelModes()}
       </div>
-      ${pullBackupsMarkup}
-      ${sectionMarkup || '<div class="git-panel-empty">No local changes</div>'}
-      ${hasChanges ? `
-        <div class="git-panel-footer">
-          <div class="git-panel-footer-actions">
-            <button class="git-view-all-btn" type="button" data-git-view-all>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              View Full Diff
-            </button>
-            <button
-              class="git-footer-commit-btn"
-              type="button"
-              data-git-commit-staged
-              ${!hasStagedChanges || isCommitPending ? 'disabled' : ''}
-            >
-              ${isCommitPending ? 'Working...' : 'Commit Staged'}
-            </button>
-          </div>
-        </div>
-      ` : ''}
+      ${this.panelMode === 'history' ? this.renderHistoryPanel() : this.renderChangesPanel()}
     `;
   }
 }

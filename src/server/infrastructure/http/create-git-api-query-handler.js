@@ -18,6 +18,16 @@ function isTruthyParam(value) {
   return value === '1' || value === 'true';
 }
 
+function readHistoryLimit(value) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) ? parsed : 30;
+}
+
+function readHistoryOffset(value) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function handleGitError(req, res, error, message, fallback) {
   const statusCode = getRequestErrorStatusCode(error);
   if (statusCode) {
@@ -57,6 +67,32 @@ export function createGitApiQueryHandler({ gitService }) {
         }));
       } catch (error) {
         handleGitError(req, res, error, '[api] Failed to read git diff:', 'Failed to read git diff');
+      }
+      return true;
+    }
+
+    if (requestUrl.pathname === '/api/git/history' && req.method === 'GET') {
+      try {
+        jsonResponse(req, res, 200, await gitService.getHistory({
+          limit: readHistoryLimit(requestUrl.searchParams.get('limit')),
+          offset: readHistoryOffset(requestUrl.searchParams.get('offset')),
+        }));
+      } catch (error) {
+        handleGitError(req, res, error, '[api] Failed to read git history:', 'Failed to read git history');
+      }
+      return true;
+    }
+
+    if (requestUrl.pathname === '/api/git/commit' && req.method === 'GET') {
+      try {
+        jsonResponse(req, res, 200, await gitService.getCommit({
+          allowLargePatch: isTruthyParam(requestUrl.searchParams.get('allowLargePatch')),
+          hash: requestUrl.searchParams.get('hash'),
+          metaOnly: isTruthyParam(requestUrl.searchParams.get('metaOnly')),
+          path: requestUrl.searchParams.get('path'),
+        }));
+      } catch (error) {
+        handleGitError(req, res, error, '[api] Failed to read git commit:', 'Failed to read git commit');
       }
       return true;
     }

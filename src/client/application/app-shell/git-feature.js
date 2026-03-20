@@ -53,6 +53,22 @@ export const gitFeature = {
     this.navigation.navigateToGitDiff({ filePath, scope });
   },
 
+  handleGitCommitSelection(hash, { closeSidebarOnMobile = false, path = null } = {}) {
+    if (closeSidebarOnMobile) {
+      this.closeSidebarOnMobile();
+    }
+
+    this.navigation.navigateToGitCommit({ hash, path });
+  },
+
+  handleGitHistorySelection({ closeSidebarOnMobile = false } = {}) {
+    if (closeSidebarOnMobile) {
+      this.closeSidebarOnMobile();
+    }
+
+    this.navigation.navigateToGitHistory();
+  },
+
   handleGitRepoChange(isGitRepo, status = null) {
     this.gitRepoAvailable = Boolean(isGitRepo);
     this.elements.sidebarTabs?.classList.toggle('hidden', !this.gitRepoAvailable);
@@ -68,7 +84,12 @@ export const gitFeature = {
       return;
     }
 
-    if (this.gitRepoAvailable && this.navigation.getHashRoute().type === 'git-diff' && this.activeSidebarTab !== 'git') {
+    const routeType = this.navigation.getHashRoute().type;
+    if (
+      this.gitRepoAvailable
+      && (routeType === 'git-diff' || routeType === 'git-commit' || routeType === 'git-history')
+      && this.activeSidebarTab !== 'git'
+    ) {
       this.setSidebarTab('git');
     }
   },
@@ -86,13 +107,35 @@ export const gitFeature = {
   },
 
   async showGitDiff({ filePath = null, scope = 'all' } = {}) {
-    this.gitPanel.setSelection(filePath ? { path: filePath, scope } : {});
+    this.gitPanel.setSelection(filePath ? { path: filePath, scope, source: 'workspace' } : {});
+    this.gitPanel.setMode('changes');
     this.showDiffState();
     this.syncMainChrome({
       mode: 'diff',
       title: this.gitDiffView.getToolbarTitle({ filePath, scope }),
     });
-    await this.gitDiffView.open({ filePath, scope });
+    await this.gitDiffView.openWorkspaceDiff({ filePath, scope });
+  },
+
+  async showGitCommit({ hash, path = null } = {}) {
+    this.gitPanel.setMode('history');
+    this.gitPanel.setSelection(hash ? { commitHash: hash, path, source: 'commit' } : { source: 'commit' });
+    this.showDiffState();
+    this.syncMainChrome({
+      mode: 'diff',
+      title: this.gitDiffView.getToolbarTitle({ commitHash: hash, path, source: 'commit' }),
+    });
+    await this.gitDiffView.openCommitDiff({ hash, path });
+  },
+
+  async showGitHistory() {
+    this.gitPanel.setMode('history');
+    this.gitPanel.setSelection({ source: 'commit' });
+    this.workspaceRouteController?.showEmptyState?.();
+    this.syncMainChrome({
+      mode: 'empty',
+      title: 'Git History',
+    });
   },
 
   async postGitAction(endpoint, payload) {
@@ -127,6 +170,16 @@ export const gitFeature = {
     await this.gitPanel.refresh({ force: true });
 
     const route = this.navigation.getHashRoute();
+    if (route.type === 'git-history') {
+      await this.showGitHistory();
+      return;
+    }
+
+    if (route.type === 'git-commit') {
+      await this.showGitCommit({ hash: route.hash, path: route.path });
+      return;
+    }
+
     if (route.type !== 'git-diff') {
       return;
     }

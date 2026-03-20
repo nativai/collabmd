@@ -609,6 +609,35 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
   width: 100%;
 }
 
+.git-panel-mode-switch {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--color-surface-offset);
+}
+
+.git-panel-mode-btn {
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  transition: background var(--transition-interactive), color var(--transition-interactive), box-shadow var(--transition-interactive);
+}
+
+.git-panel-mode-btn:hover {
+  color: var(--color-text);
+}
+
+.git-panel-mode-btn.active {
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+}
+
 .git-branch-action-btn {
   display: inline-flex;
   align-items: center;
@@ -919,6 +948,111 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
   color: var(--color-text-faint);
   font-size: var(--text-xs);
   text-align: center;
+}
+
+.git-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--space-2);
+}
+
+.git-history-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--color-surface) 86%, transparent);
+  color: var(--color-text-muted);
+  text-align: left;
+  transition: border-color var(--transition-interactive), background var(--transition-interactive), transform var(--transition-interactive);
+}
+
+.git-history-row:hover {
+  background: var(--color-surface-offset);
+  border-color: color-mix(in oklab, var(--color-primary) 24%, var(--color-border));
+  color: var(--color-text);
+}
+
+.git-history-row.active {
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--color-surface));
+  border-color: color-mix(in oklab, var(--color-primary) 40%, var(--color-border));
+  color: var(--color-text);
+}
+
+.git-history-row-top,
+.git-history-row-meta,
+.git-history-row-stats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.git-history-row-top {
+  justify-content: space-between;
+}
+
+.git-history-subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.git-history-hash {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-offset-2);
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.git-history-row-meta {
+  color: var(--color-text-faint);
+  font-size: 11px;
+}
+
+.git-history-row-stats {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.git-history-footer {
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.git-history-load-more {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-offset);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  transition: background var(--transition-interactive), color var(--transition-interactive);
+}
+
+.git-history-load-more:hover:not(:disabled) {
+  background: var(--color-surface-dynamic);
+  color: var(--color-text);
+}
+
+.git-history-load-more:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* Context menu */
@@ -1286,6 +1420,10 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
   cursor: not-allowed;
 }
 
+.diff-back-btn {
+  min-width: 130px;
+}
+
 .diff-file-nav {
   display: flex;
   align-items: center;
@@ -1342,6 +1480,38 @@ html[data-initial-file-requested="true"] .editor-page.hidden {
 
 .diff-content {
   min-width: fit-content;
+}
+
+.diff-commit-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--color-primary) 8%, var(--color-surface)), var(--color-surface));
+}
+
+.diff-commit-subject {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--color-text);
+}
+
+.diff-commit-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.diff-commit-meta-secondary {
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
 .diff-file-block {

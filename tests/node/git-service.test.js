@@ -23,6 +23,21 @@ async function runGit(cwd, args) {
   });
 }
 
+async function runGitOutput(cwd, args) {
+  const result = await execFile('git', args, {
+    cwd,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_EMAIL: 'tests@example.com',
+      GIT_AUTHOR_NAME: 'CollabMD Tests',
+      GIT_COMMITTER_EMAIL: 'tests@example.com',
+      GIT_COMMITTER_NAME: 'CollabMD Tests',
+    },
+  });
+
+  return String(result.stdout ?? '').trim();
+}
+
 async function createFixtureRepository() {
   const repoDir = await mkdtemp(join(tmpdir(), 'collabmd-git-service-'));
 
@@ -670,6 +685,95 @@ test('GitService reset deletes files that do not exist on the current branch HEA
 
   await assert.rejects(stat(join(repoDir, 'local-only.md')));
   assert.deepEqual(resetResult.workspaceChange.deletedPaths, ['local-only.md']);
+});
+
+test('GitService lists current-branch history summaries without patch payloads', async (t) => {
+  const repoDir = await mkdtemp(join(tmpdir(), 'collabmd-git-history-'));
+  t.after(async () => {
+    await rm(repoDir, { force: true, recursive: true });
+  });
+
+  await runGit(repoDir, ['init']);
+  await runGit(repoDir, ['config', 'user.email', 'tests@example.com']);
+  await runGit(repoDir, ['config', 'user.name', 'CollabMD Tests']);
+  await writeFile(join(repoDir, 'tracked.md'), '# One\n', 'utf8');
+  await runGit(repoDir, ['add', 'tracked.md']);
+  await runGit(repoDir, ['commit', '-m', 'Initial commit']);
+  await writeFile(join(repoDir, 'tracked.md'), '# Two\nupdated\n', 'utf8');
+  await runGit(repoDir, ['add', 'tracked.md']);
+  await runGit(repoDir, ['commit', '-m', 'Second commit']);
+
+  const gitService = new GitService({ vaultDir: repoDir });
+  const history = await gitService.getHistory({ limit: 10, offset: 0 });
+
+  assert.equal(history.isGitRepo, true);
+  assert.equal(history.commits.length, 2);
+  assert.equal(history.commits[0].subject, 'Second commit');
+  assert.equal(history.commits[0].filesChanged, 1);
+  assert.equal('hunks' in history.commits[0], false);
+});
+
+test('GitService returns root commit metadata and file-scoped commit diffs', async (t) => {
+  const repoDir = await mkdtemp(join(tmpdir(), 'collabmd-git-commit-detail-'));
+  t.after(async () => {
+    await rm(repoDir, { force: true, recursive: true });
+  });
+
+  await runGit(repoDir, ['init']);
+  await runGit(repoDir, ['config', 'user.email', 'tests@example.com']);
+  await runGit(repoDir, ['config', 'user.name', 'CollabMD Tests']);
+  await writeFile(join(repoDir, 'tracked.md'), '# Root\n\nhello\n', 'utf8');
+  await runGit(repoDir, ['add', 'tracked.md']);
+  await runGit(repoDir, ['commit', '-m', 'Initial commit']);
+  const rootHash = await runGitOutput(repoDir, ['rev-parse', 'HEAD']);
+
+  const gitService = new GitService({ vaultDir: repoDir });
+  const metadata = await gitService.getCommit({ hash: rootHash, metaOnly: true });
+  assert.equal(metadata.source, 'commit');
+  assert.equal(metadata.commit.hash, rootHash);
+  assert.equal(metadata.files.length, 1);
+  assert.equal(metadata.files[0].path, 'tracked.md');
+  assert.equal(Array.isArray(metadata.files[0].hunks), false);
+
+  const detail = await gitService.getCommit({ hash: rootHash, path: 'tracked.md' });
+  assert.equal(detail.files.length, 1);
+  assert.equal(detail.files[0].path, 'tracked.md');
+  assert.equal(detail.files[0].status, 'added');
+  assert.equal(detail.files[0].hunks.length > 0, true);
+});
+
+test('GitService guards large commit file diffs and deduplicates repeated identical requests', async (t) => {
+  const repoDir = await mkdtemp(join(tmpdir(), 'collabmd-git-commit-guarded-'));
+  t.after(async () => {
+    await rm(repoDir, { force: true, recursive: true });
+  });
+
+  await runGit(repoDir, ['init']);
+  await runGit(repoDir, ['config', 'user.email', 'tests@example.com']);
+  await runGit(repoDir, ['config', 'user.name', 'CollabMD Tests']);
+
+  const largeContent = Array.from({ length: 120 }, (_, index) => `line ${index + 1}`).join('\n');
+  await writeFile(join(repoDir, 'large.md'), `${largeContent}\n`, 'utf8');
+  await runGit(repoDir, ['add', 'large.md']);
+  await runGit(repoDir, ['commit', '-m', 'Add large file']);
+  const headHash = await runGitOutput(repoDir, ['rev-parse', 'HEAD']);
+
+  const counter = createCountingExecFileImpl();
+  const gitService = new GitService({
+    execFileImpl: counter.execFileImpl,
+    maxInitialPatchLines: 20,
+    vaultDir: repoDir,
+  });
+
+  const [first, second] = await Promise.all([
+    gitService.getCommit({ hash: headHash, path: 'large.md' }),
+    gitService.getCommit({ hash: headHash, path: 'large.md' }),
+  ]);
+
+  assert.equal(first.files[0].tooLarge, true);
+  assert.equal(first.files[0].canLoadFullPatch, true);
+  assert.deepEqual(first, second);
+  assert.equal(counter.calls.some((args) => args.includes(headHash)), true);
 });
 
 test('GitService passes configured command env to subprocesses', async () => {

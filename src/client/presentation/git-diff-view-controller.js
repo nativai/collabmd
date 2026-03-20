@@ -131,12 +131,14 @@ function renderSplitRow(leftLine, rightLine) {
 
 export class GitDiffViewController {
   constructor({
+    onBackToHistory = null,
     onCommitStaged = null,
     onOpenFile = null,
     onStageFile = null,
     onUnstageFile = null,
     toastController = null,
   } = {}) {
+    this.onBackToHistory = onBackToHistory;
     this.onCommitStaged = onCommitStaged;
     this.onOpenFile = onOpenFile;
     this.onStageFile = onStageFile;
@@ -149,16 +151,23 @@ export class GitDiffViewController {
     this.openEditorButton = document.getElementById('diffOpenEditorBtn');
     this.primaryActionButton = document.getElementById('diffPrimaryActionBtn');
     this.commitButton = document.getElementById('diffCommitBtn');
+    this.backToHistoryButton = document.getElementById('diffBackToHistoryBtn');
+    this.gitActionsGroup = document.getElementById('diffGitActionsGroup');
+    this.editorActionsGroup = document.getElementById('diffEditorActionsGroup');
+    this.actionsDivider = document.getElementById('diffToolbarDivider');
     this.stats = document.getElementById('diffStats');
     this.prevButton = document.getElementById('diffPrevBtn');
     this.nextButton = document.getElementById('diffNextBtn');
     this.modeButtons = Array.from(document.querySelectorAll('[data-diff-mode]'));
     this.mode = 'unified';
+    this.source = 'workspace';
     this.data = null;
     this.currentIndex = 0;
     this.fileCache = new Map();
     this.loadingFilePath = null;
     this.requestScope = 'all';
+    this.commitHash = null;
+    this.commitMeta = null;
     this.pendingAction = null;
     this.repoStatus = null;
   }
@@ -166,7 +175,17 @@ export class GitDiffViewController {
   initialize() {
     this.prevButton?.addEventListener('click', () => this.navigateFile(-1));
     this.nextButton?.addEventListener('click', () => this.navigateFile(1));
+    this.backToHistoryButton?.addEventListener('click', () => {
+      if (!this.commitMeta?.hash) {
+        return;
+      }
+      this.onBackToHistory?.(this.commitMeta.hash);
+    });
     this.openEditorButton?.addEventListener('click', () => {
+      if (this.source !== 'workspace') {
+        return;
+      }
+
       const currentFile = this.getCurrentFile();
       if (!currentFile?.path) {
         return;
@@ -211,15 +230,22 @@ export class GitDiffViewController {
       this.content.innerHTML = '';
     }
     this.data = null;
+    this.source = 'workspace';
     this.currentIndex = 0;
     this.fileCache.clear();
     this.loadingFilePath = null;
+    this.requestScope = 'all';
+    this.commitHash = null;
+    this.commitMeta = null;
     this.pendingAction = null;
     this.repoStatus = null;
     this.syncToolbar();
   }
 
-  async open({ filePath = null, scope = 'all' } = {}) {
+  async openWorkspaceDiff({ filePath = null, scope = 'all' } = {}) {
+    this.source = 'workspace';
+    this.commitHash = null;
+    this.commitMeta = null;
     this.fileCache.clear();
     this.loadingFilePath = null;
     this.requestScope = scope;
@@ -257,11 +283,65 @@ export class GitDiffViewController {
       this.data = {
         files: [],
         metaOnly: false,
+        source: 'workspace',
         summary: { additions: 0, deletions: 0, filesChanged: 0 },
       };
       this.renderEmpty('Failed to load git diff');
       return this.data;
     }
+  }
+
+  async openCommitDiff({ hash, path = null } = {}) {
+    this.source = 'commit';
+    this.commitHash = String(hash ?? '').trim() || null;
+    this.commitMeta = null;
+    this.fileCache.clear();
+    this.loadingFilePath = null;
+    this.requestScope = 'all';
+    this.renderLoading('Loading commit summary...');
+
+    try {
+      const query = new URLSearchParams();
+      query.set('hash', this.commitHash || '');
+      query.set('metaOnly', 'true');
+
+      const response = await fetch(resolveApiUrl(`/git/commit?${query.toString()}`));
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load git commit');
+      }
+
+      this.data = data;
+      this.commitMeta = data.commit ?? null;
+      const initialIndex = path
+        ? Math.max(0, data.files.findIndex((file) => file.path === path))
+        : 0;
+      this.currentIndex = initialIndex;
+      if ((data.files?.length ?? 0) === 0) {
+        this.render();
+        return data;
+      }
+
+      await this.loadCurrentFile();
+      return data;
+    } catch (error) {
+      console.error('[git-diff] Failed to load commit:', error);
+      this.toastController?.show('Failed to load git commit');
+      this.data = {
+        commit: null,
+        files: [],
+        metaOnly: false,
+        source: 'commit',
+        summary: { additions: 0, deletions: 0, filesChanged: 0 },
+      };
+      this.commitMeta = null;
+      this.renderEmpty('Failed to load git commit');
+      return this.data;
+    }
+  }
+
+  async open(payload = {}) {
+    return this.openWorkspaceDiff(payload);
   }
 
   navigateFile(direction) {
@@ -384,6 +464,28 @@ export class GitDiffViewController {
     `;
   }
 
+  renderCommitHeader() {
+    if (this.source !== 'commit' || !this.commitMeta) {
+      return '';
+    }
+
+    return `
+      <section class="diff-commit-header">
+        <div class="diff-commit-subject">${escapeHtml(this.commitMeta.subject || this.commitMeta.shortHash || 'Commit')}</div>
+        <div class="diff-commit-meta">
+          <span>${escapeHtml(this.commitMeta.shortHash || '')}</span>
+          <span>${escapeHtml(this.commitMeta.authorName || 'Unknown')}</span>
+          <span title="${escapeHtml(this.commitMeta.authoredAt || '')}">${escapeHtml(this.commitMeta.relativeDateLabel || '')}</span>
+          ${this.commitMeta.isMergeCommit ? '<span>Merge commit</span>' : ''}
+        </div>
+        <div class="diff-commit-meta diff-commit-meta-secondary">
+          <span>${escapeHtml(this.commitMeta.hash || '')}</span>
+          <span>${Number(this.data?.summary?.filesChanged || 0)} file${Number(this.data?.summary?.filesChanged || 0) === 1 ? '' : 's'}</span>
+        </div>
+      </section>
+    `;
+  }
+
   getCurrentFile() {
     const files = this.data?.files ?? [];
     if (files.length === 0) {
@@ -395,7 +497,13 @@ export class GitDiffViewController {
 
   getCurrentCacheKey() {
     const currentFile = this.getCurrentFile();
-    return currentFile?.path ? `${this.requestScope}:${currentFile.path}` : null;
+    if (!currentFile?.path) {
+      return null;
+    }
+    if (this.source === 'commit') {
+      return `commit:${this.commitHash}:${currentFile.path}`;
+    }
+    return `workspace:${this.requestScope}:${currentFile.path}`;
   }
 
   getCurrentFileDetail() {
@@ -404,6 +512,14 @@ export class GitDiffViewController {
   }
 
   getCurrentActionState() {
+    if (this.source === 'commit') {
+      return {
+        canCommit: false,
+        canStage: false,
+        canUnstage: false,
+      };
+    }
+
     const currentFile = this.getCurrentFile();
     const detail = this.getCurrentFileDetail() ?? currentFile;
     const stagedCount = Number(this.repoStatus?.summary?.staged || 0);
@@ -423,6 +539,10 @@ export class GitDiffViewController {
   }
 
   getPrimaryAction() {
+    if (this.source === 'commit') {
+      return null;
+    }
+
     const actionState = this.getCurrentActionState();
     if (actionState.canStage && !actionState.canUnstage) {
       return 'stage';
@@ -443,6 +563,10 @@ export class GitDiffViewController {
   }
 
   async handleFileAction(action) {
+    if (this.source === 'commit') {
+      return;
+    }
+
     const currentFile = this.getCurrentFile();
     if (!currentFile?.path || this.pendingAction) {
       return;
@@ -489,23 +613,45 @@ export class GitDiffViewController {
     this.render();
 
     try {
-      const query = new URLSearchParams();
-      query.set('scope', this.requestScope);
-      query.set('path', currentFile.path);
-      if (forceFullPatch) {
-        query.set('allowLargePatch', 'true');
+      let detail;
+      if (this.source === 'commit') {
+        const query = new URLSearchParams();
+        query.set('hash', this.commitHash || '');
+        query.set('path', currentFile.path);
+        if (forceFullPatch) {
+          query.set('allowLargePatch', 'true');
+        }
+
+        const response = await fetch(resolveApiUrl(`/git/commit?${query.toString()}`));
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to load commit file diff');
+        }
+
+        detail = {
+          ...currentFile,
+          ...(data.files?.[0] ?? {}),
+        };
+      } else {
+        const query = new URLSearchParams();
+        query.set('scope', this.requestScope);
+        query.set('path', currentFile.path);
+        if (forceFullPatch) {
+          query.set('allowLargePatch', 'true');
+        }
+
+        const response = await fetch(resolveApiUrl(`/git/diff?${query.toString()}`));
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to load file diff');
+        }
+
+        detail = {
+          ...currentFile,
+          ...(data.files?.[0] ?? {}),
+        };
       }
 
-      const response = await fetch(resolveApiUrl(`/git/diff?${query.toString()}`));
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to load file diff');
-      }
-
-      const detail = {
-        ...currentFile,
-        ...(data.files?.[0] ?? {}),
-      };
       if (cacheKey) {
         this.fileCache.set(cacheKey, detail);
       }
@@ -514,14 +660,14 @@ export class GitDiffViewController {
       return detail;
     } catch (error) {
       console.error('[git-diff] Failed to load file diff:', error);
-      this.toastController?.show('Failed to load file diff');
+      this.toastController?.show(this.source === 'commit' ? 'Failed to load commit file diff' : 'Failed to load file diff');
       this.loadingFilePath = null;
       this.render();
       return null;
     }
   }
 
-  renderCurrentFile() {
+  renderCurrentFileBody() {
     const currentFile = this.getCurrentFile();
     if (!currentFile) {
       return '<div class="diff-empty-state">No changes to display.</div>';
@@ -595,10 +741,18 @@ export class GitDiffViewController {
     this.modeButtons.forEach((button) => {
       button.classList.toggle('active', button.getAttribute('data-diff-mode') === this.mode);
     });
+
     const hasCurrentFile = Boolean(this.getCurrentFile()?.path);
     const actionState = this.getCurrentActionState();
     const primaryAction = this.getPrimaryAction();
-    this.openEditorButton?.toggleAttribute('disabled', !hasCurrentFile);
+    const isCommitSource = this.source === 'commit';
+
+    this.backToHistoryButton?.classList.toggle('hidden', !isCommitSource);
+    this.gitActionsGroup?.classList.toggle('hidden', isCommitSource);
+    this.editorActionsGroup?.classList.toggle('hidden', isCommitSource);
+    this.actionsDivider?.classList.toggle('hidden', isCommitSource);
+
+    this.openEditorButton?.toggleAttribute('disabled', !hasCurrentFile || isCommitSource);
     if (this.primaryActionButton) {
       this.primaryActionButton.textContent = this.pendingAction === primaryAction
         ? 'Working...'
@@ -607,7 +761,7 @@ export class GitDiffViewController {
           : 'Stage';
       this.primaryActionButton.toggleAttribute(
         'disabled',
-        !hasCurrentFile || !primaryAction || Boolean(this.pendingAction),
+        isCommitSource || !hasCurrentFile || !primaryAction || Boolean(this.pendingAction),
       );
     }
     if (this.commitButton) {
@@ -615,7 +769,7 @@ export class GitDiffViewController {
     }
     this.commitButton?.toggleAttribute(
       'disabled',
-      !actionState.canCommit || Boolean(this.pendingAction),
+      isCommitSource || !actionState.canCommit || Boolean(this.pendingAction),
     );
     this.prevButton?.toggleAttribute('disabled', this.currentIndex <= 0);
     this.nextButton?.toggleAttribute('disabled', totalFiles === 0 || this.currentIndex >= totalFiles - 1);
@@ -626,7 +780,7 @@ export class GitDiffViewController {
 
     const files = this.data?.files ?? [];
     if (files.length === 0) {
-      this.renderEmpty('No changes to display.');
+      this.renderEmpty(this.source === 'commit' ? 'No commit changes to display.' : 'No changes to display.');
       return;
     }
 
@@ -634,11 +788,24 @@ export class GitDiffViewController {
       return;
     }
 
-    this.content.innerHTML = this.renderCurrentFile();
+    this.content.innerHTML = `${this.renderCommitHeader()}${this.renderCurrentFileBody()}`;
     this.syncToolbar();
   }
 
-  getToolbarTitle({ filePath = null, scope = 'all' } = {}) {
+  getToolbarTitle({ commitHash = null, filePath = null, path = null, scope = 'all', source = 'workspace' } = {}) {
+    if (source === 'commit' || this.source === 'commit') {
+      if (path) {
+        return getPathLeaf(path);
+      }
+      if (this.commitMeta?.shortHash) {
+        return `Commit ${this.commitMeta.shortHash}`;
+      }
+      if (commitHash) {
+        return `Commit ${String(commitHash).slice(0, 7)}`;
+      }
+      return 'Commit Diff';
+    }
+
     if (filePath) {
       return getPathLeaf(filePath);
     }

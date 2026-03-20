@@ -89,8 +89,14 @@ function createController(overrides = {}) {
       events.push(['session-token', value]);
     },
     setSidebarTab: (value) => events.push(['sidebar-tab', value]),
+    showGitCommit: async (route) => {
+      events.push(['show-git-commit', route.hash ?? null, route.path ?? null]);
+    },
     showGitDiff: async (route) => {
       events.push(['show-git-diff', route.scope ?? 'all', route.filePath ?? null]);
+    },
+    showGitHistory: async () => {
+      events.push(['show-git-history']);
     },
     syncMainChrome: ({ mode, title = null }) => events.push(['main-chrome', mode, title]),
     workspaceCoordinator: {
@@ -111,7 +117,7 @@ function createController(overrides = {}) {
   };
 }
 
-test('WorkspaceRouteController routes hash changes to empty, git diff, and file views', async () => {
+test('WorkspaceRouteController routes hash changes to empty, git diff, git history, git commit, and file views', async () => {
   const empty = createController({
     navigation: {
       getHashRoute: () => ({ type: 'empty' }),
@@ -135,6 +141,30 @@ test('WorkspaceRouteController routes hash changes to empty, git diff, and file 
   assert.deepEqual(gitDiff.events, [
     ['sidebar-tab', 'git'],
     ['show-git-diff', 'working-tree', 'README.md'],
+  ]);
+
+  const gitHistory = createController({
+    navigation: {
+      getHashRoute: () => ({ type: 'git-history' }),
+      navigateToFile() {},
+    },
+  });
+  await gitHistory.controller.handleHashChange();
+  assert.deepEqual(gitHistory.events, [
+    ['sidebar-tab', 'git'],
+    ['show-git-history'],
+  ]);
+
+  const gitCommit = createController({
+    navigation: {
+      getHashRoute: () => ({ hash: 'abc1234', path: 'README.md', type: 'git-commit' }),
+      navigateToFile() {},
+    },
+  });
+  await gitCommit.controller.handleHashChange();
+  assert.deepEqual(gitCommit.events, [
+    ['sidebar-tab', 'git'],
+    ['show-git-commit', 'abc1234', 'README.md'],
   ]);
 
   const file = createController({

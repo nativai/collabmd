@@ -86,6 +86,45 @@ export function createDiffResponse({
   };
 }
 
+export function createHistoryResponse({
+  commits = [],
+  hasMore = false,
+  isGitRepo = true,
+  limit = 30,
+  offset = 0,
+} = {}) {
+  return {
+    commits,
+    hasMore,
+    isGitRepo,
+    limit,
+    offset,
+  };
+}
+
+export function createCommitDiffResponse({
+  commit = null,
+  files = [],
+  isGitRepo = true,
+  metaOnly = false,
+  path = null,
+  summary = {
+    additions: 0,
+    deletions: 0,
+    filesChanged: 0,
+  },
+} = {}) {
+  return {
+    commit,
+    files,
+    isGitRepo,
+    metaOnly,
+    path,
+    source: 'commit',
+    summary,
+  };
+}
+
 export function createWorkspaceChange({
   changedPaths = [],
   deletedPaths = [],

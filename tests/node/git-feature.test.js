@@ -51,11 +51,17 @@ function createContext(overrides = {}) {
       getHashRoute() {
         return { scope: 'all', type: 'empty' };
       },
+      navigateToGitCommit(payload) {
+        events.push(['navigate-commit', payload]);
+      },
       navigateToFile(filePath) {
         events.push(['navigate-file', filePath]);
       },
       navigateToGitDiff(payload) {
         events.push(['navigate-diff', payload]);
+      },
+      navigateToGitHistory() {
+        events.push(['navigate-history']);
       },
     },
     showGitDiff: async () => {

@@ -420,7 +420,10 @@
               </button>
             </div>
             <div class="diff-toolbar-actions">
-              <div class="diff-toolbar-actions-group diff-toolbar-actions-group-git" role="group" aria-label="Git file actions">
+              <button class="btn btn-secondary diff-back-btn hidden" id="diffBackToHistoryBtn" type="button">
+                Back to History
+              </button>
+              <div class="diff-toolbar-actions-group diff-toolbar-actions-group-git" id="diffGitActionsGroup" role="group" aria-label="Git file actions">
                 <button class="btn btn-secondary diff-action-btn" id="diffPrimaryActionBtn" type="button" disabled>
                   Stage
                 </button>
@@ -428,8 +431,8 @@
                   Commit Staged
                 </button>
               </div>
-              <span class="diff-toolbar-actions-divider" aria-hidden="true"></span>
-              <div class="diff-toolbar-actions-group" role="group" aria-label="Navigation actions">
+              <span class="diff-toolbar-actions-divider" id="diffToolbarDivider" aria-hidden="true"></span>
+              <div class="diff-toolbar-actions-group" id="diffEditorActionsGroup" role="group" aria-label="Navigation actions">
                 <button class="btn btn-secondary diff-open-editor-btn" id="diffOpenEditorBtn" type="button" disabled>
                   Open in Editor
                 </button>

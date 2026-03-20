@@ -241,6 +241,21 @@ test('HTTP server exposes git status and diff endpoints for git-backed vaults', 
   assert.match(metaDiffResponse.body, /"metaOnly":true/);
   assert.match(metaDiffResponse.body, /"path":"test.md"/);
 
+  const historyResponse = await httpRequest(`${app.baseUrl}/api/git/history?limit=10&offset=0`);
+  assert.equal(historyResponse.statusCode, 200);
+  assert.match(historyResponse.body, /"commits":\[/);
+  assert.match(historyResponse.body, /"subject":"Initial commit"/);
+
+  const headHash = String((await execFile('git', ['rev-parse', 'HEAD'], { cwd: app.vaultDir, env: gitEnv })).stdout).trim();
+  const commitMetaResponse = await httpRequest(`${app.baseUrl}/api/git/commit?hash=${headHash}&metaOnly=true`);
+  assert.equal(commitMetaResponse.statusCode, 200);
+  assert.match(commitMetaResponse.body, /"source":"commit"/);
+  assert.match(commitMetaResponse.body, /"path":"test.md"/);
+
+  const commitDiffResponse = await httpRequest(`${app.baseUrl}/api/git/commit?hash=${headHash}&path=test.md`);
+  assert.equal(commitDiffResponse.statusCode, 200);
+  assert.match(commitDiffResponse.body, /"hunks":\[/);
+
   const stageResponse = await httpRequest(`${app.baseUrl}/api/git/stage`, {
     body: JSON.stringify({ path: 'test.md' }),
     headers: {

@@ -1,7 +1,9 @@
 import {
   getHashRoute,
+  navigateToGitCommit,
   navigateToFile,
   navigateToGitDiff,
+  navigateToGitHistory,
 } from './runtime-config.js';
 
 export class BrowserNavigationPort {
@@ -15,5 +17,13 @@ export class BrowserNavigationPort {
 
   navigateToGitDiff(payload) {
     navigateToGitDiff(payload);
+  }
+
+  navigateToGitCommit(payload) {
+    navigateToGitCommit(payload);
+  }
+
+  navigateToGitHistory() {
+    navigateToGitHistory();
   }
 }

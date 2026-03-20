@@ -102,3 +102,69 @@ test('GitPanelController renders pull backups and opens the summary when selecte
 
   assert.deepEqual(openedPaths, ['.collabmd/pull-backups/20260317-100000-abc1234/summary.md']);
 });
+
+test('GitPanelController renders history rows and selects commits in history mode', async (t) => {
+  const harness = createPanelHarness();
+  t.after(() => harness.restore());
+
+  const selectedCommits = [];
+  const controller = new GitPanelController({
+    onSelectCommit: (hash) => {
+      selectedCommits.push(hash);
+    },
+  });
+  controller.initialize();
+  controller.status = {
+    branch: {
+      ahead: 0,
+      behind: 0,
+      name: 'main',
+      upstream: 'origin/main',
+    },
+    isGitRepo: true,
+    sections: [],
+    summary: {
+      additions: 0,
+      changedFiles: 0,
+      deletions: 0,
+      staged: 0,
+    },
+  };
+  controller.panelMode = 'history';
+  controller.history = {
+    commits: [{
+      additions: 12,
+      authorName: 'CollabMD Tests',
+      deletions: 3,
+      filesChanged: 2,
+      hash: 'abc123456789',
+      isMergeCommit: false,
+      relativeDateLabel: '2h ago',
+      shortHash: 'abc1234',
+      subject: 'Add git history',
+    }],
+    error: '',
+    hasMore: false,
+    loaded: true,
+    loading: false,
+    loadingMore: false,
+    offset: 1,
+  };
+
+  controller.render();
+
+  assert.match(harness.panel.innerHTML, /History/);
+  assert.match(harness.panel.innerHTML, /Add git history/);
+  assert.match(harness.panel.innerHTML, /abc1234/);
+
+  const commitButton = new FakeElement({
+    'data-git-commit-hash': 'abc123456789',
+  }, {
+    '[data-git-commit-hash]': new FakeElement({
+      'data-git-commit-hash': 'abc123456789',
+    }),
+  });
+  harness.triggerClick(commitButton);
+
+  assert.deepEqual(selectedCommits, ['abc123456789']);
+});

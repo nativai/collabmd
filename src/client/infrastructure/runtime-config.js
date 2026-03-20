@@ -30,6 +30,18 @@ function normalizeDiffScope(scope) {
 export function getHashRoute() {
   const params = getHashParams();
 
+  if (params.has('git-history')) {
+    return { type: 'git-history' };
+  }
+
+  if (params.has('git-commit')) {
+    return {
+      hash: params.get('git-commit') || null,
+      path: params.get('path') || null,
+      type: 'git-commit',
+    };
+  }
+
   if (params.has('git-diff')) {
     const filePath = params.get('git-diff') || null;
     return {
@@ -61,5 +73,21 @@ export function navigateToGitDiff({ filePath = null, scope = 'all' } = {}) {
   const params = new URLSearchParams();
   params.set('git-diff', filePath ?? '');
   params.set('scope', normalizeDiffScope(scope));
+  window.location.hash = params.toString();
+}
+
+export function navigateToGitCommit({ hash, path = null } = {}) {
+  const normalizedHash = String(hash ?? '').trim();
+  const params = new URLSearchParams();
+  params.set('git-commit', normalizedHash);
+  if (path) {
+    params.set('path', path);
+  }
+  window.location.hash = params.toString();
+}
+
+export function navigateToGitHistory() {
+  const params = new URLSearchParams();
+  params.set('git-history', '1');
   window.location.hash = params.toString();
 }

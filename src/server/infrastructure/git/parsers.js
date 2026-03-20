@@ -236,6 +236,36 @@ export function parseNameStatusOutput(output) {
     });
 }
 
+export function parseNameStatusEntries(output) {
+  return String(output ?? '')
+    .split(/\r?\n/u)
+    .filter(Boolean)
+    .map((line) => {
+      const [rawStatus = '', ...parts] = line.split('\t');
+      const statusToken = rawStatus.trim().toUpperCase();
+      if (!statusToken) {
+        return null;
+      }
+
+      if (statusToken.startsWith('R') || statusToken.startsWith('C')) {
+        const [oldPath = '', path = ''] = parts.map((value) => decodeQuotedPath(value));
+        return {
+          ...createStatusInfo(statusToken[0]),
+          oldPath: oldPath || null,
+          path: path || null,
+        };
+      }
+
+      const [path = ''] = parts.map((value) => decodeQuotedPath(value));
+      return {
+        ...createStatusInfo(statusToken[0]),
+        oldPath: null,
+        path: path || null,
+      };
+    })
+    .filter((entry) => entry?.path);
+}
+
 export function countPatchLines(file = null) {
   return (file?.hunks ?? []).reduce((total, hunk) => total + (hunk.lines?.length ?? 0), 0);
 }

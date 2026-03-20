@@ -2,6 +2,7 @@ import { createGitRequestError } from './errors.js';
 import { normalizeRelativeGitPath } from './path-utils.js';
 import { GitCommandRunner } from './command-runner.js';
 import { GitDiffService } from './diff-service.js';
+import { GitHistoryService } from './history-service.js';
 import { parseNameStatusOutput } from './parsers.js';
 import { createEmptyWorkspaceChange, createWorkspaceChange } from './responses.js';
 import { GitStatusService } from './status-service.js';
@@ -53,6 +54,11 @@ export class GitService {
       statusService: this.statusService,
       untrackedFileService: this.untrackedFileService,
     });
+    this.historyService = new GitHistoryService({
+      commandRunner: this.commandRunner,
+      maxInitialPatchBytes,
+      maxInitialPatchLines,
+    });
     this.pullBackupStore = new PullBackupStore({ vaultDir });
   }
 
@@ -67,6 +73,7 @@ export class GitService {
   invalidateStatusCache() {
     this.statusService.invalidate();
     this.diffService.invalidate();
+    this.historyService.invalidate();
   }
 
   async getStatus(options = {}) {
@@ -248,6 +255,19 @@ export class GitService {
       metaOnly,
       path: normalizedPath,
       scope,
+    });
+  }
+
+  async getHistory({ limit = 30, offset = 0 } = {}) {
+    return this.historyService.listHistory({ limit, offset });
+  }
+
+  async getCommit({ allowLargePatch = false, hash, metaOnly = false, path = null } = {}) {
+    return this.historyService.getCommit({
+      allowLargePatch,
+      hash,
+      metaOnly,
+      path,
     });
   }
 

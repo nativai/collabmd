@@ -149,6 +149,7 @@ export class CollabMdAppShell {
       onPushBranch: () => this.pushGitBranch(),
       onRepoChange: (isGitRepo, status) => this.handleGitRepoChange(isGitRepo, status),
       onResetFile: (filePath, { scope }) => this.openGitResetDialog(filePath, { scope }),
+      onSelectCommit: (hash, { path }) => this.handleGitCommitSelection(hash, { closeSidebarOnMobile: true, path }),
       onSelectDiff: (filePath, { scope }) => this.handleGitDiffSelection(filePath, { closeSidebarOnMobile: true, scope }),
       onStageFile: (filePath, { scope }) => this.stageGitFile(filePath, { scope }),
       onUnstageFile: (filePath, { scope }) => this.unstageGitFile(filePath, { scope }),
@@ -271,6 +272,7 @@ export class CollabMdAppShell {
       vaultApiClient: this.vaultApiClient,
     });
     this.gitDiffView = new GitDiffViewController({
+      onBackToHistory: () => this.handleGitHistorySelection({ closeSidebarOnMobile: false }),
       onCommitStaged: () => this.openGitCommitDialog(),
       onOpenFile: (filePath) => filePath && this.navigation.navigateToFile(filePath),
       onStageFile: (filePath, { scope }) => this.stageGitFile(filePath, { scope }),
@@ -416,7 +418,9 @@ export class CollabMdAppShell {
         this.sessionLoadToken = value;
       },
       setSidebarTab: (value) => this.setSidebarTab(value),
+      showGitCommit: (route) => this.showGitCommit(route),
       showGitDiff: (route) => this.showGitDiff(route),
+      showGitHistory: () => this.showGitHistory(),
       syncMainChrome: (payload) => this.syncMainChrome(payload),
       videoEmbed: this.videoEmbed,
       workspaceCoordinator: this.workspaceCoordinator,

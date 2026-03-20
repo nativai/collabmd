@@ -22,7 +22,9 @@ export class WorkspaceRouteController {
     setSessionLoadToken,
     setSidebarTab,
     setCurrentFilePath,
+    showGitCommit,
     showGitDiff,
+    showGitHistory,
     syncMainChrome,
     videoEmbed,
     workspaceCoordinator,
@@ -50,7 +52,9 @@ export class WorkspaceRouteController {
     this.setSessionLoadToken = setSessionLoadToken;
     this.setSidebarTab = setSidebarTab;
     this.setCurrentFilePath = setCurrentFilePath;
+    this.showGitCommit = showGitCommit;
     this.showGitDiff = showGitDiff;
+    this.showGitHistory = showGitHistory;
     this.syncMainChrome = syncMainChrome;
     this.videoEmbed = videoEmbed;
     this.workspaceCoordinator = workspaceCoordinator;
@@ -73,6 +77,18 @@ export class WorkspaceRouteController {
     if (route.type === 'git-diff') {
       this.setSidebarTab('git');
       await this.showGitDiff(route);
+      return;
+    }
+
+    if (route.type === 'git-history') {
+      this.setSidebarTab('git');
+      await this.showGitHistory();
+      return;
+    }
+
+    if (route.type === 'git-commit') {
+      this.setSidebarTab('git');
+      await this.showGitCommit(route);
       return;
     }
 
