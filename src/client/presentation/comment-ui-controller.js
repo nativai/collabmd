@@ -9,6 +9,7 @@ const COMMENT_CARD_WIDTH = 520;
 const COMMENT_SELECTION_REVEAL_DELAY_MS = 150;
 const COMMENT_SELECTION_CHIP_GAP = 12;
 const COMMENT_CONTROL_SLOT_HEIGHT = 36;
+const COMMENT_PREVIEW_BADGE_MIN_WIDTH = 28;
 const COMMENT_PREVIEW_RAIL_SLOT_HEIGHT = 30;
 const COMMENT_PREVIEW_RAIL_MIN_WIDTH = 400;
 const COMMENT_PREVIEW_RAIL_BREAKPOINT = 769;
@@ -670,6 +671,51 @@ export class CommentUiController {
     this.repositionActiveCard();
   }
 
+  syncPreviewRailLayout(maxBubbleWidth = 0) {
+    if (!this.previewElement) {
+      return false;
+    }
+
+    const shouldShowRail = this.supported && maxBubbleWidth > 0;
+    const nextReserved = 0;
+    const nextOffset = 0;
+    let reserved = nextReserved;
+    let offset = nextOffset;
+
+    if (shouldShowRail) {
+      const previewStyle = getComputedStyle(this.previewElement);
+      const currentReserved = Number.parseFloat(
+        previewStyle.getPropertyValue('--preview-comment-rail-reserved'),
+      ) || 0;
+      const currentPaddingRight = Number.parseFloat(previewStyle.paddingRight) || 0;
+      const railInset = Number.parseFloat(
+        previewStyle.getPropertyValue('--preview-comment-rail-inset'),
+      ) || 0;
+      const basePaddingRight = Math.max(currentPaddingRight - currentReserved, 0);
+      const requiredRail = Math.max(maxBubbleWidth + railInset - basePaddingRight, 0);
+      const previewContainerRect = this.previewContainer?.getBoundingClientRect();
+      const previewRect = this.previewElement.getBoundingClientRect();
+      const availableRightGutter = previewContainerRect
+        ? Math.max(previewContainerRect.right - previewRect.right, 0)
+        : 0;
+
+      offset = Math.min(availableRightGutter, requiredRail);
+      reserved = Math.max(requiredRail - offset, 0);
+    }
+
+    const nextReservedValue = `${Math.ceil(reserved)}px`;
+    const nextOffsetValue = `${Math.floor(offset)}px`;
+    const didChange = this.previewElement.style.getPropertyValue('--preview-comment-rail-reserved') !== nextReservedValue
+      || this.previewElement.style.getPropertyValue('--preview-comment-rail-offset') !== nextOffsetValue;
+
+    if (didChange) {
+      this.previewElement.style.setProperty('--preview-comment-rail-reserved', nextReservedValue);
+      this.previewElement.style.setProperty('--preview-comment-rail-offset', nextOffsetValue);
+    }
+
+    return didChange;
+  }
+
   scheduleLayoutRefresh() {
     if (this.layoutFrame) {
       return;
@@ -920,6 +966,7 @@ export class CommentUiController {
 
     if (!this.supported || !this.previewElement) {
       this.previewHoverRegions = [];
+      this.syncPreviewRailLayout(0);
       return;
     }
 
@@ -928,6 +975,7 @@ export class CommentUiController {
     const occupiedTops = [];
     const hoverRegions = [];
     const showPassiveMarkers = this.shouldRenderPassivePreviewMarkers();
+    const previewBubbles = [];
     groups.forEach((group) => {
       const target = this.resolvePreviewTarget(group.anchor);
       if (!target?.bubbleRect) {
@@ -995,9 +1043,17 @@ export class CommentUiController {
       });
       this.previewLayer?.appendChild(bubble);
       occupiedTops.push(bubbleTop);
+      previewBubbles.push(bubble);
     });
 
     this.previewHoverRegions = hoverRegions;
+    const maxBubbleWidth = previewBubbles.reduce(
+      (maxWidth, bubble) => Math.max(maxWidth, bubble.offsetWidth || COMMENT_PREVIEW_BADGE_MIN_WIDTH),
+      0,
+    );
+    if (this.syncPreviewRailLayout(maxBubbleWidth)) {
+      this.scheduleLayoutRefresh();
+    }
     if (this.lastPreviewPointerPosition) {
       this.updateHoveredPreviewGroups(
         this.getPreviewGroupKeysAtPoint(this.lastPreviewPointerPosition.x, this.lastPreviewPointerPosition.y),
