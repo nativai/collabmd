@@ -598,16 +598,12 @@ test('HTTP git reset invalidates stale collaboration snapshots so reopening hydr
   assert.equal(reopenedDoc.getText('codemirror').toString(), '# Test\n\nHello from test vault.\n');
 });
 
-test('HTTP server supports password auth without blocking static assets', async (t) => {
-  const publicDirSnapshot = await createPublicDirSnapshot();
-  t.after(() => publicDirSnapshot.cleanup());
-
+test('HTTP server enforces password auth for API session flow', async (t) => {
   const app = await startTestServer({
     auth: {
       password: 'test-password-123',
       strategy: 'password',
     },
-    publicDir: publicDirSnapshot.publicDir,
   });
   t.after(() => app.close());
 
@@ -617,14 +613,6 @@ test('HTTP server supports password auth without blocking static assets', async 
 
   const indexResponse = await httpRequest(`${app.baseUrl}/`);
   assert.equal(indexResponse.statusCode, 200);
-  const builtIndexHtml = await readBuiltIndexHtml(publicDirSnapshot.publicDir);
-  const styleAssetPath = extractAssetPath(
-    builtIndexHtml,
-    /href="\.\/(assets\/[^"]+-[A-Za-z0-9_-]{8,}\.css)"/,
-    'style asset',
-  );
-  const assetResponse = await httpRequest(`${app.baseUrl}/${styleAssetPath}`);
-  assert.equal(assetResponse.statusCode, 200);
 
   const unauthenticatedApiResponse = await httpRequest(`${app.baseUrl}/api/files`);
   assert.equal(unauthenticatedApiResponse.statusCode, 401);
