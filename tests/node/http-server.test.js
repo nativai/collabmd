@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { execFile as execFileCallback } from 'node:child_process';
 import { createServer } from 'node:http';
 import { request } from 'node:http';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 import WebSocket from 'ws';
@@ -17,6 +18,8 @@ import { waitForCondition } from './helpers/test-server.js';
 import { waitForProviderSync } from './helpers/collaboration-protocol.js';
 
 const execFile = promisify(execFileCallback);
+const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const clientDistDir = resolve(rootDir, 'dist/client');
 
 function httpRequest(url, { method = 'GET', headers = {}, body } = {}) {
   return new Promise((resolve, reject) => {
@@ -59,6 +62,10 @@ function extractAssetPath(html, pattern, label) {
   const match = String(html || '').match(pattern);
   assert.ok(match, `expected ${label} asset path`);
   return match[1];
+}
+
+async function readBuiltIndexHtml() {
+  return readFile(resolve(clientDistDir, 'index.html'), 'utf8');
 }
 
 async function startPlantUmlStub() {
@@ -118,7 +125,7 @@ test('HTTP server serves health, runtime config, and static assets', async (t) =
   assert.equal(indexResponse.statusCode, 200);
   assert.match(indexResponse.body, /CollabMD/);
   assert.equal(indexResponse.headers['cache-control'], 'no-store');
-  const styleAssetPath = extractAssetPath(indexResponse.body, /href="\.\/(assets\/[^"]+-[A-Za-z0-9]{8,}\.css)"/, 'style asset');
+  const styleAssetPath = extractAssetPath(indexResponse.body, /href="\.\/(assets\/[^"]+-[A-Za-z0-9_-]{8,}\.css)"/, 'style asset');
 
   const assetHeadResponse = await httpRequest(`${app.baseUrl}/${styleAssetPath}`, { method: 'HEAD' });
   assert.equal(assetHeadResponse.statusCode, 200);
@@ -205,7 +212,7 @@ test('HTTP server serves prefixed routes when BASE_PATH is configured', async (t
   assert.equal(versionPayload.build.id, app.server.config.build.id);
 
   const indexResponse = await httpRequest(`${app.appBaseUrl}/`);
-  const styleAssetPath = extractAssetPath(indexResponse.body, /href="\.\/(assets\/[^"]+-[A-Za-z0-9]{8,}\.css)"/, 'style asset');
+  const styleAssetPath = extractAssetPath(indexResponse.body, /href="\.\/(assets\/[^"]+-[A-Za-z0-9_-]{8,}\.css)"/, 'style asset');
   const assetResponse = await httpRequest(`${app.appBaseUrl}/${styleAssetPath}`);
   assert.equal(assetResponse.statusCode, 200);
 
@@ -585,7 +592,13 @@ test('HTTP server supports password auth without blocking static assets', async 
   assert.match(runtimeConfigResponse.body, /"strategy":"password"/);
 
   const indexResponse = await httpRequest(`${app.baseUrl}/`);
-  const styleAssetPath = extractAssetPath(indexResponse.body, /href="\.\/(assets\/[^"]+-[A-Za-z0-9]{8,}\.css)"/, 'style asset');
+  assert.equal(indexResponse.statusCode, 200);
+  const builtIndexHtml = await readBuiltIndexHtml();
+  const styleAssetPath = extractAssetPath(
+    builtIndexHtml,
+    /href="\.\/(assets\/[^"]+-[A-Za-z0-9_-]{8,}\.css)"/,
+    'style asset',
+  );
   const assetResponse = await httpRequest(`${app.baseUrl}/${styleAssetPath}`);
   assert.equal(assetResponse.statusCode, 200);
 

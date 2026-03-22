@@ -17,7 +17,7 @@ function extractAssetPath(html, pattern, label) {
 test('client build emits hashed entry assets and the main bundle references the emitted preview worker', async () => {
   const indexHtml = await readFile(resolve(clientDistDir, 'index.html'), 'utf8');
   const mainAssetPath = extractAssetPath(indexHtml, /src="\.\/(assets\/[^"]+\.js)"/, 'main bundle');
-  const mainStylesheetPath = extractAssetPath(indexHtml, /href="\.\/(assets\/[^"]+-[A-Za-z0-9]{8,}\.css)"/, 'main stylesheet');
+  const mainStylesheetPath = extractAssetPath(indexHtml, /href="\.\/(assets\/[^"]+-[A-Za-z0-9_-]{8,}\.css)"/, 'main stylesheet');
   const assetFileNames = await readdir(resolve(clientDistDir, 'assets'));
   const jsAssetPaths = assetFileNames
     .filter((fileName) => fileName.endsWith('.js'))

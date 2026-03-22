@@ -91,7 +91,7 @@ test('npm pack includes built public assets and runtime helper scripts required 
     const indexHtml = await readFile(resolve(artifact.packageRoot, 'dist/client/index.html'), 'utf8');
     const excalidrawHtml = await readFile(resolve(artifact.packageRoot, 'dist/client/excalidraw-editor.html'), 'utf8');
     const mainAssetPath = extractAssetPath(indexHtml, /src="\.\/(assets\/[^"]+\.js)"/, 'main asset');
-    const mainCssPath = extractAssetPath(indexHtml, /href="\.\/(assets\/[^"]+-[A-Za-z0-9]{8,}\.css)"/, 'main stylesheet');
+    const mainCssPath = extractAssetPath(indexHtml, /href="\.\/(assets\/[^"]+-[A-Za-z0-9_-]{8,}\.css)"/, 'main stylesheet');
     const excalidrawJsPath = extractAssetPath(excalidrawHtml, /src="\.\/(assets\/[^"]+\.js)"/, 'Excalidraw script');
     const excalidrawBundle = await readFile(resolve(artifact.packageRoot, 'dist/client', excalidrawJsPath), 'utf8');
     const excalidrawCssPath = excalidrawBundle.match(/\bexcalidraw-editor-[A-Za-z0-9_-]+\.css\b/u)?.[0];
