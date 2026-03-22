@@ -595,11 +595,15 @@ test('HTTP git reset invalidates stale collaboration snapshots so reopening hydr
 });
 
 test('HTTP server enforces password auth for API session flow', async (t) => {
+  const publicDirSnapshot = await createPublicDirSnapshot();
+  t.after(() => publicDirSnapshot.cleanup());
+
   const app = await startTestServer({
     auth: {
       password: 'test-password-123',
       strategy: 'password',
     },
+    publicDir: publicDirSnapshot.publicDir,
   });
   t.after(() => app.close());
 
