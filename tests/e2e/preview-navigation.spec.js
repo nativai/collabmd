@@ -324,8 +324,8 @@ test('defers heavy preview hydration while the editor is actively scrolling', as
 
   const before = await getHeavyPreviewCounts(page);
 
-  await page.locator('.cm-scroller').evaluate(async (scroller) => {
-    await new Promise((resolve) => {
+  await page.locator('.cm-scroller').evaluate((scroller) => {
+    window.__previewNavigationScrollPromise = new Promise((resolve) => {
       let steps = 0;
       const timer = window.setInterval(() => {
         scroller.scrollTop += 320;
@@ -338,10 +338,13 @@ test('defers heavy preview hydration while the editor is actively scrolling', as
     });
   });
 
+  await page.waitForTimeout(40);
+
   const during = await getHeavyPreviewCounts(page);
   expect(during.mermaidSvgs).toBe(before.mermaidSvgs);
   expect(during.excalidrawIframes).toBe(before.excalidrawIframes);
 
+  await page.evaluate(() => window.__previewNavigationScrollPromise);
   await page.waitForTimeout(500);
 
   const after = await getHeavyPreviewCounts(page);
