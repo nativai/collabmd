@@ -49,5 +49,7 @@ describe('CreateMenuPresenter', () => {
 
     expect(document.querySelector('.create-action-sheet')).not.toBeNull();
     expect(document.querySelector('.create-action-sheet')?.textContent).toContain('draw.io diagram');
+    expect(document.querySelector('.create-action-sheet-option')).not.toBeNull();
+    expect(document.querySelector('.create-action-sheet-cancel')).not.toBeNull();
   });
 });

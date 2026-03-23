@@ -151,7 +151,7 @@ export class CreateMenuPresenter {
 
     const cancelButton = document.createElement('button');
     cancelButton.type = 'button';
-    cancelButton.className = 'ui-button btn btn-ghost file-action-sheet-item create-action-sheet-item';
+    cancelButton.className = 'ui-button btn btn-ghost file-action-sheet-item create-action-sheet-cancel';
     cancelButton.textContent = 'Cancel';
     cancelButton.addEventListener('click', () => {
       this.close();
@@ -182,7 +182,7 @@ export class CreateMenuPresenter {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = mobile
-        ? 'ui-button btn btn-secondary file-action-sheet-item create-action-sheet-item'
+        ? 'ui-button btn btn-ghost file-action-sheet-item create-action-sheet-item create-action-sheet-option'
         : 'create-menu-item';
       button.setAttribute('role', mobile ? 'button' : 'menuitem');
       button.dataset.actionId = item.id;
