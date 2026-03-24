@@ -11,6 +11,7 @@ import {
   normalizeVaultPathInput,
 } from '../domain/vault-paths.js';
 import { createWorkspaceRequestId } from '../domain/workspace-request-id.js';
+import { buttonClassNames } from './components/ui/button.js';
 import { CreateMenuPresenter } from './create-menu-presenter.js';
 
 function getPathLeaf(path) {
@@ -333,8 +334,8 @@ export class FileActionController {
 
     this.actionSubmitButton.textContent = submitLabel;
     this.actionSubmitButton.disabled = false;
-    this.actionSubmitButton.classList.toggle('btn-primary', !destructive);
-    this.actionSubmitButton.classList.toggle('btn-danger', destructive);
+    this.actionSubmitButton.classList.toggle('ui-button--primary', !destructive);
+    this.actionSubmitButton.classList.toggle('ui-button--danger', destructive);
     this.actionCancelButton.disabled = false;
 
     if (typeof this.actionDialog.showModal === 'function') {
@@ -384,8 +385,7 @@ export class FileActionController {
     if (this.actionSubmitButton) {
       this.actionSubmitButton.textContent = 'Save';
       this.actionSubmitButton.disabled = false;
-      this.actionSubmitButton.classList.add('btn-primary');
-      this.actionSubmitButton.classList.remove('btn-danger');
+      this.actionSubmitButton.className = buttonClassNames({ variant: 'primary' });
     }
     if (this.actionCancelButton) {
       this.actionCancelButton.disabled = false;

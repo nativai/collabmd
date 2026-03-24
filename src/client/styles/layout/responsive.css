@@ -1,7 +1,7 @@
 /* ===== MOBILE / RESPONSIVE ===== */
 
 @media (max-width: 768px) {
-  .input,
+  .ui-input,
   .sidebar-search-input,
   .qs-input,
   .chat-input {

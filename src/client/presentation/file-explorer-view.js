@@ -3,6 +3,7 @@ import {
   stripVaultFileExtension,
 } from '../../domain/file-kind.js';
 import { escapeHtml } from '../domain/vault-utils.js';
+import { buttonClassNames } from './components/ui/button.js';
 
 function getPathLeaf(path) {
   return String(path ?? '')
@@ -612,7 +613,10 @@ export class FileExplorerView {
     items.forEach((item) => {
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = `ui-button btn btn-secondary file-action-sheet-item${item.danger ? ' file-context-danger' : ''}`;
+      button.className = buttonClassNames({
+        variant: 'secondary',
+        extra: ['file-action-sheet-item', item.danger ? 'file-context-danger' : ''],
+      });
       button.textContent = item.label;
       button.addEventListener('click', () => {
         this.removeContextMenu();
@@ -623,7 +627,10 @@ export class FileExplorerView {
 
     const cancelButton = document.createElement('button');
     cancelButton.type = 'button';
-    cancelButton.className = 'ui-button btn btn-ghost file-action-sheet-item';
+    cancelButton.className = buttonClassNames({
+      variant: 'ghost',
+      extra: 'file-action-sheet-item',
+    });
     cancelButton.textContent = 'Cancel';
     cancelButton.addEventListener('click', () => {
       this.removeContextMenu();

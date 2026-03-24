@@ -14,6 +14,8 @@ import {
   mergeAwarenessUserPatch,
   resolveLocalAwarenessUser,
 } from './domain/excalidraw-collaboration.js';
+import './styles/surfaces/embedded-editor-base.css';
+import './styles/surfaces/excalidraw-editor.css';
 import {
   normalizeScene,
   parseSceneJson,
@@ -69,6 +71,10 @@ const roomClient = new ExcalidrawRoomClient({
   syncTimeoutMs: Number.isFinite(syncTimeoutMs) ? syncTimeoutMs : undefined,
   vaultClient: vaultApiClient,
 });
+
+function applySurfaceTheme(theme = currentTheme) {
+  document.body.dataset.theme = theme === 'light' ? 'light' : 'dark';
+}
 
 function getNativeHistoryButton(type) {
   const button = document.querySelector(`[data-testid="button-${type}"]`);
@@ -521,6 +527,7 @@ window.addEventListener('message', (event) => {
 
   if (message.type === 'set-theme') {
     currentTheme = message.theme || 'dark';
+    applySurfaceTheme(currentTheme);
     if (excalidrawAPI) {
       suppressOnChange = true;
       excalidrawAPI.updateScene({
@@ -613,6 +620,7 @@ async function init() {
   const loadingElement = document.getElementById('loadingState');
 
   try {
+    applySurfaceTheme(currentTheme);
     await ensureClientAuthenticated();
     const initialScene = await roomClient.connect({ initialUser: localAwarenessUser });
     const initialData = sceneToInitialData(initialScene, { theme: currentTheme });

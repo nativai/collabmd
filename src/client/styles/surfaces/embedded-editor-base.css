@@ -1,0 +1,23 @@
+@import '../foundation/tokens.css';
+@import '../foundation/themes.css';
+@import '../base.css';
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body[data-surface] {
+  font-family: var(--font-body);
+  font-size: var(--text-ui-sm);
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+}

@@ -1,5 +1,7 @@
 import { escapeHtml } from '../domain/vault-utils.js';
 import { resolveApiUrl } from '../domain/runtime-paths.js';
+import { buttonClassNames } from './components/ui/button.js';
+import { segmentedButtonClassNames, segmentedControlClassNames } from './components/ui/segmented-control.js';
 
 const HISTORY_PAGE_SIZE = 30;
 const REFRESH_INTERVAL_MS = 10_000;
@@ -792,9 +794,9 @@ export class GitPanelController {
 
   renderPanelModes() {
     return `
-      <div class="ui-segmented-control ui-segmented-control--pill git-panel-mode-switch" role="tablist" aria-label="Git panel modes">
+      <div class="${segmentedControlClassNames({ pill: true, extra: 'git-panel-mode-switch' })}" role="tablist" aria-label="Git panel modes">
         <button
-          class="ui-segmented-btn git-panel-mode-btn${this.panelMode === 'changes' ? ' active' : ''}"
+          class="${segmentedButtonClassNames({ active: this.panelMode === 'changes', extra: 'git-panel-mode-btn' })}"
           type="button"
           data-git-panel-mode="changes"
           aria-selected="${this.panelMode === 'changes'}"
@@ -802,7 +804,7 @@ export class GitPanelController {
           Changes
         </button>
         <button
-          class="ui-segmented-btn git-panel-mode-btn${this.panelMode === 'history' ? ' active' : ''}"
+          class="${segmentedButtonClassNames({ active: this.panelMode === 'history', extra: 'git-panel-mode-btn' })}"
           type="button"
           data-git-panel-mode="history"
           aria-selected="${this.panelMode === 'history'}"
@@ -868,7 +870,7 @@ export class GitPanelController {
       ${this.history.hasMore ? `
         <div class="git-history-footer">
             <button
-              class="ui-button ui-button--compact ui-action-button ui-action-button--surface btn btn-secondary git-history-load-more"
+              class="${buttonClassNames({ variant: 'secondary', size: 'compact', action: true, surface: true, extra: 'git-history-load-more' })}"
             type="button"
             data-git-history-load-more
             ${this.history.loadingMore ? 'disabled' : ''}
@@ -896,12 +898,12 @@ export class GitPanelController {
       ${hasChanges ? `
         <div class="git-panel-footer">
           <div class="git-panel-footer-actions">
-            <button class="ui-button ui-button--compact ui-action-button ui-action-button--surface btn btn-secondary" type="button" data-git-view-all>
+            <button class="${buttonClassNames({ variant: 'secondary', size: 'compact', action: true, surface: true })}" type="button" data-git-view-all>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               View Full Diff
             </button>
             <button
-              class="ui-button ui-action-button ui-action-button--wide btn btn-primary git-footer-commit-btn"
+              class="${buttonClassNames({ variant: 'primary', action: true, wide: true, extra: 'git-footer-commit-btn' })}"
               type="button"
               data-git-commit-staged
               ${!hasStagedChanges || isCommitPending ? 'disabled' : ''}
@@ -953,7 +955,7 @@ export class GitPanelController {
         </div>
         <div class="git-branch-actions" role="group" aria-label="Remote sync actions">
           <button
-            class="ui-button ui-button--compact ui-pill-button ui-action-pill ui-action-pill--surface btn btn-secondary"
+            class="${buttonClassNames({ variant: 'secondary', size: 'compact', pill: true, surface: true, extra: 'ui-action-pill' })}"
             type="button"
             data-git-sync-action="pull"
             title="${hasUpstream ? 'Pull remote changes (fast-forward only)' : 'No upstream branch configured'}"
@@ -963,7 +965,7 @@ export class GitPanelController {
             ${isPullPending ? '...' : `${actionIconSvg('pull')}<span>Pull</span>`}
           </button>
           <button
-            class="ui-button ui-button--compact ui-pill-button ui-action-pill ui-action-pill--surface btn btn-secondary"
+            class="${buttonClassNames({ variant: 'secondary', size: 'compact', pill: true, surface: true, extra: 'ui-action-pill' })}"
             type="button"
             data-git-sync-action="push"
             title="${hasUpstream ? 'Push local commits' : 'No upstream branch configured'}"

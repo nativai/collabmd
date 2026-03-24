@@ -41,7 +41,7 @@ function renderBlockMenuMarkup(activeAction) {
     <div class="markdown-toolbar-block-menu-shell">
       <button
         type="button"
-        class="ui-button btn btn-ghost markdown-toolbar-block-trigger"
+        class="ui-button ui-button--ghost markdown-toolbar-block-trigger"
         data-markdown-block-menu-toggle
         aria-haspopup="menu"
         aria-expanded="false"

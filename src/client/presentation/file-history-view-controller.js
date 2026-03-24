@@ -1,5 +1,6 @@
 import { escapeHtml } from '../domain/vault-utils.js';
 import { resolveApiUrl } from '../domain/runtime-paths.js';
+import { buttonClassNames } from './components/ui/button.js';
 
 const HISTORY_PAGE_SIZE = 30;
 
@@ -687,7 +688,7 @@ export class FileHistoryViewController {
         </div>
         <div class="file-history-detail-actions">
           <button
-            class="ui-button ui-action-button ui-action-button--surface btn btn-secondary"
+            class="${buttonClassNames({ variant: 'secondary', action: true, surface: true })}"
             type="button"
             data-file-history-open-selected-diff
           >
@@ -695,7 +696,7 @@ export class FileHistoryViewController {
           </button>
           ${entry.type === 'commit' ? `
             <button
-              class="ui-button ui-action-button btn btn-primary"
+              class="${buttonClassNames({ variant: 'primary', action: true })}"
               type="button"
               data-file-history-open-selected-preview
             >
@@ -783,7 +784,7 @@ export class FileHistoryViewController {
           ${this.history.hasMore ? `
             <div class="git-history-footer file-history-footer">
               <button
-                class="ui-button ui-button--compact ui-action-button ui-action-button--surface btn btn-secondary git-history-load-more"
+                class="${buttonClassNames({ variant: 'secondary', size: 'compact', action: true, surface: true, extra: 'git-history-load-more' })}"
                 type="button"
                 data-file-history-load-more
                 ${this.history.loadingMore ? 'disabled' : ''}

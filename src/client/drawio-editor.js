@@ -1,3 +1,6 @@
+import './styles/surfaces/embedded-editor-base.css';
+import './styles/surfaces/drawio-editor.css';
+
 import { ensureClientAuthenticated } from './infrastructure/auth-client.js';
 import { DrawioLeaseClient } from './infrastructure/drawio-lease-client.js';
 import { getRuntimeConfig } from './infrastructure/runtime-config.js';
@@ -50,7 +53,7 @@ banner.innerHTML = `
     <span class="drawio-banner-copy" id="drawioBannerText">Connecting…</span>
   </div>
   <div class="drawio-banner-actions">
-    <button type="button" class="drawio-btn" id="claimEditBtn" hidden>Claim edit</button>
+    <button type="button" class="drawio-toolbar-btn" id="claimEditBtn" hidden>Claim edit</button>
   </div>
 `;
 

@@ -35,6 +35,7 @@ import { ThemeController } from '../presentation/theme-controller.js';
 import { ToastController } from '../presentation/toast-controller.js';
 import { VideoEmbedController } from '../presentation/video-embed-controller.js';
 import { ImageLightboxController } from '../presentation/image-lightbox-controller.js';
+import { renderAppShell } from '../presentation/app-shell-renderer.js';
 
 const APP_SHELL_FEATURES = Object.freeze({
   chat: chatFeature,
@@ -87,6 +88,7 @@ function installAppShellFeatures(appShell) {
 export class CollabMdAppShell {
   constructor() {
     installAppShellFeatures(this);
+    renderAppShell(document);
     this.elements = bindAppShellElements(document);
     this.runtimeConfig = getRuntimeConfig();
     this.stateStore = new WorkspaceStateStore();

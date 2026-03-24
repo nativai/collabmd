@@ -1,5 +1,6 @@
 /* ===== COMPONENTS / NAVIGATION ===== */
 
+.ui-button--toolbar,
 .ui-toolbar-button {
   display: flex;
   align-items: center;

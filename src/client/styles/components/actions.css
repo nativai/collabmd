@@ -1,9 +1,11 @@
 /* ===== COMPONENTS / ACTIONS ===== */
 
+.ui-button--action,
 .ui-toolbar-action {
   flex-shrink: 0;
 }
 
+.ui-button--action,
 .ui-action-button {
   min-height: var(--control-h-md);
   padding: 0 14px;
@@ -13,18 +15,22 @@
   white-space: nowrap;
 }
 
+.ui-button--wide,
 .ui-action-button--wide {
   min-width: 92px;
 }
 
+.ui-button--surface,
 .ui-action-button--surface {
   background: var(--color-surface-offset);
 }
 
+.ui-button--surface:hover:not(:disabled),
 .ui-action-button--surface:hover:not(:disabled) {
   background: var(--color-surface-dynamic);
 }
 
+.ui-button--pill,
 .ui-action-pill {
   flex-shrink: 0;
   min-width: 0;

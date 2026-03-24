@@ -1,4 +1,6 @@
 import { COMMENT_BODY_MAX_LENGTH } from '../../domain/comment-threads.js';
+import { buttonClassNames } from './components/ui/button.js';
+import { inputClassNames } from './components/ui/input.js';
 
 function isLeafSourceBlock(element) {
   return !element.querySelector('[data-source-line]');
@@ -452,7 +454,7 @@ export class CommentsPanel {
     form.className = 'comment-reply-form';
 
     const textarea = document.createElement('textarea');
-    textarea.className = 'input comment-reply-input';
+    textarea.className = inputClassNames({ extra: 'comment-reply-input' });
     textarea.rows = 3;
     textarea.placeholder = `Reply on ${formatLineLabel(thread.anchor)}...`;
     textarea.maxLength = COMMENT_BODY_MAX_LENGTH;
@@ -463,7 +465,7 @@ export class CommentsPanel {
 
     const cancelButton = document.createElement('button');
     cancelButton.type = 'button';
-    cancelButton.className = 'ui-button btn btn-secondary';
+    cancelButton.className = buttonClassNames({ variant: 'secondary' });
     cancelButton.textContent = 'Cancel';
     cancelButton.addEventListener('click', () => {
       this.replyDraftThreadId = null;
@@ -472,7 +474,7 @@ export class CommentsPanel {
 
     const submitButton = document.createElement('button');
     submitButton.type = 'submit';
-    submitButton.className = 'ui-button btn btn-primary';
+    submitButton.className = buttonClassNames({ variant: 'primary' });
     submitButton.textContent = 'Reply';
 
     actions.append(cancelButton, submitButton);

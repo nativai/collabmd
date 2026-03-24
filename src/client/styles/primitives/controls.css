@@ -1,7 +1,6 @@
 /* ===== PRIMITIVES / CONTROLS ===== */
 
-.ui-button,
-.btn {
+.ui-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -22,66 +21,55 @@
     box-shadow var(--transition-interactive);
 }
 
-.ui-button:active,
-.btn:active {
+.ui-button:active {
   transform: scale(0.97);
 }
 
-.ui-button--primary,
-.btn-primary {
+.ui-button--primary {
   background: var(--color-primary);
   color: var(--color-text-inverse);
 }
 
-.ui-button--primary:hover,
-.btn-primary:hover {
+.ui-button--primary:hover {
   background: var(--color-primary-hover);
 }
 
-.ui-button--secondary,
-.btn-secondary {
+.ui-button--secondary {
   background: var(--color-surface-2);
   color: var(--color-text);
   border-color: var(--color-border);
 }
 
-.ui-button--secondary:hover,
-.btn-secondary:hover {
+.ui-button--secondary:hover {
   background: var(--color-surface-dynamic);
 }
 
-.ui-button--danger,
-.btn-danger {
+.ui-button--danger {
   background: var(--color-error);
   color: var(--color-text-inverse);
 }
 
-.ui-button--danger:hover,
-.btn-danger:hover {
+.ui-button--danger:hover {
   filter: brightness(0.95);
 }
 
-.ui-button--ghost,
-.btn-ghost {
+.ui-button--ghost {
   background: transparent;
   color: var(--color-text-muted);
 }
 
-.ui-button--ghost:hover,
-.btn-ghost:hover {
+.ui-button--ghost:hover {
   background: var(--color-surface-offset);
   color: var(--color-text);
 }
 
-.ui-button--lg,
-.btn-lg {
+.ui-button--lg {
   min-height: var(--control-h-lg);
   padding: 0 var(--space-6);
   font-weight: 600;
 }
 
-.ui-button--compact,
-.btn-compact {
+.ui-button--compact {
   min-height: var(--control-h-xs);
   gap: var(--space-1);
   padding: 0 var(--space-2);
@@ -129,6 +117,7 @@
   height: 28px;
 }
 
+.ui-button--pill,
 .ui-pill-button {
   border-radius: var(--radius-full);
 }
@@ -186,7 +175,6 @@
 }
 
 .ui-button:disabled,
-.btn:disabled,
 .ui-icon-button:disabled,
 .ui-segmented-btn:disabled {
   opacity: 0.45;
@@ -194,8 +182,7 @@
   transform: none;
 }
 
-.ui-input,
-.input {
+.ui-input {
   width: 100%;
   min-height: var(--control-h-md);
   padding: 0 var(--space-3);
@@ -207,15 +194,13 @@
   transition: border-color var(--transition-interactive), box-shadow var(--transition-interactive);
 }
 
-.ui-input:focus,
-.input:focus {
+.ui-input:focus {
   outline: none;
   border-color: var(--color-primary);
   box-shadow: var(--shadow-focus);
 }
 
-.ui-input::placeholder,
-.input::placeholder {
+.ui-input::placeholder {
   color: var(--color-text-faint);
 }
 

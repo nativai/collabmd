@@ -42,7 +42,7 @@
     "test:browser": "vitest run --config vitest.config.mjs --browser=chromium",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
-    "test:guardrails": "node --test tests/node/architecture-boundaries.test.js tests/node/facade-structure.test.js",
+    "test:guardrails": "node --test tests/node/architecture-boundaries.test.js tests/node/facade-structure.test.js tests/node/style-system-guardrails.test.js",
     "test:unit": "npm run build && node --test --test-force-exit tests/node/*.test.js",
     "tunnel": "node scripts/cloudflare-tunnel.mjs"
   },
@@ -72,6 +72,7 @@
     "@excalidraw/excalidraw": "0.18.0-816c81c",
     "highlight.js": "^11.11.1",
     "lib0": "^0.2.0",
+    "lit-html": "^3.3.2",
     "markdown-it": "^14.1.0",
     "mermaid": "^11.13.0",
     "openid-client": "^6.8.2",

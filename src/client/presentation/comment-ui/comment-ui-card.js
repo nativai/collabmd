@@ -12,6 +12,8 @@ import {
   hasLocalReaction,
   isReactionPickerOpen,
 } from './comment-ui-shared.js';
+import { buttonClassNames } from '../components/ui/button.js';
+import { inputClassNames } from '../components/ui/input.js';
 
 /** @this {any} */
 function ensureCardRoot() {
@@ -144,7 +146,12 @@ function renderCard() {
 
   const closeButton = document.createElement('button');
   closeButton.type = 'button';
-  closeButton.className = 'ui-button ui-button--compact btn btn-ghost ui-pill-button ui-action-pill comment-card-close';
+  closeButton.className = buttonClassNames({
+    variant: 'ghost',
+    size: 'compact',
+    pill: true,
+    extra: ['ui-action-pill', 'comment-card-close'],
+  });
   closeButton.setAttribute('aria-label', 'Close comments');
   closeButton.textContent = 'Close';
   closeButton.addEventListener('click', () => this.closeCard());
@@ -234,7 +241,7 @@ function createComposer() {
   form.className = 'comment-card-form';
 
   const textarea = document.createElement('textarea');
-  textarea.className = 'input comment-card-input';
+  textarea.className = inputClassNames({ extra: 'comment-card-input' });
   textarea.rows = 4;
   textarea.maxLength = COMMENT_BODY_MAX_LENGTH;
   textarea.placeholder = 'Add context, feedback, or a question...';
@@ -244,13 +251,13 @@ function createComposer() {
 
   const cancel = document.createElement('button');
   cancel.type = 'button';
-  cancel.className = 'ui-button btn btn-secondary';
+  cancel.className = buttonClassNames({ variant: 'secondary' });
   cancel.textContent = 'Cancel';
   cancel.addEventListener('click', () => this.closeCard());
 
   const submit = document.createElement('button');
   submit.type = 'submit';
-  submit.className = 'ui-button btn btn-primary';
+  submit.className = buttonClassNames({ variant: 'primary' });
   submit.textContent = 'Post comment';
 
   actions.append(cancel, submit);
@@ -298,13 +305,23 @@ function createThreadElement(thread) {
 
   const jump = document.createElement('button');
   jump.type = 'button';
-  jump.className = 'ui-button ui-button--compact btn btn-ghost ui-pill-button ui-action-pill comment-thread-card-action';
+  jump.className = buttonClassNames({
+    variant: 'ghost',
+    size: 'compact',
+    pill: true,
+    extra: ['ui-action-pill', 'comment-thread-card-action'],
+  });
   jump.textContent = 'Jump';
   jump.addEventListener('click', () => this.onNavigateToLine?.(thread.anchor?.startLine ?? 1));
 
   const reply = document.createElement('button');
   reply.type = 'button';
-  reply.className = 'ui-button ui-button--compact btn btn-ghost ui-pill-button ui-action-pill comment-thread-card-action';
+  reply.className = buttonClassNames({
+    variant: 'ghost',
+    size: 'compact',
+    pill: true,
+    extra: ['ui-action-pill', 'comment-thread-card-action'],
+  });
   const isReplying = this.activeCard?.replyThreadId === thread.id;
   reply.classList.toggle('is-active', isReplying);
   reply.textContent = 'Reply';
@@ -321,7 +338,12 @@ function createThreadElement(thread) {
 
   const resolve = document.createElement('button');
   resolve.type = 'button';
-  resolve.className = 'ui-button ui-button--compact btn btn-ghost ui-pill-button ui-action-pill comment-thread-card-action is-danger';
+  resolve.className = buttonClassNames({
+    variant: 'ghost',
+    size: 'compact',
+    pill: true,
+    extra: ['ui-action-pill', 'comment-thread-card-action', 'is-danger'],
+  });
   resolve.textContent = 'Resolve';
   resolve.addEventListener('click', async () => {
     await this.onResolveThread?.(thread.id);
@@ -497,7 +519,7 @@ function createReplyComposer(thread) {
   form.className = 'comment-reply-form';
 
   const textarea = document.createElement('textarea');
-  textarea.className = 'input comment-card-input';
+  textarea.className = inputClassNames({ extra: 'comment-card-input' });
   textarea.rows = 3;
   textarea.maxLength = COMMENT_BODY_MAX_LENGTH;
   textarea.placeholder = 'Reply to thread...';
@@ -507,7 +529,7 @@ function createReplyComposer(thread) {
 
   const cancel = document.createElement('button');
   cancel.type = 'button';
-  cancel.className = 'ui-button btn btn-secondary';
+  cancel.className = buttonClassNames({ variant: 'secondary' });
   cancel.textContent = 'Cancel';
   cancel.addEventListener('click', () => {
     this.activeCard = {
@@ -519,7 +541,7 @@ function createReplyComposer(thread) {
 
   const submit = document.createElement('button');
   submit.type = 'submit';
-  submit.className = 'ui-button btn btn-primary';
+  submit.className = buttonClassNames({ variant: 'primary' });
   submit.textContent = 'Reply';
 
   actions.append(cancel, submit);

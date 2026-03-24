@@ -1,0 +1,182 @@
+.auth-gate-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background:
+    radial-gradient(circle at 50% 8%, oklch(from var(--color-primary) l c h / 0.18), transparent 28%),
+    radial-gradient(circle at 60% 45%, oklch(from var(--color-primary) l c h / 0.08), transparent 18%),
+    linear-gradient(
+      180deg,
+      oklch(from var(--color-bg) calc(l - 0.06) c h / 0.9),
+      oklch(from var(--color-bg) calc(l - 0.08) c h / 0.96)
+    );
+  backdrop-filter: blur(18px);
+}
+
+.auth-gate-card {
+  width: min(100%, 440px);
+  padding: var(--space-8);
+  border: 1px solid var(--border-accent-soft);
+  border-radius: var(--radius-xl-plus);
+  background: linear-gradient(180deg, var(--color-surface), var(--color-surface-2));
+  color: var(--color-text);
+  box-shadow:
+    var(--shadow-card-strong),
+    var(--shadow-sheet-inset);
+  font-family: var(--font-display);
+}
+
+.auth-gate-card h1 {
+  margin: 0 0 10px;
+  font-size: var(--text-xl);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+
+.auth-gate-card p {
+  margin: 0 0 22px;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  font-size: var(--text-sm);
+}
+
+.auth-gate-form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.auth-gate-label {
+  display: grid;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.auth-gate-input {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--surface-overlay);
+  color: inherit;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.auth-gate-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-focus);
+}
+
+.auth-gate-actions {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.auth-gate-button,
+.auth-gate-secondary-button {
+  border-radius: var(--radius-xl);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+.auth-gate-button:hover,
+.auth-gate-secondary-button:hover {
+  transform: translateY(-1px);
+}
+
+.auth-gate-button:focus-visible,
+.auth-gate-secondary-button:focus-visible {
+  outline: 3px solid oklch(from var(--color-primary) l c h / 0.3);
+  outline-offset: 2px;
+}
+
+.auth-gate-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 14px 18px;
+  border: 1px solid transparent;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover));
+  color: var(--color-text-inverse);
+  font-weight: 600;
+  box-shadow: var(--shadow-floating-soft);
+}
+
+.auth-gate-button:hover {
+  box-shadow: var(--shadow-floating-hover);
+}
+
+.auth-gate-secondary-button {
+  padding: 13px 16px;
+  border: 1px solid var(--color-border);
+  background: var(--surface-overlay);
+  color: var(--color-text);
+}
+
+.auth-gate-button[disabled],
+.auth-gate-secondary-button[disabled] {
+  opacity: 0.7;
+  cursor: wait;
+  transform: none;
+}
+
+.auth-gate-button--google {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  border-color: var(--color-border);
+  box-shadow:
+    var(--shadow-elevated-soft),
+    var(--shadow-sheet-inset);
+}
+
+.auth-gate-button--google:hover {
+  background: var(--surface-overlay-soft);
+}
+
+.auth-gate-button__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+}
+
+.auth-gate-button__icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.auth-gate-error {
+  min-height: 1.25rem;
+  color: var(--color-error);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-1);
+}
+
+@media (max-width: 640px) {
+  .auth-gate-overlay {
+    padding: var(--space-4);
+  }
+
+  .auth-gate-card {
+    padding: var(--space-6);
+    border-radius: var(--radius-xl);
+  }
+}

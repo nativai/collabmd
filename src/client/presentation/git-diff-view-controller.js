@@ -1,5 +1,6 @@
 import { escapeHtml } from '../domain/vault-utils.js';
 import { resolveApiUrl } from '../domain/runtime-paths.js';
+import { buttonClassNames } from './components/ui/button.js';
 
 function getPathLeaf(pathValue) {
   return String(pathValue ?? '').split('/').pop() || '';
@@ -586,7 +587,7 @@ export class GitDiffViewController {
         <div class="diff-limit-card">
           <strong>Large diff withheld</strong>
           <span>This file diff is large enough to impact rendering performance.</span>
-          <button class="ui-button btn btn-secondary diff-load-full-btn" type="button" data-load-full-diff data-diff-file-path="${escapeHtml(detail.path)}">Load full diff</button>
+          <button class="${buttonClassNames({ variant: 'secondary', extra: 'diff-load-full-btn' })}" type="button" data-load-full-diff data-diff-file-path="${escapeHtml(detail.path)}">Load full diff</button>
         </div>
       `;
     }
