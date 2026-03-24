@@ -1,0 +1,206 @@
+body[data-surface='export-document'] {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.export-page-shell {
+  width: min(960px, calc(100vw - 48px));
+  margin: 0 auto;
+  padding: 32px 0 72px;
+}
+
+.export-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.export-page-header h1 {
+  font-size: 28px;
+  margin-bottom: 6px;
+}
+
+.export-page-header p {
+  color: var(--color-text-muted);
+  max-width: none;
+}
+
+.export-warnings-panel {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-warning-toast);
+  border-radius: 12px;
+  background: var(--surface-warning-toast);
+  color: var(--text-warning-toast);
+}
+
+.export-warnings-panel h2 {
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.export-warnings-panel ul {
+  padding-left: 20px;
+}
+
+.export-content {
+  padding: 32px 40px;
+  border: 1px solid var(--color-divider);
+  border-radius: 20px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card-strong);
+}
+
+.export-content p,
+.export-content li,
+.export-content blockquote {
+  max-width: none;
+}
+
+.export-content .task-list-item input[type='checkbox'] {
+  cursor: default;
+}
+
+.export-content .table-wrapper {
+  overflow: visible;
+}
+
+.export-content table {
+  white-space: normal;
+}
+
+.export-diagram {
+  display: flex;
+  justify-content: center;
+  margin: 18px 0 22px;
+}
+
+.export-diagram-surface,
+.export-diagram-image {
+  max-width: 100%;
+  margin: 0;
+  border: 1px solid var(--color-divider);
+  border-radius: 14px;
+  background: var(--color-surface);
+}
+
+.export-diagram-surface {
+  display: inline-block;
+  overflow: hidden;
+}
+
+.export-diagram-image {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.export-diagram-svg {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+}
+
+.export-video-poster {
+  margin: 18px 0 22px;
+}
+
+.export-video-poster-card {
+  padding: 16px 18px;
+  border: 1px solid var(--color-divider);
+  border-radius: 14px;
+  background: var(--surface-fill-subtle);
+}
+
+.export-video-poster-meta {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.export-video-link {
+  display: inline-block;
+  margin-top: 8px;
+  word-break: break-word;
+}
+
+.export-warning {
+  padding: 12px 14px;
+  border: 1px solid var(--border-warning-toast);
+  border-radius: 12px;
+  background: var(--surface-warning-toast);
+  color: var(--text-warning-toast);
+}
+
+.drawio-export-iframe {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media print {
+  body[data-surface='export-document'] {
+    background: var(--color-surface);
+  }
+
+  .export-page-shell {
+    width: auto;
+    margin: 0;
+    padding: 0;
+  }
+
+  .export-page-header,
+  .export-warnings-panel {
+    display: none;
+  }
+
+  .export-content {
+    width: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .export-content h1,
+  .export-content h2,
+  .export-content h3,
+  .export-content h4,
+  .export-content h5,
+  .export-content h6 {
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
+
+  .export-content h1 + *,
+  .export-content h2 + *,
+  .export-content h3 + *,
+  .export-content h4 + *,
+  .export-content h5 + *,
+  .export-content h6 + * {
+    break-before: avoid-page;
+    page-break-before: avoid;
+  }
+
+  .export-content pre,
+  .export-content blockquote,
+  .export-content table,
+  .export-content figure,
+  .export-content img {
+    break-inside: avoid;
+  }
+
+  .export-content p,
+  .export-content li,
+  .export-content blockquote {
+    orphans: 3;
+    widows: 3;
+  }
+}

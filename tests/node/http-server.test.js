@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFile as execFileCallback } from 'node:child_process';
 import { createServer } from 'node:http';
 import { request } from 'node:http';
-import { cp, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -67,7 +67,26 @@ function extractAssetPath(html, pattern, label) {
 async function createPublicDirSnapshot() {
   const tempRoot = await mkdtemp(join(tmpdir(), 'collabmd-public-'));
   const publicDir = resolve(tempRoot, 'public');
-  await cp(clientDistDir, publicDir, { recursive: true });
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await rm(publicDir, { force: true, recursive: true });
+    await cp(clientDistDir, publicDir, { recursive: true });
+
+    try {
+      const indexHtml = await readFile(resolve(publicDir, 'index.html'), 'utf8');
+      if (indexHtml.includes('./assets/') && indexHtml.includes('CollabMD')) {
+        break;
+      }
+    } catch {
+      // Retry if another test process is rebuilding the dist snapshot concurrently.
+    }
+
+    if (attempt === 2) {
+      throw new Error('Failed to prepare a stable public asset snapshot');
+    }
+
+    await new Promise((resolveAttempt) => setTimeout(resolveAttempt, 100));
+  }
 
   return {
     cleanup: () => rm(tempRoot, { force: true, recursive: true }),
@@ -137,7 +156,7 @@ test('HTTP server serves health, runtime config, and static assets', async (t) =
   assert.equal(indexResponse.statusCode, 200);
   assert.match(indexResponse.body, /CollabMD/);
   assert.equal(indexResponse.headers['cache-control'], 'no-store');
-  const styleAssetPath = extractAssetPath(indexResponse.body, /href="\.\/(assets\/[^"]+-[A-Za-z0-9_-]{8,}\.css)"/, 'style asset');
+  const styleAssetPath = extractAssetPath(indexResponse.body, /<link[^>]+rel="stylesheet"[^>]+href="\.\/(assets\/[^"]+-[A-Za-z0-9_-]{8,}\.css)"/, 'style asset');
 
   const assetHeadResponse = await httpRequest(`${app.baseUrl}/${styleAssetPath}`, { method: 'HEAD' });
   assert.equal(assetHeadResponse.statusCode, 200);
@@ -280,7 +299,8 @@ test('HTTP server serves prefixed routes when BASE_PATH is configured', async (t
   assert.equal(versionPayload.build.id, app.server.config.build.id);
 
   const indexResponse = await httpRequest(`${app.appBaseUrl}/`);
-  const styleAssetPath = extractAssetPath(indexResponse.body, /href="\.\/(assets\/[^"]+-[A-Za-z0-9_-]{8,}\.css)"/, 'style asset');
+  assert.equal(indexResponse.statusCode, 200);
+  const styleAssetPath = extractAssetPath(indexResponse.body, /<link[^>]+rel="stylesheet"[^>]+href="\.\/(assets\/[^"]+-[A-Za-z0-9_-]{8,}\.css)"/, 'style asset');
   const assetResponse = await httpRequest(`${app.appBaseUrl}/${styleAssetPath}`);
   assert.equal(assetResponse.statusCode, 200);
 
@@ -1089,4 +1109,50 @@ test('HTTP server proxies PlantUML renders through the configured renderer', asy
   assert.match(response.body, /<svg/);
   assert.equal(plantUmlStub.requests.length, 1);
   assert.match(plantUmlStub.requests[0], /^\/plantuml\/svg\//);
+});
+
+test('HTTP server exports DOCX downloads from snapshot HTML', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  const response = await httpRequest(`${app.baseUrl}/api/export/docx`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      filePath: 'README.md',
+      html: '<!DOCTYPE html><html><body><main><h1>Exported</h1><p>From test</p></main></body></html>',
+      title: 'README',
+    }),
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(
+    response.headers['content-type'],
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  );
+  assert.match(String(response.headers['content-disposition']), /attachment; filename="README\.docx"/);
+  assert.equal(response.bodyBuffer[0], 0x50);
+  assert.equal(response.bodyBuffer[1], 0x4b);
+});
+
+test('HTTP server rejects oversized DOCX export payloads', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  const hugeHtml = `<html><body>${'x'.repeat(34_000_000)}</body></html>`;
+  const response = await httpRequest(`${app.baseUrl}/api/export/docx`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      filePath: 'README.md',
+      html: hugeHtml,
+    }),
+  });
+
+  assert.equal(response.statusCode, 413);
+  assert.match(response.body, /Request body too large/);
 });

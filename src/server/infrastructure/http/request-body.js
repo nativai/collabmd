@@ -54,8 +54,8 @@ export async function readBinaryRequestBody(req, maxBytes = REQUEST_BODY_LIMIT_B
   return readRequestBuffer(req, maxBytes);
 }
 
-export async function parseJsonBody(req) {
-  const rawBody = await readRequestBody(req);
+export async function parseJsonBody(req, maxBytes = REQUEST_BODY_LIMIT_BYTES) {
+  const rawBody = await readRequestBody(req, maxBytes);
 
   try {
     return JSON.parse(rawBody);

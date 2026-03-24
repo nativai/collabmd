@@ -5,6 +5,7 @@ import { createAuthService } from './auth/create-auth-service.js';
 import { BacklinkIndex } from './domain/backlink-index.js';
 import { CollaborationDocumentStore } from './domain/collaboration/collaboration-document-store.js';
 import { CollaborationRoom } from './domain/collaboration/collaboration-room.js';
+import { DocxExporter } from './domain/docx-exporter.js';
 import { GitService } from './infrastructure/git/git-service.js';
 import { PlantUmlRenderer } from './infrastructure/plantuml/plantuml-renderer.js';
 import { RoomRegistry } from './domain/collaboration/room-registry.js';
@@ -41,6 +42,7 @@ export function createAppServer(config = loadConfig()) {
   const authService = createAuthService(config);
   const vaultFileStore = new VaultFileStore({ vaultDir: config.vaultDir });
   const backlinkIndex = new BacklinkIndex({ vaultFileStore });
+  const docxExporter = new DocxExporter();
   const plantUmlRenderer = new PlantUmlRenderer({
     serverUrl: config.plantumlServerUrl,
   });
@@ -93,6 +95,7 @@ export function createAppServer(config = loadConfig()) {
     authService,
     vaultFileStore,
     backlinkIndex,
+    docxExporter,
     roomRegistry,
     plantUmlRenderer,
     gitService,

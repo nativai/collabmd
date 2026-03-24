@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CollabMD Export</title>
+</head>
+<body data-theme="light" data-surface="export-document">
+  <main class="export-page-shell">
+    <header class="export-page-header">
+      <div>
+        <h1>Preparing export</h1>
+        <p id="exportStatus">Initializing…</p>
+      </div>
+    </header>
+    <section id="exportWarningsSection" class="export-warnings-panel" hidden>
+      <h2>Warnings</h2>
+      <ul id="exportWarnings"></ul>
+    </section>
+    <article id="exportContent" class="preview-content export-content"></article>
+  </main>
+  <script type="module" src="./export-document-entry.js"></script>
+</body>
+</html>

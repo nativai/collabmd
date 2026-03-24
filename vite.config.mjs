@@ -19,6 +19,7 @@ export default defineConfig(({ command }) => ({
       input: {
         drawioEditor: resolve(clientAppRoot, 'drawio-editor.html'),
         excalidrawEditor: resolve(clientAppRoot, 'excalidraw-editor.html'),
+        exportDocument: resolve(clientAppRoot, 'export-document.html'),
         index: resolve(clientAppRoot, 'index.html'),
       },
       output: {
