@@ -236,6 +236,11 @@ body[data-surface='export-document'] {
     break-inside: avoid;
   }
 
+  .export-content .export-keep-with-next {
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+
   .export-content p,
   .export-content li,
   .export-content blockquote {

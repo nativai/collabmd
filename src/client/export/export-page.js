@@ -1,4 +1,5 @@
 import { runExportAdapter, postExportPageMessage, prepareExportSnapshot, waitForBootstrapPayload } from './export-pipeline.js';
+import { groupHeadingWithFollowingBlock } from './export-print-layout.js';
 
 function setStatus(message) {
   const status = document.getElementById('exportStatus');
@@ -32,6 +33,7 @@ function renderSnapshot(snapshot) {
 
   document.title = `${snapshot.title} — Export`;
   mount.innerHTML = snapshot.html;
+  groupHeadingWithFollowingBlock(mount);
   renderWarnings(snapshot);
 }
 

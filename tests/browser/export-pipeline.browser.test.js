@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { initializeExportBridge, exportDocument } from '../../src/client/export/export-host.js';
+import { groupHeadingWithFollowingBlock } from '../../src/client/export/export-print-layout.js';
 import { buildDocxHtmlDocument, resolveExportAssets } from '../../src/client/export/export-pipeline.js';
 
 describe('export pipeline browser helpers', () => {
@@ -300,5 +301,23 @@ describe('export pipeline browser helpers', () => {
     }));
 
     expect(exportWindow.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('groups headings with the following block for print pagination', () => {
+    const container = document.createElement('div');
+    container.innerHTML = [
+      '<h2>Mermaid</h2>',
+      '<figure class="export-diagram"><img src="data:image/png;base64,diagram" alt="Mermaid diagram"></figure>',
+      '<h2>Code Sample</h2>',
+      '<p>Lead-in copy.</p>',
+      '<pre><code>const demo = true;</code></pre>',
+    ].join('\n');
+
+    groupHeadingWithFollowingBlock(container);
+
+    const wrappers = container.querySelectorAll('.export-keep-with-next');
+    expect(wrappers).toHaveLength(2);
+    expect(Array.from(wrappers[0].children).map((node) => node.tagName)).toEqual(['H2', 'FIGURE']);
+    expect(Array.from(wrappers[1].children).map((node) => node.tagName)).toEqual(['H2', 'P', 'PRE']);
   });
 });
