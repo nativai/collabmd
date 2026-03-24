@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile as execFileCallback } from 'node:child_process';
-import { access, mkdir, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { access, cp, mkdir, mkdtemp, readFile, readdir, rm, symlink } from 'node:fs/promises';
+import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
@@ -24,10 +24,33 @@ async function listRelativeFiles(rootPath, currentPath = rootPath) {
   return nested.flat();
 }
 
+async function createPackWorkspace(tempRoot) {
+  const workspaceRoot = resolve(tempRoot, 'workspace');
+  const rootNodeModulesPath = resolve(rootDir, 'node_modules');
+  const workspaceNodeModulesPath = resolve(workspaceRoot, 'node_modules');
+
+  await cp(rootDir, workspaceRoot, {
+    filter: (sourcePath) => {
+      const relativePath = relative(rootDir, sourcePath);
+      if (!relativePath || relativePath === '') {
+        return true;
+      }
+
+      const topLevelEntry = relativePath.split(/[\\/]/u, 1)[0];
+      return !['.git', 'dist', 'node_modules', 'test-results'].includes(topLevelEntry);
+    },
+    recursive: true,
+  });
+  await symlink(rootNodeModulesPath, workspaceNodeModulesPath, process.platform === 'win32' ? 'junction' : 'dir');
+
+  return workspaceRoot;
+}
+
 async function packProject() {
   const tempRoot = await mkdtemp(resolve(tmpdir(), 'collabmd-pack-'));
   const packDir = resolve(tempRoot, 'pack');
   const unpackDir = resolve(tempRoot, 'unpack');
+  const workspaceRoot = await createPackWorkspace(tempRoot);
   const npmCacheDir = resolve(tempRoot, 'npm-cache');
   const npmConfigDir = resolve(tempRoot, 'xdg-config');
   const npmHomeDir = resolve(tempRoot, 'home');
@@ -56,13 +79,8 @@ async function packProject() {
     npm_config_userconfig: resolve(npmHomeDir, '.npmrc'),
   };
 
-  await execFile('npm', ['run', 'build'], {
-    cwd: rootDir,
-    env: npmEnv,
-  });
-
   const { stdout } = await execFile('npm', ['pack', '--pack-destination', packDir, '--json', '--silent'], {
-    cwd: rootDir,
+    cwd: workspaceRoot,
     env: npmEnv,
   });
   const packJsonMatch = stdout.match(/\[\s*\{[\s\S]*\]\s*$/);
