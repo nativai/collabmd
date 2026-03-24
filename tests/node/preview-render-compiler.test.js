@@ -173,6 +173,20 @@ test('compilePreviewDocument renders inline br tags without enabling arbitrary h
   assert.match(html, /&lt;div id=.*unsafe-html.*&gt;unsafe&lt;\/div&gt;/);
 });
 
+test('compilePreviewDocument preserves nested task list structure', () => {
+  const markdown = [
+    '- [ ] First todo',
+    '  - [ ] Nested todo',
+  ].join('\n');
+
+  const { html } = compilePreviewDocument({ markdownText: markdown });
+
+  assert.match(
+    html,
+    /<li[^>]*class="task-list-item"[^>]*>[\s\S]*<ul[^>]*>[\s\S]*<li[^>]*class="task-list-item"[^>]*>/,
+  );
+});
+
 test('compilePreviewDocument renders YouTube markdown images as no-cookie embeds', () => {
   const markdown = '![Demo video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)';
 

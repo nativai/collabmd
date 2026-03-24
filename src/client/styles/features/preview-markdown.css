@@ -93,6 +93,11 @@
   padding-left: var(--space-1);
 }
 
+.preview-content li > ul > .task-list-item,
+.preview-content li > ol > .task-list-item {
+  margin-left: 0;
+}
+
 .preview-content .task-list-item input[type='checkbox'] {
   margin-right: var(--space-2);
   accent-color: var(--color-primary);

@@ -68,6 +68,21 @@ test('renders markdown preview when a file is opened', async ({ page }) => {
   await expect(page.locator('#previewContent')).toContainText('Welcome to the test vault');
 });
 
+test('indents nested task list items in markdown preview', async ({ page }) => {
+  await openFile(page, 'README.md');
+
+  await replaceEditorContent(page, '## Todo\n\n- [ ] First todo\n  - [ ] Nested todo\n');
+  await expect(page.locator('#previewContent .task-list-item')).toHaveCount(2);
+
+  const checkboxOffsets = await page.locator('#previewContent').evaluate((root) => (
+    Array.from(root.querySelectorAll('.task-list-item input[type="checkbox"]'))
+      .slice(0, 2)
+      .map((input) => input.getBoundingClientRect().left)
+  ));
+
+  expect(checkboxOffsets[1]).toBeGreaterThan(checkboxOffsets[0] + 12);
+});
+
 test('keeps the overflow trigger hidden on desktop and shows toolbar actions inline', async ({ page }) => {
   await openFile(page, 'README.md', { waitFor: 'preview' });
 
