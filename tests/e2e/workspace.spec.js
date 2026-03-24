@@ -102,16 +102,82 @@ test('clicking a preview task list item toggles the markdown checkbox', async ({
   await expect(page.locator('#previewContent .task-list-item input[type="checkbox"]').first()).not.toBeChecked();
 });
 
-test('keeps the overflow trigger hidden on desktop and shows toolbar actions inline', async ({ page }) => {
+test('keeps desktop secondary actions behind the toolbar overflow menu', async ({ page }) => {
   await openFile(page, 'README.md', { waitFor: 'preview' });
 
-  await expect(page.locator('#toolbarOverflowToggle')).toBeHidden();
-  await expect(page.locator('#editNameBtn')).toBeVisible();
+  await expect(page.locator('#toolbarOverflowToggle')).toBeVisible();
   await expect(page.locator('#chatToggleBtn')).toBeVisible();
+  await expect(page.locator('#editNameBtn')).toBeHidden();
+  await expect(page.locator('#shareBtn')).toBeHidden();
+  await expect(page.locator('#themeToggleBtn')).toBeHidden();
+
+  await page.locator('#toolbarOverflowToggle').click();
+
+  await expect(page.locator('#editNameBtn')).toBeVisible();
   await expect(page.locator('#shareBtn')).toBeVisible();
+  await expect(page.locator('#exportMenuGroup')).toBeVisible();
   await expect(page.locator('#themeToggleBtn')).toBeVisible();
-  await expect(page.locator('#themeToggleBtn .ui-toolbar-button-label')).toBeHidden();
-  await expect(page.locator('#themeToggleBtn [data-theme-toggle-state]')).toBeHidden();
+  await expect(page.locator('#themeToggleBtn')).toContainText('Theme');
+  await expect(page.locator('#themeToggleBtn [data-theme-toggle-state]')).toContainText(/Dark|Light/);
+});
+
+test('export docx uses the export page and posts the rendered snapshot html', async ({ page, context }) => {
+  await openFile(page, 'README.md', { waitFor: 'preview' });
+
+  let exportRequestBody = null;
+  await context.route('**/api/export/docx', async (route) => {
+    exportRequestBody = route.request().postDataJSON();
+    await route.fulfill({
+      body: Buffer.from('PK\x03\x04'),
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      headers: {
+        'Content-Disposition': 'attachment; filename="README.docx"',
+      },
+      status: 200,
+    });
+  });
+
+  const popupPromise = context.waitForEvent('page');
+  await page.locator('#toolbarOverflowToggle').click();
+  await page.locator('#exportMenuGroup > summary').click();
+  await page.locator('#exportDocxBtn').click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState('domcontentloaded');
+
+  await expect.poll(() => exportRequestBody).not.toBeNull();
+  expect(exportRequestBody.filePath).toBe('README.md');
+  expect(exportRequestBody.title).toBe('README');
+  expect(exportRequestBody.html).toContain('My Vault');
+  expect(exportRequestBody.html).not.toContain('toolbarOverflowMenu');
+  await expect(popup.locator('#exportStatus')).toContainText('DOCX download started.');
+});
+
+test('export pdf uses the export page and prints the rendered snapshot html', async ({ page, context }) => {
+  await context.addInitScript(() => {
+    Object.defineProperty(window, '__collabmdPrinted', {
+      configurable: true,
+      value: false,
+      writable: true,
+    });
+
+    window.print = () => {
+      window.__collabmdPrinted = true;
+      window.dispatchEvent(new Event('afterprint'));
+    };
+  });
+
+  await openFile(page, 'README.md', { waitFor: 'preview' });
+
+  const popupPromise = context.waitForEvent('page');
+  await page.locator('#toolbarOverflowToggle').click();
+  await page.locator('#exportMenuGroup > summary').click();
+  await page.locator('#exportPdfBtn').click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState('domcontentloaded');
+
+  await expect.poll(() => popup.evaluate(() => window.__collabmdPrinted)).toBe(true);
+  await expect(popup.locator('#exportContent')).toContainText('My Vault');
+  await expect(popup.locator('#exportStatus')).toContainText('Print dialog opened.');
 });
 
 test('shows provisional content before delayed websocket sync and upgrades to collaborative editing', async ({ page }) => {

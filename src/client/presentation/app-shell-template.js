@@ -149,8 +149,61 @@ export function appShellTemplate() {
 
             <div class="user-avatars toolbar-presence-cluster" id="userAvatars"></div>
 
+            <div class="chat-container" id="chatContainer">
+              <button class=${buttonClassNames({ variant: 'ghost', toolbar: true, extra: 'chat-toggle-btn' })} id="chatToggleBtn" aria-label="Open team chat" aria-expanded="false" title="Team chat">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <span class="ui-toolbar-button-label">Chat</span>
+                <span class=${badgeClassNames({ tone: 'solid', count: true, hidden: true, extra: 'chat-toggle-badge' })} id="chatToggleBadge">0</span>
+              </button>
+              <div class="toast-container chat-toast-container" id="chatToastContainer" aria-live="polite" aria-atomic="true"></div>
+
+              <section class="chat-panel hidden" id="chatPanel" aria-label="Team chat">
+                <div class="chat-panel-header">
+                  <div>
+                    <h2 class="chat-panel-title">Team chat</h2>
+                    <p class="chat-panel-status" id="chatStatus">Syncing...</p>
+                  </div>
+                  <button
+                    class=${buttonClassNames({
+                      variant: 'secondary',
+                      size: 'compact',
+                      pill: true,
+                      surface: true,
+                      action: true,
+                      extra: 'chat-notification-action',
+                    })}
+                    id="chatNotificationBtn"
+                    type="button"
+                  >
+                    Enable alerts
+                  </button>
+                </div>
+
+                <div class="chat-empty-state" id="chatEmptyState">
+                  Temporary room chat for whoever is online right now.
+                </div>
+                <div class="chat-messages hidden" id="chatMessages" role="log" aria-live="polite" aria-relevant="additions text"></div>
+
+                <form class="chat-form" id="chatForm">
+                  <input
+                    type="text"
+                    class=${inputClassNames({ extra: 'chat-input' })}
+                    id="chatInput"
+                    placeholder="Send a quick update..."
+                    autocomplete="off"
+                    spellcheck="true"
+                    maxlength="280"
+                    aria-label="Team chat message"
+                  >
+                  <button type="submit" class=${buttonClassNames({ variant: 'primary', extra: 'chat-send-btn' })}>Send</button>
+                </form>
+              </section>
+            </div>
+
             <button
-              class=${buttonClassNames({ variant: 'ghost', toolbar: true, extra: ['toolbar-overflow-toggle', 'hidden'] })}
+              class=${buttonClassNames({ variant: 'ghost', toolbar: true, extra: 'toolbar-overflow-toggle' })}
               id="toolbarOverflowToggle"
               aria-label="Open more actions"
               aria-expanded="false"
@@ -181,59 +234,6 @@ export function appShellTemplate() {
                 <span class="ui-toolbar-button-label ui-toolbar-button-text" id="currentUserName">Set name</span>
               </button>
 
-              <div class="chat-container" id="chatContainer">
-                <button class=${buttonClassNames({ variant: 'ghost', toolbar: true, extra: 'chat-toggle-btn' })} id="chatToggleBtn" aria-label="Open team chat" aria-expanded="false" title="Team chat">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                  </svg>
-                  <span class="ui-toolbar-button-label">Chat</span>
-                  <span class=${badgeClassNames({ tone: 'solid', count: true, hidden: true, extra: 'chat-toggle-badge' })} id="chatToggleBadge">0</span>
-                </button>
-                <div class="toast-container chat-toast-container" id="chatToastContainer" aria-live="polite" aria-atomic="true"></div>
-
-                <section class="chat-panel hidden" id="chatPanel" aria-label="Team chat">
-                  <div class="chat-panel-header">
-                    <div>
-                      <h2 class="chat-panel-title">Team chat</h2>
-                      <p class="chat-panel-status" id="chatStatus">Syncing...</p>
-                    </div>
-                    <button
-                      class=${buttonClassNames({
-                        variant: 'secondary',
-                        size: 'compact',
-                        pill: true,
-                        surface: true,
-                        action: true,
-                        extra: 'chat-notification-action',
-                      })}
-                      id="chatNotificationBtn"
-                      type="button"
-                    >
-                      Enable alerts
-                    </button>
-                  </div>
-
-                  <div class="chat-empty-state" id="chatEmptyState">
-                    Temporary room chat for whoever is online right now.
-                  </div>
-                  <div class="chat-messages hidden" id="chatMessages" role="log" aria-live="polite" aria-relevant="additions text"></div>
-
-                  <form class="chat-form" id="chatForm">
-                    <input
-                      type="text"
-                      class=${inputClassNames({ extra: 'chat-input' })}
-                      id="chatInput"
-                      placeholder="Send a quick update..."
-                      autocomplete="off"
-                      spellcheck="true"
-                      maxlength="280"
-                      aria-label="Team chat message"
-                    >
-                    <button type="submit" class=${buttonClassNames({ variant: 'primary', extra: 'chat-send-btn' })}>Send</button>
-                  </form>
-                </section>
-              </div>
-
               <button class=${buttonClassNames({ variant: 'ghost', toolbar: true })} id="shareBtn" aria-label="Share. Copy link" title="Share link">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                   <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
@@ -241,6 +241,37 @@ export function appShellTemplate() {
                 </svg>
                 <span class="ui-toolbar-button-label">Share</span>
               </button>
+
+              <details class="toolbar-overflow-group hidden" id="exportMenuGroup">
+                <summary class=${buttonClassNames({ variant: 'ghost', toolbar: true, extra: 'toolbar-overflow-group-toggle' })} aria-label="Export options" title="Export">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <path d="M12 18v-6"></path>
+                    <path d="m9 15 3 3 3-3"></path>
+                  </svg>
+                  <span class="ui-toolbar-button-label">Export</span>
+                </summary>
+                <div class="toolbar-overflow-submenu">
+                  <button class=${buttonClassNames({ variant: 'ghost', toolbar: true })} id="exportDocxBtn" aria-label="Export DOCX" title="Export DOCX">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                      <polyline points="14 2 14 8 20 8"></polyline>
+                      <path d="M8 13h2l1.2 2 1.6-4 1.2 2H18"></path>
+                    </svg>
+                    <span class="ui-toolbar-button-label">Export DOCX</span>
+                  </button>
+                  <button class=${buttonClassNames({ variant: 'ghost', toolbar: true })} id="exportPdfBtn" aria-label="Print or save PDF" title="Print / Save PDF">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M6 9V2h12v7"></path>
+                      <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                      <rect x="6" y="14" width="12" height="8"></rect>
+                    </svg>
+                    <span class="ui-toolbar-button-label">Print / Save PDF</span>
+                  </button>
+                </div>
+              </details>
+
               <button class=${buttonClassNames({ variant: 'ghost', toolbar: true, extra: 'toolbar-theme-button' })} id="themeToggleBtn" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">
                 <span class="toolbar-theme-icon" data-theme-toggle-icon aria-hidden="true">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

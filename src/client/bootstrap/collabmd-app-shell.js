@@ -7,6 +7,7 @@ import { WorkspaceStateStore } from '../application/workspace-state-store.js';
 import { bindAppShellElements } from '../application/app-shell-elements.js';
 import { chatFeature } from '../application/app-shell/chat-feature.js';
 import { commentsFeature } from '../application/app-shell/comments-feature.js';
+import { exportFeature } from '../application/app-shell/export-feature.js';
 import { gitFeature } from '../application/app-shell/git-feature.js';
 import { presenceFeature } from '../application/app-shell/presence-feature.js';
 import { uiFeature } from '../application/app-shell/ui-feature.js';
@@ -40,6 +41,7 @@ import { renderAppShell } from '../presentation/app-shell-renderer.js';
 const APP_SHELL_FEATURES = Object.freeze({
   chat: chatFeature,
   comments: commentsFeature,
+  export: exportFeature,
   git: gitFeature,
   presence: presenceFeature,
   ui: uiFeature,

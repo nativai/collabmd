@@ -30,6 +30,7 @@ const VERSION_RELOAD_TOAST_DURATION_MS = 0;
 
 /** @this {UiShellContext} */
 function initialize() {
+  this.initializeExportBridge?.();
   this.renderMarkdownToolbar?.();
   this.themeController.initialize();
   this.previewRenderer.applyTheme(this.themeController.getTheme());
@@ -127,6 +128,16 @@ function bindEvents() {
 
   this.elements.shareButton?.addEventListener('click', () => {
     void this.copyCurrentLink();
+    this.closeToolbarOverflowMenu?.();
+  });
+
+  this.elements.exportDocxButton?.addEventListener('click', () => {
+    void this.handleExportRequest?.('docx');
+    this.closeToolbarOverflowMenu?.();
+  });
+
+  this.elements.exportPdfButton?.addEventListener('click', () => {
+    void this.handleExportRequest?.('pdf');
     this.closeToolbarOverflowMenu?.();
   });
 
@@ -327,10 +338,16 @@ function handlePreviewContentClick(event) {
 
 /** @this {UiShellContext} */
 function setToolbarOverflowOpen(nextState) {
-  this.toolbarOverflowOpen = Boolean(nextState) && this.isMobileViewport?.();
+  this.toolbarOverflowOpen = Boolean(nextState);
   this.elements.toolbarOverflowToggle?.setAttribute('aria-expanded', String(this.toolbarOverflowOpen));
   this.elements.toolbarOverflowToggle?.classList.toggle('active', this.toolbarOverflowOpen);
   this.elements.toolbarOverflowToggle?.closest('.toolbar-right')?.classList.toggle('is-overflow-open', this.toolbarOverflowOpen);
+
+  if (!this.toolbarOverflowOpen) {
+    this.elements.toolbarOverflowMenu?.querySelectorAll('details[open]').forEach((detail) => {
+      detail.removeAttribute('open');
+    });
+  }
 }
 
 /** @this {UiShellContext} */
@@ -340,14 +357,9 @@ function syncToolbarOverflowVisibility() {
     return;
   }
 
-  const isMobile = this.isMobileViewport?.();
-  if (!isMobile) {
-    this.setToolbarOverflowOpen(false);
-  }
-
-  toggle.classList.toggle('hidden', !isMobile);
-  toggle.hidden = !isMobile;
-  toggle.setAttribute('aria-hidden', String(!isMobile));
+  toggle.classList.remove('hidden');
+  toggle.hidden = false;
+  toggle.setAttribute('aria-hidden', 'false');
 }
 
 /** @this {UiShellContext} */

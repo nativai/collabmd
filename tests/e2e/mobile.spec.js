@@ -394,6 +394,7 @@ test.describe('mobile comments and header chrome', () => {
 
     await expect(page.locator('#sidebarToggle')).toBeVisible();
     await expect(page.locator('#mobileViewToggle')).toBeVisible();
+    await expect(page.locator('#chatToggleBtn')).toBeVisible();
     await expect(page.locator('#toolbarOverflowToggle')).toBeVisible();
     await expect(page.locator('#editNameBtn')).toBeHidden();
     await expect(page.locator('#shareBtn')).toBeHidden();
@@ -401,8 +402,8 @@ test.describe('mobile comments and header chrome', () => {
     await page.locator('#toolbarOverflowToggle').click();
 
     await expect(page.locator('#editNameBtn')).toBeVisible();
-    await expect(page.locator('#chatToggleBtn')).toBeVisible();
     await expect(page.locator('#shareBtn')).toBeVisible();
+    await expect(page.locator('#exportMenuGroup')).toBeVisible();
     const themeButton = page.locator('#themeToggleBtn');
     await expect(themeButton).toBeVisible();
     await expect(themeButton).toContainText('Theme');
