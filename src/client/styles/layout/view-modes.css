@@ -16,6 +16,9 @@
 
 .editor-layout[data-view="preview"] .preview-body {
   --preview-content-max-width: 1080px;
+  --backlinks-dock-left: var(--space-6);
+  --backlinks-dock-bottom: calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+  --backlinks-dock-width: min(320px, calc(100% - var(--space-12)));
 }
 
 .editor-layout[data-view="preview"] .preview-content {

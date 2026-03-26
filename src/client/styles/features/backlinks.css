@@ -16,10 +16,10 @@
 
 .backlinks-panel-layer {
   position: absolute;
-  left: max(var(--space-4), calc((100% - min(var(--preview-content-max-width), 100%)) / 2));
-  bottom: calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
+  left: var(--backlinks-dock-left, max(var(--space-4), calc((100% - min(var(--preview-content-max-width), 100%)) / 2)));
+  bottom: var(--backlinks-dock-bottom, calc(var(--space-5) + env(safe-area-inset-bottom, 0px)));
   z-index: 14;
-  width: min(320px, calc(min(var(--preview-content-max-width), 100%) - var(--space-8)));
+  width: var(--backlinks-dock-width, min(320px, calc(min(var(--preview-content-max-width), 100%) - var(--space-8))));
   pointer-events: none;
 }
 
