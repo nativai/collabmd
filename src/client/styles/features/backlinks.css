@@ -9,6 +9,11 @@
   min-width: 0;
 }
 
+.backlinks-panel-header {
+  position: relative;
+  pointer-events: auto;
+}
+
 .backlinks-panel-layer {
   position: absolute;
   left: max(var(--space-4), calc((100% - min(var(--preview-content-max-width), 100%)) / 2));
@@ -34,6 +39,27 @@
 .backlinks-panel-dock:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-floating-hover);
+}
+
+.backlinks-panel-header .backlinks-header {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-full);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text-muted);
+  backdrop-filter: blur(12px);
+}
+
+.backlinks-panel-header .backlinks-header:hover {
+  border-color: var(--border-accent-muted);
+  background: var(--surface-overlay-strong);
+}
+
+.backlinks-panel-header .backlinks-count {
+  min-width: 18px;
+  padding: 0 6px;
 }
 
 .backlinks-panel-inline {
@@ -125,6 +151,32 @@
   background: var(--surface-overlay-raised);
 }
 
+.backlinks-panel-header .backlinks-body {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 24;
+  width: min(320px, calc(100vw - var(--space-8)));
+  max-height: none;
+  border: 1px solid var(--border-accent-muted);
+  border-radius: var(--radius-xl);
+  background: var(--surface-overlay-strong);
+  box-shadow: var(--shadow-floating-soft);
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.backlinks-panel-header.expanded .backlinks-body {
+  max-height: min(44vh, 400px);
+  overflow-y: auto;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
 .backlinks-panel-dock.expanded .backlinks-body {
   max-height: min(44vh, 400px);
   overflow-y: auto;
@@ -144,6 +196,10 @@
 }
 
 .backlinks-panel-dock .backlinks-list {
+  padding: 10px;
+}
+
+.backlinks-panel-header .backlinks-list {
   padding: 10px;
 }
 
@@ -213,6 +269,12 @@
 
 @media (min-width: 769px) {
   .backlinks-panel-inline {
+    display: none !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .backlinks-panel-header {
     display: none !important;
   }
 }

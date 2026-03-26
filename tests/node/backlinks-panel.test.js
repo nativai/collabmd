@@ -300,9 +300,12 @@ function createBacklinksPanel(t, responses, { onFileSelect } = {}) {
   installFetchStub(t, responses);
 
   const dock = createPanelStructure({ includeDockWrapper: true });
+  const header = createPanelStructure();
+  header.panel.setAttribute('data-backlinks-variant', 'header');
   const inline = createPanelStructure();
   const panel = new BacklinksPanel({
     documentRef: documentHarness.documentRef,
+    headerPanelElement: header.root,
     inlinePanelElement: inline.root,
     onFileSelect,
     panelElement: dock.root,
@@ -310,6 +313,7 @@ function createBacklinksPanel(t, responses, { onFileSelect } = {}) {
 
   return {
     dock,
+    header,
     documentHarness,
     inline,
     panel,
@@ -334,7 +338,7 @@ test('BacklinksPanel hides linked mentions when there is no current file or no b
 });
 
 test('BacklinksPanel renders the mention count and collapses again when the file changes', async (t) => {
-  const { dock, inline, panel } = createBacklinksPanel(t, {
+  const { dock, header, inline, panel } = createBacklinksPanel(t, {
     'projects/collabmd.md': [
       { file: 'README.md', contexts: ['- [[projects/collabmd]]'] },
       { file: 'daily/2026-03-05.md', contexts: ['- [ ] Review the [[projects/collabmd]] vault feature'] },
@@ -347,6 +351,7 @@ test('BacklinksPanel renders the mention count and collapses again when the file
   await panel.load('projects/collabmd.md');
 
   assert.equal(dock.root.classList.contains('hidden'), false);
+  assert.equal(header.root.classList.contains('hidden'), true);
   assert.equal(inline.root.classList.contains('hidden'), false);
   assert.equal(dock.toggle.textContent, 'Linked Mentions');
   assert.equal(inline.toggle.textContent, 'Linked Mentions');
@@ -362,9 +367,29 @@ test('BacklinksPanel renders the mention count and collapses again when the file
   await panel.load('showcase.md');
 
   assert.equal(dock.panel.classList.contains('expanded'), false);
+  assert.equal(header.panel.classList.contains('expanded'), false);
   assert.equal(inline.panel.classList.contains('expanded'), false);
   assert.equal(dock.toggle.textContent, 'Linked Mention');
   assert.equal(inline.toggle.textContent, 'Linked Mention');
+});
+
+test('BacklinksPanel switches to the header popover variant when requested', async (t) => {
+  const { dock, header, inline, panel } = createBacklinksPanel(t, {
+    'diagrams/sketch.excalidraw': [
+      { file: 'README.md', contexts: ['![[diagrams/sketch.excalidraw]]'] },
+    ],
+  });
+
+  panel.setDisplayMode('header');
+  await panel.load('diagrams/sketch.excalidraw');
+
+  assert.equal(dock.root.classList.contains('hidden'), true);
+  assert.equal(header.root.classList.contains('hidden'), false);
+  assert.equal(inline.root.classList.contains('hidden'), false);
+
+  header.header.click();
+  assert.equal(header.panel.classList.contains('expanded'), true);
+  assert.equal(dock.panel.classList.contains('expanded'), false);
 });
 
 test('BacklinksPanel closes on escape, outside tap, and item selection', async (t) => {
@@ -413,4 +438,22 @@ test('BacklinksPanel closes on escape, outside tap, and item selection', async (
 
   assert.deepEqual(selectedFiles, ['README.md']);
   assert.equal(dock.panel.classList.contains('expanded'), false);
+});
+
+test('BacklinksPanel strips supported vault extensions from backlink item labels', async (t) => {
+  const { dock, panel } = createBacklinksPanel(t, {
+    'diagrams/flow.mmd': [
+      { file: 'boards/tasks.base', contexts: ['![[diagrams/flow.mmd]]'] },
+      { file: 'docs/architecture.drawio', contexts: ['![[diagrams/flow.mmd]]'] },
+    ],
+  });
+
+  await panel.load('diagrams/flow.mmd');
+
+  const names = dock.list.querySelectorAll('.backlink-item')
+    .map((item) => item.querySelector('.backlink-file-name')?.innerHTML ?? '');
+  assert.equal(names[0].includes('tasks.base'), false);
+  assert.equal(names[0].includes('tasks'), true);
+  assert.equal(names[1].includes('architecture.drawio'), false);
+  assert.equal(names[1].includes('architecture'), true);
 });

@@ -8,7 +8,7 @@ function createController(overrides = {}) {
     ?? (() => (Object.hasOwn(overrides, 'session') ? overrides.session : { getText: () => 'graph TD\nA-->B' }));
 
   return new WorkspacePreviewController({
-    backlinksPanel: { clear() {}, ...(overrides.backlinksPanel || {}) },
+    backlinksPanel: { clear() {}, setDisplayMode() {}, ...(overrides.backlinksPanel || {}) },
     basesPreview: overrides.basesPreview,
     drawioEmbed: {
       detachForCommit() {},
@@ -139,12 +139,16 @@ test('WorkspacePreviewController forces Excalidraw files into preview without ov
       clear() {
         events.push(['backlinks-clear']);
       },
+      setDisplayMode(mode) {
+        events.push(['backlinks-mode', mode]);
+      },
     },
   });
 
   controller.syncFileChrome('diagram.excalidraw');
 
   assert.deepEqual(events, [
+    ['backlinks-mode', 'header'],
     ['set-view', 'preview', { persist: false }],
     ['outline-close'],
     ['backlinks-clear'],
@@ -168,12 +172,16 @@ test('WorkspacePreviewController forces draw.io files into preview without overw
       clear() {
         events.push(['backlinks-clear']);
       },
+      setDisplayMode(mode) {
+        events.push(['backlinks-mode', mode]);
+      },
     },
   });
 
   controller.syncFileChrome('diagram.drawio');
 
   assert.deepEqual(events, [
+    ['backlinks-mode', 'header'],
     ['set-view', 'preview', { persist: false }],
     ['outline-close'],
     ['backlinks-clear'],
@@ -197,12 +205,15 @@ test('WorkspacePreviewController keeps draw.io text mode in the editor layout', 
       clear() {
         events.push(['backlinks-clear']);
       },
+      setDisplayMode(mode) {
+        events.push(['backlinks-mode', mode]);
+      },
     },
   });
 
   controller.syncFileChrome('diagram.drawio', { drawioMode: 'text' });
 
-  assert.deepEqual(events, []);
+  assert.deepEqual(events, [['backlinks-mode', 'dock']]);
 });
 
 test('WorkspacePreviewController forces image attachments into preview without overwriting layout preference', () => {
@@ -371,7 +382,6 @@ test('WorkspacePreviewController delegates standalone base preview rendering', a
     ['replace-children', 0],
     ['render-standalone', 'views/tasks.base', true, 'filters:\n  and: []\n'],
     ['outline-close'],
-    ['backlinks-clear'],
     ['set-large-document-mode', false],
     ['invalidate-preview'],
     ['schedule-layout-sync'],

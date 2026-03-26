@@ -98,6 +98,9 @@ export class WorkspacePreviewController {
     const isMermaid = this.isMermaidFile(filePath);
     const isPlantUml = this.isPlantUmlFile(filePath);
     const isDiagramFile = isDiagramFilePath(filePath);
+    const usesHeaderBacklinks = isExcalidraw || (isDrawio && drawioMode !== 'text');
+
+    this.backlinksPanel.setDisplayMode?.(usesHeaderBacklinks ? 'header' : 'dock');
 
     this.elements.editorFindButton?.classList.toggle('hidden', !isMarkdown);
     this.elements.markdownToolbar?.classList.toggle('hidden', !isMarkdown);
@@ -264,7 +267,6 @@ export class WorkspacePreviewController {
 
     previewElement.dataset.renderPhase = 'ready';
     this.outlineController.close();
-    this.backlinksPanel.clear();
     this.scrollSyncController.setLargeDocumentMode(false);
     this.scrollSyncController.invalidatePreviewBlocks();
     this.videoEmbed?.reconcileEmbeds(previewElement);

@@ -1,3 +1,4 @@
+import { stripVaultFileExtension } from '../../domain/file-kind.js';
 import { escapeHtml } from '../domain/vault-utils.js';
 import { resolveApiUrl } from '../domain/runtime-paths.js';
 
@@ -10,25 +11,29 @@ import { resolveApiUrl } from '../domain/runtime-paths.js';
 export class BacklinksPanel {
   constructor({
     documentRef = document,
+    headerPanelElement = null,
     inlinePanelElement = null,
     onFileSelect,
     panelElement,
   }) {
     this.documentRef = documentRef;
+    this.headerPanel = headerPanelElement;
     this.panelRoot = panelElement;
     this.inlinePanel = inlinePanelElement;
     this.onFileSelect = onFileSelect;
 
     this._expanded = false;
     this._currentFile = null;
+    this._displayMode = 'dock';
     this._fetchController = null;
     this._backlinks = [];
     this._pendingOutsidePointer = null;
 
     const desktopPanel = this.panelRoot?.querySelector('[data-backlinks-variant="dock"]') ?? this.panelRoot;
     this.panels = [
-      this._createPanelRef(desktopPanel),
-      this._createPanelRef(this.inlinePanel),
+      this._createPanelRef(desktopPanel, this.panelRoot),
+      this._createPanelRef(this.headerPanel, this.headerPanel),
+      this._createPanelRef(this.inlinePanel, this.inlinePanel),
     ].filter(Boolean);
 
     this.handleDocumentPointerDown = (event) => {
@@ -145,6 +150,18 @@ export class BacklinksPanel {
     this._render();
   }
 
+  setDisplayMode(mode = 'dock') {
+    const normalizedMode = mode === 'header' ? 'header' : 'dock';
+    if (this._displayMode === normalizedMode) {
+      return;
+    }
+
+    this._displayMode = normalizedMode;
+    this._expanded = false;
+    this._pendingOutsidePointer = null;
+    this._render();
+  }
+
   clear() {
     this._currentFile = null;
     this._backlinks = [];
@@ -162,7 +179,7 @@ export class BacklinksPanel {
     this._applyExpandState();
   }
 
-  _createPanelRef(panel) {
+  _createPanelRef(panel, root = panel) {
     if (!panel) {
       return null;
     }
@@ -174,6 +191,7 @@ export class BacklinksPanel {
       countBadge: panel.querySelector('.backlinks-count'),
       body: panel.querySelector('.backlinks-body'),
       list: panel.querySelector('.backlinks-list'),
+      root,
     };
   }
 
@@ -182,19 +200,19 @@ export class BacklinksPanel {
     const label = count === 1 ? 'Linked Mention' : 'Linked Mentions';
     const shouldShow = Boolean(this._currentFile) && count > 0;
 
-    this.panelRoot?.classList?.toggle('hidden', !shouldShow);
-    this.inlinePanel?.classList?.toggle('hidden', !shouldShow);
-
     if (!shouldShow) {
       this._expanded = false;
     }
 
     this.panels.forEach((refs) => {
+      const shouldShowPanel = shouldShow && this._shouldShowPanel(refs);
+
+      refs.root?.classList?.toggle?.('hidden', !shouldShowPanel);
       refs.countBadge.textContent = shouldShow ? String(count) : '';
       refs.toggle.textContent = label;
-      refs.header?.classList.toggle('backlinks-header-empty', !shouldShow);
+      refs.header?.classList.toggle('backlinks-header-empty', !shouldShowPanel);
 
-      if (!shouldShow) {
+      if (!shouldShowPanel) {
         refs.list.innerHTML = '';
       } else {
         this._renderList(refs.list);
@@ -202,6 +220,15 @@ export class BacklinksPanel {
     });
 
     this._applyExpandState();
+  }
+
+  _shouldShowPanel(refs) {
+    const variant = refs.panel?.getAttribute?.('data-backlinks-variant') ?? '';
+    return (
+      variant === 'header'
+        ? this._displayMode === 'header'
+        : (variant === 'dock' ? this._displayMode === 'dock' : true)
+    );
   }
 
   _renderList(listElement) {
@@ -221,7 +248,7 @@ export class BacklinksPanel {
   }
 
   _createBacklinkItem(backlink) {
-    const fileName = backlink.file.replace(/\.md$/i, '').split('/').pop();
+    const fileName = stripVaultFileExtension(backlink.file.split('/').pop());
     const dirPath = backlink.file.includes('/')
       ? backlink.file.substring(0, backlink.file.lastIndexOf('/'))
       : '';
@@ -264,9 +291,8 @@ export class BacklinksPanel {
   }
 
   _applyExpandState() {
-    const expanded = this._expanded && this._backlinks.length > 0;
-
     this.panels.forEach((refs) => {
+      const expanded = this._expanded && this._backlinks.length > 0 && this._shouldShowPanel(refs);
       refs.panel.classList.toggle('expanded', expanded);
       refs.header?.setAttribute('aria-expanded', String(expanded));
       refs.header?.setAttribute('aria-disabled', String(this._backlinks.length === 0));

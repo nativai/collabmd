@@ -378,6 +378,18 @@ export function appShellTemplate() {
               <div class="pane-header">
                 <span class="pane-label">Preview</span>
                 <div class="pane-header-actions">
+                  <div id="backlinksHeaderPanel" class="backlinks-panel backlinks-panel-header hidden" data-backlinks-variant="header">
+                    <button type="button" class="backlinks-header" aria-expanded="false">
+                      <svg class="backlinks-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="9 18 15 12 9 6"></polyline>
+                      </svg>
+                      <span class="backlinks-toggle">0 Linked Mentions</span>
+                      <span class="backlinks-count"></span>
+                    </button>
+                    <div class="backlinks-body" aria-hidden="true" inert>
+                      <div class="backlinks-list"></div>
+                    </div>
+                  </div>
                   <button class=${buttonClassNames({ variant: 'ghost', size: 'compact', toggle: true, extra: 'hidden' })} id="commentsToggle" aria-label="Toggle comments" title="Toggle comments">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>

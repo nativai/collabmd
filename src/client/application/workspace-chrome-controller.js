@@ -83,7 +83,6 @@ export class WorkspaceChromeController {
     filePath,
     isExcalidraw = false,
     isImage = false,
-    session = null,
     supportsBacklinks,
   }) {
     if (isExcalidraw) {
@@ -99,7 +98,7 @@ export class WorkspaceChromeController {
       this.onRenderImagePreview(filePath);
     }
     this.onSyncWrapToggle();
-    if (supportsBacklinks && session) {
+    if (supportsBacklinks) {
       this.loadBacklinks(filePath);
     }
   }

@@ -56,3 +56,27 @@ test('WorkspaceChromeController renders standalone base previews when the handle
 
   assert.deepEqual(events, [['render-base', 'views/tasks.base']]);
 });
+
+test('WorkspaceChromeController loads backlinks for direct-preview files without an editor session', () => {
+  const events = [];
+  const controller = createController({
+    loadBacklinks(filePath) {
+      events.push(['load-backlinks', filePath]);
+    },
+    onRenderExcalidrawPreview(filePath) {
+      events.push(['render-excalidraw', filePath]);
+    },
+  });
+
+  controller.finalizeFileOpen({
+    filePath: 'diagrams/sketch.excalidraw',
+    isExcalidraw: true,
+    session: null,
+    supportsBacklinks: true,
+  });
+
+  assert.deepEqual(events, [
+    ['render-excalidraw', 'diagrams/sketch.excalidraw'],
+    ['load-backlinks', 'diagrams/sketch.excalidraw'],
+  ]);
+});
