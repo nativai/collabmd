@@ -74,7 +74,13 @@ export function createAppServer(config = loadConfig()) {
   const authService = createAuthService(config);
   const vaultFileStore = new VaultFileStore({ vaultDir: config.vaultDir });
   const backlinkIndex = new BacklinkIndex({ vaultFileStore });
-  const baseQueryService = new BaseQueryService({ vaultFileStore });
+  let fileSystemSyncService = null;
+  let workspaceMutationCoordinator = null;
+  const baseQueryService = new BaseQueryService({
+    vaultFileStore,
+    workspaceStateProvider: () => workspaceMutationCoordinator?.workspaceState ?? null,
+    workspaceStateSynchronizer: () => fileSystemSyncService?.flushPendingChanges?.(),
+  });
   const docxExporter = new DocxExporter();
   const plantUmlRenderer = new PlantUmlRenderer({
     serverUrl: config.plantumlServerUrl,
@@ -87,7 +93,6 @@ export function createAppServer(config = loadConfig()) {
   const testControls = {
     wsRoomHydrateDelayMs: Math.max(0, Number(config.testWsRoomHydrateDelayMs || 0)),
   };
-  let workspaceMutationCoordinator = null;
   const roomRegistry = new RoomRegistry({
     createRoom: ({ name, onEmpty }) => {
       const isTransientRoom = name === '__lobby__' || name === WORKSPACE_ROOM_NAME || isDrawioLeaseRoom(name);
@@ -116,11 +121,12 @@ export function createAppServer(config = loadConfig()) {
   });
   workspaceMutationCoordinator = new WorkspaceMutationCoordinator({
     backlinkIndex,
+    baseQueryService,
     roomRegistry,
     vaultFileStore,
   });
   vaultFileStore.setManagedWriteTracker(workspaceMutationCoordinator);
-  const fileSystemSyncService = new FileSystemSyncService({
+  fileSystemSyncService = new FileSystemSyncService({
     mutationCoordinator: workspaceMutationCoordinator,
     perfLoggingEnabled: config.perfLoggingEnabled,
     vaultFileStore,

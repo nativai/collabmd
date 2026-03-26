@@ -261,6 +261,68 @@ test('HTTP server queries and exports Obsidian base results', async (t) => {
   assert.match(exportResponse.body, /done\.md,done,5/);
 });
 
+test('HTTP base queries flush pending external file changes before serving cached snapshots', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  await writeFile(join(app.vaultDir, 'notes.md'), [
+    '---',
+    'status: open',
+    '---',
+    '',
+    '# Note',
+  ].join('\n'), 'utf8');
+  await writeFile(join(app.vaultDir, 'tasks.base'), [
+    'filters: file.path == "notes.md"',
+    'properties:',
+    '  note.status: {}',
+    'views:',
+    '  - type: table',
+    '    order: [note.status]',
+  ].join('\n'), 'utf8');
+  app.server.fileSystemSyncService.handleWatchEvent('change', 'notes.md');
+  app.server.fileSystemSyncService.handleWatchEvent('change', 'tasks.base');
+
+  const initialResponse = await httpRequest(`${app.baseUrl}/api/base/query`, {
+    body: JSON.stringify({ path: 'tasks.base' }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+
+  assert.equal(initialResponse.statusCode, 200);
+  assert.equal(JSON.parse(initialResponse.body).result.rows[0].cells['note.status'].value, 'open');
+
+  let scanCalls = 0;
+  const originalScanWorkspaceState = app.server.vaultFileStore.scanWorkspaceState.bind(app.server.vaultFileStore);
+  app.server.vaultFileStore.scanWorkspaceState = async (...args) => {
+    scanCalls += 1;
+    return originalScanWorkspaceState(...args);
+  };
+
+  await writeFile(join(app.vaultDir, 'notes.md'), [
+    '---',
+    'status: done',
+    '---',
+    '',
+    '# Note',
+  ].join('\n'), 'utf8');
+  app.server.fileSystemSyncService.handleWatchEvent('change', 'notes.md');
+
+  const refreshedResponse = await httpRequest(`${app.baseUrl}/api/base/query`, {
+    body: JSON.stringify({ path: 'tasks.base' }),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+
+  assert.equal(refreshedResponse.statusCode, 200);
+  assert.equal(JSON.parse(refreshedResponse.body).result.rows[0].cells['note.status'].value, 'done');
+  assert.equal(scanCalls, 0);
+});
+
 test('HTTP server serves /api/files from the cached workspace tree', async (t) => {
   const app = await startTestServer();
   t.after(() => app.close());

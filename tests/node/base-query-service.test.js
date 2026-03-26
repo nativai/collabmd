@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -348,4 +348,153 @@ test('BaseQueryService exposes file embeds and backlinks', async (t) => {
     targetRow.cells['file.backlinks'].items.map((item) => item.path),
     ['notes/source.md'],
   );
+});
+
+test('BaseQueryService reuses the in-memory snapshot for repeated queries', async (t) => {
+  const { cleanup, vaultDir, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/task.md', '# Task\n');
+  await writeVaultFile('views/tasks.base', [
+    'views:',
+    '  - type: table',
+    '    order: [file.name]',
+  ].join('\n'));
+
+  const vaultFileStore = new VaultFileStore({ vaultDir });
+  let workspaceState = await vaultFileStore.scanWorkspaceState();
+  const service = new BaseQueryService({
+    vaultFileStore,
+    workspaceStateProvider: () => workspaceState,
+  });
+  await service.initializeFromWorkspaceState(workspaceState);
+
+  let scanCalls = 0;
+  const originalScanWorkspaceState = vaultFileStore.scanWorkspaceState.bind(vaultFileStore);
+  vaultFileStore.scanWorkspaceState = async (...args) => {
+    scanCalls += 1;
+    return originalScanWorkspaceState(...args);
+  };
+
+  let readCalls = 0;
+  const originalReadMarkdownFile = vaultFileStore.readMarkdownFile.bind(vaultFileStore);
+  vaultFileStore.readMarkdownFile = async (...args) => {
+    readCalls += 1;
+    return originalReadMarkdownFile(...args);
+  };
+
+  await service.query({ basePath: 'views/tasks.base' });
+  const readsAfterFirstQuery = readCalls;
+  await service.query({ basePath: 'views/tasks.base' });
+
+  assert.equal(scanCalls, 0);
+  assert.equal(readCalls, readsAfterFirstQuery);
+});
+
+test('BaseQueryService refreshes only changed rows for content updates', async (t) => {
+  const { cleanup, vaultDir, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/a.md', [
+    '---',
+    'status: open',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('notes/b.md', [
+    '---',
+    'status: done',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('views/tasks.base', [
+    'properties:',
+    '  note.status: {}',
+    'views:',
+    '  - type: table',
+    '    order: [file.name, note.status]',
+  ].join('\n'));
+
+  const vaultFileStore = new VaultFileStore({ vaultDir });
+  let workspaceState = await vaultFileStore.scanWorkspaceState();
+  const service = new BaseQueryService({
+    vaultFileStore,
+    workspaceStateProvider: () => workspaceState,
+  });
+  await service.initializeFromWorkspaceState(workspaceState);
+  await service.query({ basePath: 'views/tasks.base' });
+
+  let readPaths = [];
+  const originalReadMarkdownFile = vaultFileStore.readMarkdownFile.bind(vaultFileStore);
+  vaultFileStore.readMarkdownFile = async (filePath, ...args) => {
+    readPaths.push(filePath);
+    return originalReadMarkdownFile(filePath, ...args);
+  };
+
+  await writeVaultFile('notes/a.md', [
+    '---',
+    'status: closed',
+    '---',
+  ].join('\n'));
+  const previousState = workspaceState;
+  workspaceState = await vaultFileStore.scanWorkspaceState();
+  await service.applyWorkspaceChange({
+    changedPaths: ['notes/a.md'],
+    deletedPaths: [],
+    renamedPaths: [],
+  }, {
+    previousState,
+    nextState: workspaceState,
+  });
+
+  const result = await service.query({ basePath: 'views/tasks.base' });
+  const rowA = result.rows.find((row) => row.path === 'notes/a.md');
+
+  assert.deepEqual(readPaths, ['notes/a.md']);
+  assert.equal(rowA.cells['note.status'].value, 'closed');
+});
+
+test('BaseQueryService refreshes rename membership changes incrementally', async (t) => {
+  const { cleanup, vaultDir, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/a.md', '[[b]]\n');
+  await writeVaultFile('notes/b.md', '# B\n');
+  await writeVaultFile('views/tasks.base', [
+    'views:',
+    '  - type: table',
+    '    order: [file.path]',
+  ].join('\n'));
+
+  const vaultFileStore = new VaultFileStore({ vaultDir });
+  let workspaceState = await vaultFileStore.scanWorkspaceState();
+  const service = new BaseQueryService({
+    vaultFileStore,
+    workspaceStateProvider: () => workspaceState,
+  });
+  await service.initializeFromWorkspaceState(workspaceState);
+  await service.query({ basePath: 'views/tasks.base' });
+
+  let readPaths = [];
+  const originalReadMarkdownFile = vaultFileStore.readMarkdownFile.bind(vaultFileStore);
+  vaultFileStore.readMarkdownFile = async (filePath, ...args) => {
+    readPaths.push(filePath);
+    return originalReadMarkdownFile(filePath, ...args);
+  };
+
+  await mkdir(join(vaultDir, 'archive'), { recursive: true });
+  await rename(join(vaultDir, 'notes', 'b.md'), join(vaultDir, 'archive', 'b.md'));
+  const previousState = workspaceState;
+  workspaceState = await vaultFileStore.scanWorkspaceState();
+  await service.applyWorkspaceChange({
+    changedPaths: [],
+    deletedPaths: [],
+    renamedPaths: [{ oldPath: 'notes/b.md', newPath: 'archive/b.md' }],
+  }, {
+    previousState,
+    nextState: workspaceState,
+  });
+
+  assert.equal(service.indexSnapshot.rowsByPath.has('notes/b.md'), false);
+  assert.equal(service.indexSnapshot.rowsByPath.has('archive/b.md'), true);
+  assert.equal(service.indexSnapshot.rowsByPath.get('notes/a.md').file.links[0].path, 'archive/b.md');
+  assert.deepEqual(new Set(readPaths), new Set(['archive/b.md', 'notes/a.md']));
 });
