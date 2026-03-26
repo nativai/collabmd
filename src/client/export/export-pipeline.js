@@ -23,6 +23,7 @@ const LIGHT_EXPORT_MERMAID_THEME = Object.freeze({
 });
 const EXPORT_ASSET_FETCH_TIMEOUT_MS = 10_000;
 const EXPORT_ASSET_MAX_BYTES = 10 * 1024 * 1024;
+const EXPORT_RENDER_SETTLE_TIMEOUT_MS = 10_000;
 const VIDEO_POSTER_CAPTURE_TIMEOUT_MS = 10_000;
 const VIDEO_POSTER_CAPTURE_SEEK_SECONDS = 1;
 
@@ -46,6 +47,10 @@ function createDocumentTitle(filePath, title = '') {
 
 function encodeSvgDataUrl(svgMarkup) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup)}`;
+}
+
+function waitForAnimationFrame() {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
 function blobToDataUrl(blob) {
@@ -175,6 +180,49 @@ async function imageDataUrlToPngDataUrl(dataUrl) {
 
   context.drawImage(image, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL('image/png');
+}
+
+async function waitForImageElement(image, {
+  timeoutMs = EXPORT_RENDER_SETTLE_TIMEOUT_MS,
+} = {}) {
+  if (!(image instanceof HTMLImageElement)) {
+    return;
+  }
+
+  if (!image.getAttribute('src')) {
+    return;
+  }
+
+  if (!image.complete) {
+    await new Promise((resolve) => {
+      let settled = false;
+      const cleanup = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        window.clearTimeout(timeoutId);
+        image.removeEventListener('load', handleDone);
+        image.removeEventListener('error', handleDone);
+      };
+      const handleDone = () => {
+        cleanup();
+        resolve();
+      };
+      const timeoutId = window.setTimeout(handleDone, timeoutMs);
+
+      image.addEventListener('load', handleDone, { once: true });
+      image.addEventListener('error', handleDone, { once: true });
+
+      if (image.complete) {
+        handleDone();
+      }
+    });
+  }
+
+  if (typeof image.decode === 'function') {
+    await image.decode().catch(() => {});
+  }
 }
 
 async function fetchJson(url, init = {}) {
@@ -1322,8 +1370,8 @@ export async function docxAdapter(snapshot) {
 }
 
 export async function printPdfAdapter() {
-  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
-  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  await waitForAnimationFrame();
+  await waitForAnimationFrame();
 
   await new Promise((resolve) => {
     const timeoutId = window.setTimeout(resolve, 1500);
@@ -1335,6 +1383,33 @@ export async function printPdfAdapter() {
     window.addEventListener('afterprint', handleAfterPrint, { once: true });
     window.print();
   });
+}
+
+export async function waitForRenderedExportContent(container, {
+  settleFrames = 2,
+  timeoutMs = EXPORT_RENDER_SETTLE_TIMEOUT_MS,
+} = {}) {
+  if (!container) {
+    return '';
+  }
+
+  const imageWaiters = Array.from(container.querySelectorAll('img')).map((image) => (
+    waitForImageElement(image, { timeoutMs })
+  ));
+  const fontReadyPromise = document.fonts?.ready
+    ? Promise.resolve(document.fonts.ready).catch(() => {})
+    : Promise.resolve();
+
+  await Promise.allSettled([
+    fontReadyPromise,
+    ...imageWaiters,
+  ]);
+
+  for (let index = 0; index < settleFrames; index += 1) {
+    await waitForAnimationFrame();
+  }
+
+  return container.innerHTML;
 }
 
 export async function runExportAdapter(snapshot, format) {

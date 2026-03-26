@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { initializeExportBridge, exportDocument } from '../../src/client/export/export-host.js';
 import { groupHeadingWithFollowingBlock } from '../../src/client/export/export-print-layout.js';
-import { buildDocxHtmlDocument, resolveExportAssets } from '../../src/client/export/export-pipeline.js';
+import {
+  buildDocxHtmlDocument,
+  resolveExportAssets,
+  waitForRenderedExportContent,
+} from '../../src/client/export/export-pipeline.js';
 
 describe('export pipeline browser helpers', () => {
   const originalFetch = globalThis.fetch;
@@ -319,5 +323,33 @@ describe('export pipeline browser helpers', () => {
     expect(wrappers).toHaveLength(2);
     expect(Array.from(wrappers[0].children).map((node) => node.tagName)).toEqual(['H2', 'FIGURE']);
     expect(Array.from(wrappers[1].children).map((node) => node.tagName)).toEqual(['H2', 'P', 'PRE']);
+  });
+
+  it('waits for export images to finish decoding before serializing rendered html', async () => {
+    const container = document.createElement('div');
+    const image = document.createElement('img');
+
+    Object.defineProperty(image, 'complete', {
+      configurable: true,
+      get() {
+        return true;
+      },
+    });
+    image.decode = vi.fn(() => new Promise((resolve) => {
+      window.setTimeout(() => {
+        image.setAttribute('data-decoded', 'true');
+        resolve();
+      }, 10);
+    }));
+    image.src = 'https://cdn.example.com/export.png';
+    container.appendChild(image);
+
+    const html = await waitForRenderedExportContent(container, {
+      settleFrames: 0,
+      timeoutMs: 200,
+    });
+
+    expect(html).toContain('data-decoded="true"');
+    expect(image.decode).toHaveBeenCalledTimes(1);
   });
 });

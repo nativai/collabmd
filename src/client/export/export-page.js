@@ -1,4 +1,10 @@
-import { runExportAdapter, postExportPageMessage, prepareExportSnapshot, waitForBootstrapPayload } from './export-pipeline.js';
+import {
+  postExportPageMessage,
+  prepareExportSnapshot,
+  runExportAdapter,
+  waitForBootstrapPayload,
+  waitForRenderedExportContent,
+} from './export-pipeline.js';
 import { groupHeadingWithFollowingBlock } from './export-print-layout.js';
 
 function setStatus(message) {
@@ -28,13 +34,14 @@ function renderWarnings(snapshot) {
 function renderSnapshot(snapshot) {
   const mount = document.getElementById('exportContent');
   if (!mount) {
-    return;
+    return null;
   }
 
   document.title = `${snapshot.title} — Export`;
   mount.innerHTML = snapshot.html;
   groupHeadingWithFollowingBlock(mount);
   renderWarnings(snapshot);
+  return mount;
 }
 
 async function bootstrap() {
@@ -42,7 +49,8 @@ async function bootstrap() {
     setStatus('Loading export content…');
     const payload = await waitForBootstrapPayload();
     const snapshot = await prepareExportSnapshot(payload);
-    renderSnapshot(snapshot);
+    const mount = renderSnapshot(snapshot);
+    snapshot.html = await waitForRenderedExportContent(mount);
     setStatus(payload.action === 'pdf' ? 'Opening print dialog…' : 'Preparing DOCX download…');
     await runExportAdapter(snapshot, payload.action);
     setStatus(payload.action === 'pdf' ? 'Print dialog opened.' : 'DOCX download started.');

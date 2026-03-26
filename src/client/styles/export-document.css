@@ -1,4 +1,16 @@
+html[data-surface='export-document'] {
+  height: auto;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: auto;
+}
+
 body[data-surface='export-document'] {
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: auto;
   background: var(--color-bg);
   color: var(--color-text);
 }
