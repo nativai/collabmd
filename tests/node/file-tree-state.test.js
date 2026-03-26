@@ -100,3 +100,23 @@ test('FileTreeState updates expanded directories for folder rename and delete', 
   state.removeExpandedDirectoryPrefix('docs/reference');
   assert.deepEqual([...state.expandedDirs], ['docs']);
 });
+
+test('FileTreeState refreshes cached search fields when the tree changes', () => {
+  const state = new FileTreeState();
+
+  state.setTree([
+    { name: 'guide.md', path: 'docs/guide.md', type: 'file' },
+  ]);
+  state.setSearchQuery('guide');
+  assert.deepEqual(state.getSearchMatches(), [
+    { name: 'guide.md', path: 'docs/guide.md', type: 'file' },
+  ]);
+
+  state.setTree([
+    { name: 'reference.md', path: 'docs/reference.md', type: 'file' },
+  ]);
+  state.setSearchQuery('reference');
+  assert.deepEqual(state.getSearchMatches(), [
+    { name: 'reference.md', path: 'docs/reference.md', type: 'file' },
+  ]);
+});

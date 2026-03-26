@@ -7,6 +7,7 @@ function flattenTree(nodes, files = [], searchEntries = []) {
     }
 
     searchEntries.push({
+      lowerPath: String(node.path).toLowerCase(),
       name: node.name,
       path: node.path,
       type: node.type,
@@ -103,7 +104,13 @@ export class FileTreeState {
       return [];
     }
 
-    return this.flatSearchEntries.filter((entry) => entry.path.toLowerCase().includes(this.searchQuery));
+    return this.flatSearchEntries
+      .filter((entry) => entry.lowerPath.includes(this.searchQuery))
+      .map((entry) => ({
+        name: entry.name,
+        path: entry.path,
+        type: entry.type,
+      }));
   }
 
   getNode(pathValue) {

@@ -7,6 +7,20 @@ function stripDisplayExtension(filePath) {
   return stripVaultFileExtension(filePath);
 }
 
+function createCorpusEntry(filePath) {
+  const displayName = stripDisplayExtension(filePath);
+  const fileName = displayName.split('/').pop() || displayName;
+
+  return {
+    displayName,
+    fileName,
+    filePath,
+    lowerDisplayName: displayName.toLowerCase(),
+    lowerFileName: fileName.toLowerCase(),
+    lowerPath: String(filePath).toLowerCase(),
+  };
+}
+
 export class QuickSwitcherController {
   constructor({ getFileList, onFileSelect }) {
     this.getFileList = getFileList;
@@ -18,6 +32,8 @@ export class QuickSwitcherController {
     this.hint = document.getElementById('quickSwitcherHint');
 
     this.filteredFiles = [];
+    this.fileCorpus = [];
+    this.lastFileListRef = null;
     this.selectedIndex = 0;
     this.isOpen = false;
 
@@ -139,28 +155,53 @@ export class QuickSwitcherController {
   filterFiles() {
     const query = this.input?.value.trim().toLowerCase() ?? '';
     const allFiles = this.getFileList?.() ?? [];
+    if (allFiles !== this.lastFileListRef) {
+      this.lastFileListRef = allFiles;
+      this.fileCorpus = allFiles.map((filePath) => createCorpusEntry(filePath));
+    }
 
     if (!query) {
-      this.filteredFiles = allFiles.slice(0, MAX_VISIBLE_RESULTS);
-    } else {
-      this.filteredFiles = allFiles
-        .map((filePath) => {
-          const score = this.fuzzyScore(filePath.toLowerCase(), query);
-          return { filePath, score };
-        })
-        .filter((item) => item.score > 0)
-        .sort((a, b) => b.score - a.score)
+      this.filteredFiles = this.fileCorpus
         .slice(0, MAX_VISIBLE_RESULTS)
-        .map((item) => item.filePath);
+        .map((entry) => entry.filePath);
+    } else {
+      const ranked = [];
+      this.fileCorpus.forEach((entry) => {
+        const score = this.fuzzyScore(entry, query);
+        if (score <= 0) {
+          return;
+        }
+
+        const rankedEntry = { filePath: entry.filePath, score };
+        let inserted = false;
+        for (let index = 0; index < ranked.length; index += 1) {
+          const current = ranked[index];
+          if (score > current.score || (score === current.score && entry.lowerPath < String(current.filePath).toLowerCase())) {
+            ranked.splice(index, 0, rankedEntry);
+            inserted = true;
+            break;
+          }
+        }
+
+        if (!inserted && ranked.length < MAX_VISIBLE_RESULTS) {
+          ranked.push(rankedEntry);
+        }
+
+        if (ranked.length > MAX_VISIBLE_RESULTS) {
+          ranked.length = MAX_VISIBLE_RESULTS;
+        }
+      });
+
+      this.filteredFiles = ranked.map((entry) => entry.filePath);
     }
 
     this.selectedIndex = 0;
     this.renderResults(query);
   }
 
-  fuzzyScore(text, query) {
-    const name = stripDisplayExtension(text);
-    const nameOnly = name.split('/').pop();
+  fuzzyScore(entry, query) {
+    const name = entry.lowerDisplayName;
+    const nameOnly = entry.lowerFileName;
 
     // Exact substring match in filename gets highest score
     if (nameOnly.includes(query)) return 100 + (1 / nameOnly.length);
