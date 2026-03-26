@@ -451,7 +451,10 @@ export class CollabMdAppShell {
       },
       onUpdateLobbyCurrentFile: (filePath) => this.lobby.setCurrentFile(filePath),
       onUpdateVisibleChrome: (filePath, { displayName }) => {
-        this.syncFileChrome(filePath, { drawioMode: this.currentDrawioMode });
+        this.syncFileChrome(filePath, {
+          drawioMode: this.currentDrawioMode,
+          preferPreviewForBase: this.isBaseFile(filePath),
+        });
         this.syncCommentChrome(filePath);
         this.syncFileHistoryButton({ filePath, mode: 'editor' });
         if (this.elements.activeFileName) {

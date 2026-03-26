@@ -234,7 +234,36 @@ test('WorkspacePreviewController forces image attachments into preview without o
   ]);
 });
 
-test('WorkspacePreviewController keeps base files in the current layout so split mode can show raw YAML', () => {
+test('WorkspacePreviewController defaults base files into preview when requested', () => {
+  const events = [];
+  const controller = createController({
+    layoutController: {
+      setView(view, options) {
+        events.push(['set-view', view, options]);
+      },
+    },
+    outlineController: {
+      close() {
+        events.push(['outline-close']);
+      },
+    },
+    backlinksPanel: {
+      clear() {
+        events.push(['backlinks-clear']);
+      },
+    },
+  });
+
+  controller.syncFileChrome('views/tasks.base', { preferPreviewForBase: true });
+
+  assert.deepEqual(events, [
+    ['set-view', 'preview', { persist: false }],
+    ['outline-close'],
+    ['backlinks-clear'],
+  ]);
+});
+
+test('WorkspacePreviewController keeps base files in the current layout after opening so split mode can show raw YAML', () => {
   const events = [];
   const controller = createController({
     layoutController: {
