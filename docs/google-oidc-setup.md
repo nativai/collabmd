@@ -94,6 +94,7 @@ AUTH_STRATEGY=oidc
 PUBLIC_BASE_URL=https://notes.example.com
 AUTH_OIDC_CLIENT_ID=your-google-client-id
 AUTH_OIDC_CLIENT_SECRET=your-google-client-secret
+AUTH_SESSION_MAX_AGE_MS=2592000000
 ```
 
 If the app is mounted under a subpath:
@@ -166,5 +167,6 @@ git -C /path/to/vault log -1 --pretty='%an <%ae>'
 - `OIDC auth requires PUBLIC_BASE_URL`: set `PUBLIC_BASE_URL` to the browser-visible origin
 - Redirect URI mismatch in Google: confirm the registered Google redirect URI exactly matches `/api/auth/oidc/callback`, including any `BASE_PATH`
 - Login keeps returning to the auth screen: verify the reverse proxy preserves HTTPS headers and the browser URL matches `PUBLIC_BASE_URL`
+- Session expires too quickly: set `AUTH_SESSION_MAX_AGE_MS` to a longer value such as `2592000000` for 30 days
 - Expected company accounts cannot sign in: check `AUTH_OIDC_ALLOWED_EMAILS` and `AUTH_OIDC_ALLOWED_DOMAINS` for typos, whitespace, or missing domains
 - Tunnel is disabled unexpectedly: this is intentional for OIDC; use a stable public host instead of Quick Tunnel

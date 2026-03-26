@@ -14,6 +14,7 @@ import { loadConfig } from '../../src/server/config/env.js';
 function withAuthEnvCleared(fn) {
   const previousStrategy = process.env.AUTH_STRATEGY;
   const previousPassword = process.env.AUTH_PASSWORD;
+  const previousSessionMaxAge = process.env.AUTH_SESSION_MAX_AGE_MS;
   const previousPublicBaseUrl = process.env.PUBLIC_BASE_URL;
   const previousOidcClientId = process.env.AUTH_OIDC_CLIENT_ID;
   const previousOidcClientSecret = process.env.AUTH_OIDC_CLIENT_SECRET;
@@ -33,6 +34,7 @@ function withAuthEnvCleared(fn) {
 
   delete process.env.AUTH_STRATEGY;
   delete process.env.AUTH_PASSWORD;
+  delete process.env.AUTH_SESSION_MAX_AGE_MS;
   delete process.env.PUBLIC_BASE_URL;
   delete process.env.AUTH_OIDC_CLIENT_ID;
   delete process.env.AUTH_OIDC_CLIENT_SECRET;
@@ -63,6 +65,12 @@ function withAuthEnvCleared(fn) {
       delete process.env.AUTH_PASSWORD;
     } else {
       process.env.AUTH_PASSWORD = previousPassword;
+    }
+
+    if (previousSessionMaxAge === undefined) {
+      delete process.env.AUTH_SESSION_MAX_AGE_MS;
+    } else {
+      process.env.AUTH_SESSION_MAX_AGE_MS = previousSessionMaxAge;
     }
 
     if (previousPublicBaseUrl === undefined) {
@@ -171,6 +179,10 @@ function extractCookieHeader(setCookieHeader) {
 }
 
 function decodeFlowCookiePayload(setCookieHeader) {
+  return decodeSignedCookiePayload(setCookieHeader);
+}
+
+function decodeSignedCookiePayload(setCookieHeader) {
   const token = extractCookieHeader(setCookieHeader).split('=')[1] || '';
   const encodedPayload = token.split('.')[0] || '';
   const normalized = encodedPayload
@@ -182,6 +194,7 @@ function decodeFlowCookiePayload(setCookieHeader) {
 
 function createSignedIdToken({
   email = 'user@example.com',
+  exp = Math.floor(Date.now() / 1000) + 3600,
   issuer,
   name = 'Google User',
   nonce,
@@ -196,7 +209,7 @@ function createSignedIdToken({
     aud: 'test-client-id',
     email,
     email_verified: true,
-    exp: Math.floor(Date.now() / 1000) + 3600,
+    exp,
     iat: Math.floor(Date.now() / 1000),
     iss: issuer,
     name,
@@ -387,6 +400,26 @@ test('oidc auth exposes google runtime config when configured', () => withAuthEn
   assert.equal(config.auth.oidc.callbackUrl, 'https://notes.example.com/api/auth/oidc/callback');
 }));
 
+test('loadConfig parses an optional auth session max age', () => withAuthEnvCleared(() => {
+  process.env.AUTH_SESSION_MAX_AGE_MS = '2592000000';
+
+  const config = loadConfig({
+    vaultDir: process.cwd(),
+  });
+
+  assert.equal(config.auth.sessionMaxAgeMs, 2592000000);
+}));
+
+test('loadConfig rejects malformed auth session max age values', () => withAuthEnvCleared(() => {
+  for (const invalidValue of ['30d', '1e3', '2592000000ms']) {
+    process.env.AUTH_SESSION_MAX_AGE_MS = invalidValue;
+    assert.throws(
+      () => loadConfig({ vaultDir: process.cwd() }),
+      /AUTH_SESSION_MAX_AGE_MS must be a positive integer\./,
+    );
+  }
+}));
+
 test('password auth returns transport-agnostic session results and API authorization decisions', () => {
   const config = loadConfig({
     auth: {
@@ -469,6 +502,7 @@ test('oidc auth completes login, returns user status, and authorizes API request
   assert.match(issuer.getLastTokenRequestBody(), /code_verifier=/);
 
   const sessionCookie = extractCookieHeader(callbackResult.setCookie[0]);
+  const sessionPayload = decodeSignedCookiePayload(callbackResult.setCookie[0]);
   const authenticatedRequest = {
     headers: {
       cookie: sessionCookie,
@@ -478,8 +512,53 @@ test('oidc auth completes login, returns user status, and authorizes API request
   assert.equal(statusResult.body.authenticated, true);
   assert.equal(statusResult.body.user.email, 'user@example.com');
   assert.equal(statusResult.body.user.name, 'Google User');
+  assert.equal(Number.isFinite(sessionPayload.expiresAt), true);
+  assert.match(callbackResult.setCookie[0], /Expires=/);
   assert.equal(authService.getAuthenticatedUser(authenticatedRequest).sub, 'google-sub');
   assert.deepEqual(authService.authorizeApiRequest(authenticatedRequest), { ok: true });
+});
+
+test('oidc auth honors a configured longer session max age', async (t) => {
+  const issuer = await startFakeOidcIssuer();
+  t.after(() => issuer.close());
+
+  const configuredSessionMaxAgeMs = 7 * 24 * 60 * 60 * 1000;
+  const config = loadConfig({
+    auth: {
+      oidc: {
+        clientId: 'test-client-id',
+        clientSecret: 'test-client-secret',
+        issuer: issuer.issuer,
+        publicBaseUrl: 'http://127.0.0.1:3000',
+      },
+      sessionMaxAgeMs: configuredSessionMaxAgeMs,
+      strategy: AUTH_STRATEGY_OIDC,
+    },
+    vaultDir: process.cwd(),
+  });
+  const authService = createAuthService(config);
+
+  const loginResult = await authService.beginOidcLogin(
+    { headers: {} },
+    new URL('http://127.0.0.1:3000/api/auth/oidc/login?returnTo=%2F'),
+  );
+  const flowPayload = decodeFlowCookiePayload(loginResult.setCookie);
+  issuer.setNextNonce(flowPayload.nonce);
+  issuer.setNextClaims({
+    exp: Math.floor((Date.now() + 60_000) / 1000),
+  });
+
+  const callbackCompletedAt = Date.now();
+  const callbackResult = await authService.completeOidcLogin({
+    headers: {
+      cookie: extractCookieHeader(loginResult.setCookie),
+    },
+  }, new URL(`http://127.0.0.1:3000/api/auth/oidc/callback?code=test-code&state=${encodeURIComponent(flowPayload.state)}`));
+
+  assert.equal(callbackResult.statusCode, 302);
+  const sessionPayload = decodeSignedCookiePayload(callbackResult.setCookie[0]);
+  assert.match(callbackResult.setCookie[0], /Expires=/);
+  assert.equal(sessionPayload.expiresAt >= callbackCompletedAt + configuredSessionMaxAgeMs - 5_000, true);
 });
 
 test('oidc auth adds the Google hosted-domain hint when exactly one allowed domain is configured', async (t) => {

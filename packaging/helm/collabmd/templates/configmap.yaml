@@ -20,6 +20,7 @@ data:
   WS_MAX_BUFFERED_AMOUNT_BYTES: {{ int64 .Values.config.wsMaxBufferedAmountBytes | quote }}
   WS_MAX_PAYLOAD_BYTES: {{ int64 .Values.config.wsMaxPayloadBytes | quote }}
   AUTH_STRATEGY: {{ .Values.auth.strategy | quote }}
+  AUTH_SESSION_MAX_AGE_MS: {{ printf "%v" .Values.auth.sessionMaxAgeMs | quote }}
   AUTH_OIDC_ALLOWED_EMAILS: {{ .Values.auth.oidc.allowedEmails | quote }}
   AUTH_OIDC_ALLOWED_DOMAINS: {{ .Values.auth.oidc.allowedDomains | quote }}
   COLLABMD_GIT_ENABLED: {{ ternary "true" "false" .Values.git.enabled | quote }}

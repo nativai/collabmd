@@ -82,6 +82,7 @@ helm install collabmd ./packaging/helm/collabmd \
   --set config.publicBaseUrl=https://notes.example.com \
   --set auth.oidc.clientId='your-google-client-id' \
   --set auth.oidc.clientSecret='your-google-client-secret' \
+  --set auth.sessionMaxAgeMs=2592000000 \
   --set auth.sessionSecret.value='replace-with-a-long-random-secret'
 ```
 

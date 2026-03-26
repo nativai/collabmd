@@ -2,6 +2,8 @@
 
 Realtime collaboration for Markdown folders, diagrams, and git-backed docs, without migrating your files.
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/andes90/collabmd)
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/andes90/collabmd/master/docs/assets/collabmd-hero.webp" alt="CollabMD showing a file tree, markdown editor, live preview, and collaborator presence." width="100%">
 </p>
@@ -153,6 +155,7 @@ Then share the printed URL and password with your collaborator. If `cloudflared`
 - Treat the URL as write access to the vault unless you enable auth
 - `--auth password` protects `/api/*` and `/ws/*` with a host password and signed session cookie
 - `--auth oidc` signs users in with Google and uses the verified Google name/email as the in-app identity and git commit author
+- Set `AUTH_SESSION_MAX_AGE_MS` if you want auth sessions to stay valid longer and survive browser restarts until that expiry
 - If `cloudflared` is installed, CollabMD may expose the app through a Cloudflare Quick Tunnel unless you pass `--no-tunnel`
 - `--auth oidc` requires a stable `PUBLIC_BASE_URL`; Quick Tunnel URLs are not supported for OIDC
 
@@ -299,6 +302,7 @@ Notes:
 
 - OIDC requires a stable public URL and is not compatible with ephemeral Cloudflare Quick Tunnel URLs
 - After sign-in, the verified Google name/email become the displayed app identity and the default in-app git commit author
+- Set `AUTH_SESSION_MAX_AGE_MS` to keep the signed-in session valid longer than the default token lifetime
 - You can restrict sign-in to exact users with `AUTH_OIDC_ALLOWED_EMAILS` or entire domains with `AUTH_OIDC_ALLOWED_DOMAINS`
 - The CLI disables the tunnel automatically when `--auth oidc` is active
 
@@ -592,6 +596,7 @@ vite.config.mjs            Vite multi-page build and dev-server proxy config
 | `AUTH_PASSWORD` | Shared password for `AUTH_STRATEGY=password` | generated per run |
 | `AUTH_SESSION_COOKIE_NAME` | Session cookie name | `collabmd_auth` |
 | `AUTH_SESSION_SECRET` | Cookie signing secret | generated per run |
+| `AUTH_SESSION_MAX_AGE_MS` | Optional auth session lifetime in milliseconds; when set, cookies persist until that expiry | |
 | `PUBLIC_BASE_URL` | Stable public app origin required for `AUTH_STRATEGY=oidc` | |
 | `AUTH_OIDC_CLIENT_ID` | Google OAuth client ID used for `AUTH_STRATEGY=oidc` | |
 | `AUTH_OIDC_CLIENT_SECRET` | Google OAuth client secret used for `AUTH_STRATEGY=oidc` | |

@@ -16,6 +16,27 @@ function parsePositiveInt(rawValue, fallbackValue) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallbackValue;
 }
 
+function parseOptionalPositiveInt(rawValue, {
+  fallbackValue = null,
+  variableName = 'value',
+} = {}) {
+  const normalized = String(rawValue ?? '').trim();
+  if (!normalized) {
+    return fallbackValue;
+  }
+
+  if (!/^[1-9]\d*$/u.test(normalized)) {
+    throw new Error(`${variableName} must be a positive integer.`);
+  }
+
+  const parsed = Number(normalized);
+  if (Number.isSafeInteger(parsed) && parsed > 0) {
+    return parsed;
+  }
+
+  throw new Error(`${variableName} must be a positive integer.`);
+}
+
 function parsePort(rawPort, fallbackPort) {
   return parsePositiveInt(rawPort, fallbackPort);
 }
@@ -284,6 +305,10 @@ export function loadConfig(overrides = {}) {
       password,
       passwordWasGenerated,
       sessionCookieName: authOverrides.sessionCookieName || process.env.AUTH_SESSION_COOKIE_NAME || 'collabmd_auth',
+      sessionMaxAgeMs: parseOptionalPositiveInt(
+        authOverrides.sessionMaxAgeMs ?? process.env.AUTH_SESSION_MAX_AGE_MS,
+        { variableName: 'AUTH_SESSION_MAX_AGE_MS' },
+      ),
       sessionSecret: authOverrides.sessionSecret || process.env.AUTH_SESSION_SECRET || createRandomSessionSecret(),
       strategy: authStrategy,
     },

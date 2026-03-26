@@ -86,6 +86,7 @@ auth:
     value: ""
     existingSecret: ""
     existingSecretKey: AUTH_SESSION_SECRET
+  sessionMaxAgeMs: ""
   oidc:
     clientId: ""
     clientSecret: ""

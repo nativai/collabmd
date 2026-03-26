@@ -168,8 +168,7 @@ function readAuthenticatedOidcSession(sessionCookieManager, req) {
     return null;
   }
 
-  const expiresAt = Number(session.expiresAt);
-  if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
+  if (hasExpiredSession(session)) {
     return null;
   }
 
@@ -182,6 +181,29 @@ function readAuthenticatedOidcSession(sessionCookieManager, req) {
       picture: typeof user.picture === 'string' ? user.picture : '',
       sub: user.sub,
     },
+  };
+}
+
+function hasExpiredSession(session) {
+  const expiresAt = Number(session?.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
+}
+
+function resolveSessionExpiresAt(sessionMaxAgeMs, fallbackExpiresAt = null) {
+  if (Number.isFinite(sessionMaxAgeMs) && sessionMaxAgeMs > 0) {
+    return Date.now() + sessionMaxAgeMs;
+  }
+
+  return Number.isFinite(fallbackExpiresAt) ? fallbackExpiresAt : null;
+}
+
+function createSessionCookieOptions(expiresAt) {
+  if (!Number.isFinite(expiresAt)) {
+    return {};
+  }
+
+  return {
+    expires: new Date(expiresAt),
   };
 }
 
@@ -232,7 +254,7 @@ function createPasswordStrategy(authConfig, sessionCookieManager, clientConfig) 
 
   function hasValidSession(req) {
     const session = sessionCookieManager.readSession(req);
-    return session?.strategy === AUTH_STRATEGY_PASSWORD;
+    return session?.strategy === AUTH_STRATEGY_PASSWORD && !hasExpiredSession(session);
   }
 
   return {
@@ -260,6 +282,8 @@ function createPasswordStrategy(authConfig, sessionCookieManager, clientConfig) 
         }, { kind: 'invalid_credentials' });
       }
 
+      const expiresAt = resolveSessionExpiresAt(authConfig.sessionMaxAgeMs);
+
       return createResponse(200, {
         auth: clientConfig,
         authenticated: true,
@@ -269,8 +293,9 @@ function createPasswordStrategy(authConfig, sessionCookieManager, clientConfig) 
         kind: 'session_created',
         setCookie: sessionCookieManager.createSessionCookie(req, {
           authenticatedAt: Date.now(),
+          ...(Number.isFinite(expiresAt) ? { expiresAt } : {}),
           strategy: AUTH_STRATEGY_PASSWORD,
-        }),
+        }, createSessionCookieOptions(expiresAt)),
       });
     },
 
@@ -456,9 +481,10 @@ function createOidcStrategy(authConfig, sessionCookieManager, flowCookieManager,
           return createErrorRedirect(req, accessDecision.error, flowPayload);
         }
 
-        const expiresAt = Number.isFinite(claims.exp)
+        const tokenExpiresAt = Number.isFinite(claims.exp)
           ? claims.exp * 1000
           : Date.now() + (Math.max(Number(tokens.expires_in) || 3600, 1) * 1000);
+        const expiresAt = resolveSessionExpiresAt(authConfig.sessionMaxAgeMs, tokenExpiresAt);
         const returnTo = sanitizeReturnTo(flowPayload.returnTo, {
           basePath,
           publicBaseUrl: authConfig.oidc.publicBaseUrl,
@@ -480,7 +506,7 @@ function createOidcStrategy(authConfig, sessionCookieManager, flowCookieManager,
               expiresAt,
               strategy: AUTH_STRATEGY_OIDC,
               user,
-            }),
+            }, createSessionCookieOptions(expiresAt)),
             flowCookieManager.clear(req),
           ],
         });
