@@ -10,6 +10,7 @@ import {
   undo,
 } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { yaml } from '@codemirror/lang-yaml';
 import {
   bracketMatching,
   defaultHighlightStyle,
@@ -37,6 +38,7 @@ import {
 } from '@codemirror/view';
 import { yCollab } from 'y-codemirror.next';
 
+import { isBaseFilePath, isPlantUmlFilePath } from '../../domain/file-kind.js';
 import { normalizeCommentQuote } from '../../domain/comment-threads.js';
 import { createMarkdownToolbarEdit } from '../domain/markdown-formatting.js';
 import { wikiLinkCompletions } from '../domain/wiki-link-completions.js';
@@ -296,12 +298,13 @@ function createEditorTheme(theme) {
   }, { dark: theme === 'dark' });
 }
 
-function createLanguageExtension(filePath) {
-  if (
-    typeof filePath === 'string'
-    && (filePath.toLowerCase().endsWith('.puml') || filePath.toLowerCase().endsWith('.plantuml'))
-  ) {
+export function createLanguageExtension(filePath) {
+  if (isPlantUmlFilePath(filePath)) {
     return plantUmlLanguage;
+  }
+
+  if (isBaseFilePath(filePath)) {
+    return yaml();
   }
 
   return markdown({ base: markdownLanguage, codeLanguages: markdownCodeLanguages });
