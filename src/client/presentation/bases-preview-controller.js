@@ -66,7 +66,7 @@ function renderValue(cell = {}) {
     return `<img class="bases-inline-image" src="${escapeHtml(createAttachmentUrl(cell.path))}" alt="${escapeHtml(formatCellText(cell))}">`;
   }
   if (type === 'list') {
-    return `<span class="bases-value-list">${(cell.items ?? []).map((item) => `<span class="bases-value-pill">${escapeHtml(formatCellText(item))}</span>`).join('')}</span>`;
+    return `<span class="bases-value-list">${(cell.items ?? []).map((item) => `<span class="bases-value-pill">${renderValue(item)}</span>`).join('')}</span>`;
   }
   if (type === 'link') {
     if (cell.external && cell.url) {

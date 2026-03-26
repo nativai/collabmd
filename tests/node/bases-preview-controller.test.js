@@ -295,6 +295,86 @@ test('BasesPreviewController renders file name cells as open-file buttons', asyn
   assert.match(placeholder.innerHTML, />alpha\.md</);
 });
 
+test('BasesPreviewController renders list link items as open-file buttons', async () => {
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBase() {
+        return {
+          result: {
+            columns: [{ id: 'file.links', label: 'Links' }],
+            groups: [{
+              key: 'All',
+              label: 'All',
+              rows: [{
+                cells: {
+                  'file.links': {
+                    items: [
+                      {
+                        path: 'notes/target-a.md',
+                        text: 'target-a.md',
+                        type: 'link',
+                        value: 'target-a.md',
+                      },
+                      {
+                        path: 'notes/target-b.md',
+                        text: 'target-b.md',
+                        type: 'file',
+                        value: 'target-b.md',
+                      },
+                    ],
+                    text: 'target-a.md, target-b.md',
+                    type: 'list',
+                    value: ['target-a.md', 'target-b.md'],
+                  },
+                },
+                path: 'notes/source.md',
+              }],
+              summaries: [],
+              value: { text: '', type: 'empty', value: null },
+            }],
+            rows: [],
+            summaries: [],
+            totalRows: 1,
+            view: {
+              id: 'view-0',
+              name: 'Table',
+              supported: true,
+              type: 'table',
+            },
+            views: [{
+              id: 'view-0',
+              name: 'Table',
+              supported: true,
+              type: 'table',
+            }],
+          },
+        };
+      },
+    },
+  });
+  const placeholder = createPlaceholder();
+  const entry = {
+    key: 'list-links-entry',
+    payload: {
+      path: 'views/links.base',
+      search: '',
+      source: null,
+      sourcePath: '',
+      view: '',
+    },
+    placeholder,
+    requestVersion: 0,
+    result: null,
+    search: '',
+  };
+
+  await controller.renderEntry(entry);
+
+  assert.match(placeholder.innerHTML, /data-base-open-file="notes\/target-a\.md"/);
+  assert.match(placeholder.innerHTML, /data-base-open-file="notes\/target-b\.md"/);
+  assert.match(placeholder.innerHTML, /bases-value-pill/);
+});
+
 test('BasesPreviewController preserves the shell during search rerenders', async () => {
   const responses = [
     { result: createBaseResult({ label: 'Initial', totalRows: 1 }) },
