@@ -14,6 +14,7 @@ function flattenTree(nodes, files = [], searchEntries = []) {
 
     if (
       node.type === 'file'
+      || node.type === 'base'
       || node.type === 'excalidraw'
       || node.type === 'drawio'
       || node.type === 'mermaid'

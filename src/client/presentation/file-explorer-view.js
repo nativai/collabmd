@@ -385,10 +385,14 @@ export class FileExplorerView {
     button.className = 'file-tree-item file-tree-file';
     const isDrawio = fileType === 'drawio';
     const isExcalidraw = fileType === 'excalidraw';
+    const isBase = fileType === 'base';
     const isImage = fileType === 'image';
     const isMermaid = fileType === 'mermaid';
     const isPlantUml = fileType === 'plantuml';
 
+    if (isBase) {
+      button.classList.add('is-base');
+    }
     if (isDrawio) {
       button.classList.add('is-drawio');
     }
@@ -412,7 +416,7 @@ export class FileExplorerView {
     button.dataset.depth = depth;
     button.dataset.path = filePath;
     button.innerHTML = `
-      ${this.getFileIconSvg({ isDrawio, isExcalidraw, isImage, isMermaid, isPlantUml })}
+      ${this.getFileIconSvg({ isBase, isDrawio, isExcalidraw, isImage, isMermaid, isPlantUml })}
       <span class="file-tree-name">${escapeHtml(stripVaultFileExtension(name))}</span>
     `;
 
@@ -534,7 +538,11 @@ export class FileExplorerView {
     return true;
   }
 
-  getFileIconSvg({ isDrawio, isExcalidraw, isImage, isMermaid, isPlantUml }) {
+  getFileIconSvg({ isBase, isDrawio, isExcalidraw, isImage, isMermaid, isPlantUml }) {
+    if (isBase) {
+      return '<svg class="file-tree-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M14 4v5h5"/><path d="M8 13h8"/><path d="M8 17h6"/><path d="M8 9h3"/></svg>';
+    }
+
     if (isDrawio) {
       return '<svg class="file-tree-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="6" rx="1"/><rect x="14" y="4" width="7" height="6" rx="1"/><rect x="8.5" y="14" width="7" height="6" rx="1"/><path d="M10 7h4"/><path d="M17.5 10v2.5"/><path d="M6.5 10v2.5"/><path d="M6.5 12.5h11"/></svg>';
     }

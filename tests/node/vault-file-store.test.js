@@ -59,6 +59,31 @@ test('VaultFileStore reads and writes markdown files', async (t) => {
   assert.equal(updated, '# Updated\n');
 });
 
+test('VaultFileStore reads and writes base files', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  const createResult = await store.createFile('views/tasks.base', [
+    'filters: file.ext == "md"',
+    'views:',
+    '  - type: table',
+  ].join('\n'));
+  assert.equal(createResult.ok, true);
+
+  const content = await store.readBaseFile('views/tasks.base');
+  assert.match(content ?? '', /filters: file\.ext == "md"/);
+
+  const writeResult = await store.writeBaseFile('views/tasks.base', [
+    'filters: file.ext == "md"',
+    'views:',
+    '  - type: list',
+  ].join('\n'));
+  assert.equal(writeResult.ok, true);
+
+  const updated = await store.readBaseFile('views/tasks.base');
+  assert.match(updated ?? '', /type: list/);
+});
+
 test('VaultFileStore can preserve the current collaboration snapshot during room-owned file persists', async (t) => {
   const { store, cleanup } = await createVaultStore();
   t.after(cleanup);

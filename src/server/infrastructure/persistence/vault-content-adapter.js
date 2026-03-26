@@ -1,4 +1,5 @@
 import {
+  isBaseFilePath,
   isDrawioFilePath,
   isExcalidrawFilePath,
   isMarkdownFilePath,
@@ -27,6 +28,11 @@ const adapters = [
     invalidPathError: 'Invalid file path',
     kind: 'markdown',
     matches: isMarkdownFilePath,
+  }),
+  new VaultContentAdapter({
+    invalidPathError: 'Invalid file path — must end in .base',
+    kind: 'base',
+    matches: isBaseFilePath,
   }),
   new VaultContentAdapter({
     invalidPathError: 'Invalid file path — must end in .excalidraw',

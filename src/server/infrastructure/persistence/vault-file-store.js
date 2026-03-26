@@ -78,6 +78,7 @@ function createWorkspaceEntry(relativePath, type) {
 
 function createWorkspaceMetadata(pathValue, type, info) {
   return {
+    ctimeMs: Number(info.ctimeMs || 0),
     inode: Number(info.ino || 0),
     mtimeMs: Number(info.mtimeMs || 0),
     path: pathValue,
@@ -335,6 +336,10 @@ export class VaultFileStore {
     return this.readContentFile(filePath, 'markdown');
   }
 
+  async readBaseFile(filePath) {
+    return this.readContentFile(filePath, 'base');
+  }
+
   async readExcalidrawFile(filePath) {
     return this.readContentFile(filePath, 'excalidraw');
   }
@@ -375,6 +380,10 @@ export class VaultFileStore {
 
   async writeMarkdownFile(filePath, content, options = {}) {
     return this.writeContentFile(filePath, content, 'markdown', options);
+  }
+
+  async writeBaseFile(filePath, content, options = {}) {
+    return this.writeContentFile(filePath, content, 'base', options);
   }
 
   async writeExcalidrawFile(filePath, content, options = {}) {

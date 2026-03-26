@@ -1,4 +1,5 @@
 import {
+  isBaseFilePath,
   isDrawioFilePath,
   isExcalidrawFilePath,
   isMermaidFilePath,
@@ -52,6 +53,10 @@ export class CollaborationDocumentStore {
 
     if (isExcalidrawFilePath(this.name) && typeof this.vaultFileStore.readExcalidrawFile === 'function') {
       return this.vaultFileStore.readExcalidrawFile(this.name);
+    }
+
+    if (isBaseFilePath(this.name) && typeof this.vaultFileStore.readBaseFile === 'function') {
+      return this.vaultFileStore.readBaseFile(this.name);
     }
 
     if (isDrawioFilePath(this.name) && typeof this.vaultFileStore.readDrawioFile === 'function') {
@@ -118,6 +123,12 @@ export class CollaborationDocumentStore {
 
     if (isDrawioFilePath(this.name) && typeof this.vaultFileStore.writeDrawioFile === 'function') {
       const result = await this.vaultFileStore.writeDrawioFile(this.name, content, options);
+      assertWriteSucceeded(result, 'write content', this.name);
+      return;
+    }
+
+    if (isBaseFilePath(this.name) && typeof this.vaultFileStore.writeBaseFile === 'function') {
+      const result = await this.vaultFileStore.writeBaseFile(this.name, content, options);
       assertWriteSucceeded(result, 'write content', this.name);
       return;
     }

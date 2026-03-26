@@ -1,4 +1,5 @@
 const MARKDOWN_FILE_EXTENSIONS = Object.freeze(['.md', '.markdown', '.mdx']);
+const BASE_FILE_EXTENSION = '.base';
 const EXCALIDRAW_FILE_EXTENSION = '.excalidraw';
 const DRAWIO_FILE_EXTENSION = '.drawio';
 const MERMAID_FILE_EXTENSIONS = Object.freeze(['.mmd', '.mermaid']);
@@ -12,10 +13,11 @@ const DIAGRAM_FILE_EXTENSIONS = Object.freeze([
 ]);
 const VAULT_FILE_EXTENSIONS = Object.freeze([
   ...MARKDOWN_FILE_EXTENSIONS,
+  BASE_FILE_EXTENSION,
   ...DIAGRAM_FILE_EXTENSIONS,
   ...IMAGE_ATTACHMENT_EXTENSIONS,
 ]);
-const STRIP_VAULT_EXTENSION_PATTERN = /\.(?:md|markdown|mdx|excalidraw|drawio|mmd|mermaid|puml|plantuml|png|jpe?g|webp|gif|svg)$/i;
+const STRIP_VAULT_EXTENSION_PATTERN = /\.(?:md|markdown|mdx|base|excalidraw|drawio|mmd|mermaid|puml|plantuml|png|jpe?g|webp|gif|svg)$/i;
 
 function normalizeFilePath(filePath) {
   return String(filePath ?? '').trim().toLowerCase();
@@ -27,6 +29,7 @@ function hasFileExtension(filePath, extensions) {
 }
 
 export {
+  BASE_FILE_EXTENSION,
   DIAGRAM_FILE_EXTENSIONS,
   DRAWIO_FILE_EXTENSION,
   EXCALIDRAW_FILE_EXTENSION,
@@ -40,6 +43,10 @@ export {
 export function getVaultFileKind(filePath) {
   if (hasFileExtension(filePath, MARKDOWN_FILE_EXTENSIONS)) {
     return 'markdown';
+  }
+
+  if (hasFileExtension(filePath, [BASE_FILE_EXTENSION])) {
+    return 'base';
   }
 
   if (hasFileExtension(filePath, [EXCALIDRAW_FILE_EXTENSION])) {
@@ -75,6 +82,10 @@ export function getVaultTreeNodeType(filePath) {
     return 'image';
   }
 
+  if (kind === 'base') {
+    return 'base';
+  }
+
   return kind === 'markdown' ? 'file' : kind;
 }
 
@@ -89,6 +100,10 @@ export function isMarkdownFilePath(filePath) {
 
 export function isExcalidrawFilePath(filePath) {
   return getVaultFileKind(filePath) === 'excalidraw';
+}
+
+export function isBaseFilePath(filePath) {
+  return getVaultFileKind(filePath) === 'base';
 }
 
 export function isMermaidFilePath(filePath) {
