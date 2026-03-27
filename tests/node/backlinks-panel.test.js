@@ -278,26 +278,8 @@ function installDocumentStub(t) {
   };
 }
 
-function installFetchStub(t, responses) {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (url) => ({
-    async json() {
-      const requestUrl = new URL(url, 'http://localhost');
-      const filePath = requestUrl.searchParams.get('file') ?? '';
-      return {
-        backlinks: responses[filePath] ?? [],
-      };
-    },
-  });
-
-  t.after(() => {
-    globalThis.fetch = originalFetch;
-  });
-}
-
 function createBacklinksPanel(t, responses, { onFileSelect } = {}) {
   const documentHarness = installDocumentStub(t);
-  installFetchStub(t, responses);
 
   const dock = createPanelStructure({ includeDockWrapper: true });
   const header = createPanelStructure();
@@ -307,6 +289,7 @@ function createBacklinksPanel(t, responses, { onFileSelect } = {}) {
     documentRef: documentHarness.documentRef,
     headerPanelElement: header.root,
     inlinePanelElement: inline.root,
+    loadBacklinks: async (filePath) => responses[filePath] ?? [],
     onFileSelect,
     panelElement: dock.root,
   });

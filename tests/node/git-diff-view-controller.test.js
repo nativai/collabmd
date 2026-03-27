@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { GitApiClient } from '../../src/client/infrastructure/git-api-client.js';
 import { GitDiffViewController } from '../../src/client/presentation/git-diff-view-controller.js';
 
 class FakeClassList {
@@ -223,7 +224,7 @@ test('GitDiffViewController opens commit diffs in stacked mode and lazy-loads ex
     },
   ]);
 
-  const controller = new GitDiffViewController();
+  const controller = new GitDiffViewController({ gitApiClient: new GitApiClient() });
   controller.initialize();
 
   await controller.openCommitDiff({ hash: 'abc1234' });
@@ -280,7 +281,7 @@ test('GitDiffViewController file index switches files in focused commit mode', a
     },
   ]);
 
-  const controller = new GitDiffViewController();
+  const controller = new GitDiffViewController({ gitApiClient: new GitApiClient() });
   controller.initialize();
 
   await controller.openCommitDiff({ hash: 'def5678' });
@@ -331,7 +332,7 @@ test('GitDiffViewController scrolls stacked commit view to selected file section
     },
   ]);
 
-  const controller = new GitDiffViewController();
+  const controller = new GitDiffViewController({ gitApiClient: new GitApiClient() });
   controller.initialize();
 
   harness.elements.diffScroll.scrollTop = 40;
@@ -387,6 +388,7 @@ test('GitDiffViewController routes back to file history when commit diff carries
 
   const events = [];
   const controller = new GitDiffViewController({
+    gitApiClient: new GitApiClient(),
     onBackToHistory: (payload) => events.push(payload),
   });
   controller.initialize();

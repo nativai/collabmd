@@ -1,5 +1,4 @@
 import { escapeHtml } from '../domain/vault-utils.js';
-import { resolveApiUrl } from '../domain/runtime-paths.js';
 import { buttonClassNames } from './components/ui/button.js';
 
 const HISTORY_PAGE_SIZE = 30;
@@ -62,6 +61,7 @@ function createEmptyHistoryState() {
 export class FileHistoryViewController {
   constructor({
     diffRenderer = null,
+    gitApiClient = null,
     onOpenCommitDiff = () => {},
     onOpenFile = () => {},
     onOpenPreview = () => {},
@@ -69,6 +69,7 @@ export class FileHistoryViewController {
     toastController = null,
   } = {}) {
     this.diffRenderer = diffRenderer;
+    this.gitApiClient = gitApiClient;
     this.onOpenCommitDiff = onOpenCommitDiff;
     this.onOpenFile = onOpenFile;
     this.onOpenPreview = onOpenPreview;
@@ -289,16 +290,11 @@ export class FileHistoryViewController {
       return null;
     }
 
-    const query = new URLSearchParams();
-    query.set('metaOnly', 'true');
-    query.set('path', this.currentFilePath);
-    query.set('scope', 'all');
-    const response = await fetch(resolveApiUrl(`/git/diff?${query.toString()}`));
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || 'Failed to load local file changes');
-    }
-
+    const data = await this.gitApiClient.readDiff({
+      metaOnly: true,
+      path: this.currentFilePath,
+      scope: 'all',
+    });
     const file = data.files?.[0];
     if (!file) {
       return null;
@@ -322,16 +318,11 @@ export class FileHistoryViewController {
       };
     }
 
-    const query = new URLSearchParams();
-    query.set('path', this.currentFilePath);
-    query.set('limit', String(HISTORY_PAGE_SIZE));
-    query.set('offset', String(offset));
-    const response = await fetch(resolveApiUrl(`/git/file-history?${query.toString()}`));
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || 'Failed to load file history');
-    }
-
+    const data = await this.gitApiClient.readFileHistory({
+      limit: HISTORY_PAGE_SIZE,
+      offset,
+      path: this.currentFilePath,
+    });
     const commits = Array.isArray(data.commits) ? data.commits : [];
     return {
       commits,
@@ -350,30 +341,20 @@ export class FileHistoryViewController {
     }
 
     if (entry.type === 'local') {
-      const query = new URLSearchParams();
-      query.set('path', this.currentFilePath || '');
-      query.set('scope', 'all');
-      const response = await fetch(resolveApiUrl(`/git/diff?${query.toString()}`));
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to load local diff');
-      }
-
+      const data = await this.gitApiClient.readDiff({
+        path: this.currentFilePath || '',
+        scope: 'all',
+      });
       return {
         detail: data.files?.[0] ?? null,
         summary: data.summary ?? entry.summary ?? null,
       };
     }
 
-    const query = new URLSearchParams();
-    query.set('hash', entry.hash || '');
-    query.set('path', entry.pathAtCommit || '');
-    const response = await fetch(resolveApiUrl(`/git/commit?${query.toString()}`));
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || 'Failed to load commit diff');
-    }
-
+    const data = await this.gitApiClient.readCommit({
+      hash: entry.hash || '',
+      path: entry.pathAtCommit || '',
+    });
     return {
       commit: data.commit ?? null,
       detail: data.files?.[0] ?? null,

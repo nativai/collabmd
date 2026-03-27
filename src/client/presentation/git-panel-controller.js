@@ -1,5 +1,4 @@
 import { escapeHtml } from '../domain/vault-utils.js';
-import { resolveApiUrl } from '../domain/runtime-paths.js';
 import { buttonClassNames } from './components/ui/button.js';
 import { segmentedButtonClassNames, segmentedControlClassNames } from './components/ui/segmented-control.js';
 
@@ -94,6 +93,7 @@ function renderHistoryRowTitle(commit = {}) {
 export class GitPanelController {
   constructor({
     enabled = true,
+    gitApiClient = null,
     onCommitStaged = () => {},
     onOpenPullBackup = () => {},
     onPullBranch = () => {},
@@ -109,6 +109,7 @@ export class GitPanelController {
     toastController = null,
   } = {}) {
     this.enabled = enabled;
+    this.gitApiClient = gitApiClient;
     this.onCommitStaged = onCommitStaged;
     this.onOpenPullBackup = onOpenPullBackup;
     this.onPullBranch = onPullBranch;
@@ -404,21 +405,12 @@ export class GitPanelController {
     }
 
     try {
-      const response = await fetch(resolveApiUrl(`/git/status${force ? '?force=true' : ''}`));
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to load git status');
-      }
-
+      const data = await this.gitApiClient.readStatus({ force });
       this.status = data;
       this.pullBackups = [];
       if (data.isGitRepo) {
         try {
-          const backupResponse = await fetch(resolveApiUrl('/git/pull-backups'));
-          const backupData = await backupResponse.json();
-          if (!backupResponse.ok) {
-            throw new Error(backupData.error || 'Failed to load pull backups');
-          }
+          const backupData = await this.gitApiClient.readPullBackups();
           this.pullBackups = Array.isArray(backupData.backups) ? backupData.backups : [];
         } catch (backupError) {
           console.error('[git-panel] Failed to load pull backups:', backupError);
@@ -501,15 +493,10 @@ export class GitPanelController {
     this.render();
 
     try {
-      const query = new URLSearchParams();
-      query.set('limit', String(HISTORY_PAGE_SIZE));
-      query.set('offset', '0');
-      const response = await fetch(resolveApiUrl(`/git/history?${query.toString()}`));
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to load git history');
-      }
-
+      const data = await this.gitApiClient.readHistory({
+        limit: HISTORY_PAGE_SIZE,
+        offset: 0,
+      });
       this.history = {
         commits: Array.isArray(data.commits) ? data.commits : [],
         error: '',
@@ -553,15 +540,10 @@ export class GitPanelController {
     this.render();
 
     try {
-      const query = new URLSearchParams();
-      query.set('limit', String(HISTORY_PAGE_SIZE));
-      query.set('offset', String(this.history.offset));
-      const response = await fetch(resolveApiUrl(`/git/history?${query.toString()}`));
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to load git history');
-      }
-
+      const data = await this.gitApiClient.readHistory({
+        limit: HISTORY_PAGE_SIZE,
+        offset: this.history.offset,
+      });
       const nextCommits = Array.isArray(data.commits) ? data.commits : [];
       this.history = {
         commits: [...this.history.commits, ...nextCommits],

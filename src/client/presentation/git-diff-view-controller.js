@@ -1,5 +1,4 @@
 import { escapeHtml } from '../domain/vault-utils.js';
-import { resolveApiUrl } from '../domain/runtime-paths.js';
 import { buttonClassNames } from './components/ui/button.js';
 
 function getPathLeaf(pathValue) {
@@ -146,6 +145,7 @@ function renderSplitRow(leftLine, rightLine) {
 
 export class GitDiffViewController {
   constructor({
+    gitApiClient = null,
     onBackToHistory = null,
     onCommitStaged = null,
     onOpenFile = null,
@@ -153,6 +153,7 @@ export class GitDiffViewController {
     onUnstageFile = null,
     toastController = null,
   } = {}) {
+    this.gitApiClient = gitApiClient;
     this.onBackToHistory = onBackToHistory;
     this.onCommitStaged = onCommitStaged;
     this.onOpenFile = onOpenFile;
@@ -327,19 +328,11 @@ export class GitDiffViewController {
     this.renderLoading('Loading diff summary...');
 
     try {
-      const query = new URLSearchParams();
-      query.set('scope', scope);
-      if (filePath) {
-        query.set('path', filePath);
-      }
-      query.set('metaOnly', 'true');
-
-      const response = await fetch(resolveApiUrl(`/git/diff?${query.toString()}`));
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to load git diff');
-      }
-
+      const data = await this.gitApiClient.readDiff({
+        metaOnly: true,
+        path: filePath,
+        scope,
+      });
       this.data = data;
       const initialIndex = filePath
         ? Math.max(0, data.files.findIndex((file) => file.path === filePath))
@@ -383,16 +376,10 @@ export class GitDiffViewController {
     this.renderLoading('Loading commit summary...');
 
     try {
-      const query = new URLSearchParams();
-      query.set('hash', this.commitHash || '');
-      query.set('metaOnly', 'true');
-
-      const response = await fetch(resolveApiUrl(`/git/commit?${query.toString()}`));
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to load git commit');
-      }
-
+      const data = await this.gitApiClient.readCommit({
+        hash: this.commitHash || '',
+        metaOnly: true,
+      });
       this.data = data;
       this.commitMeta = data.commit ?? null;
       const initialIndex = path
@@ -1053,37 +1040,21 @@ export class GitDiffViewController {
       try {
         let detail;
         if (this.source === 'commit') {
-          const query = new URLSearchParams();
-          query.set('hash', this.commitHash || '');
-          query.set('path', filePath);
-          if (forceFullPatch) {
-            query.set('allowLargePatch', 'true');
-          }
-
-          const response = await fetch(resolveApiUrl(`/git/commit?${query.toString()}`));
-          const data = await response.json();
-          if (!response.ok) {
-            throw new Error(data.error || 'Failed to load commit file diff');
-          }
-
+          const data = await this.gitApiClient.readCommit({
+            allowLargePatch: forceFullPatch,
+            hash: this.commitHash || '',
+            path: filePath,
+          });
           detail = {
             ...file,
             ...(data.files?.[0] ?? {}),
           };
         } else {
-          const query = new URLSearchParams();
-          query.set('scope', this.requestScope);
-          query.set('path', filePath);
-          if (forceFullPatch) {
-            query.set('allowLargePatch', 'true');
-          }
-
-          const response = await fetch(resolveApiUrl(`/git/diff?${query.toString()}`));
-          const data = await response.json();
-          if (!response.ok) {
-            throw new Error(data.error || 'Failed to load file diff');
-          }
-
+          const data = await this.gitApiClient.readDiff({
+            allowLargePatch: forceFullPatch,
+            path: filePath,
+            scope: this.requestScope,
+          });
           detail = {
             ...file,
             ...(data.files?.[0] ?? {}),

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { gitFeature } from '../../src/client/application/app-shell/git-feature.js';
+import { gitApiClient } from '../../src/client/infrastructure/git-api-client.js';
 
 function createContext(overrides = {}) {
   const events = [];
@@ -36,6 +37,7 @@ function createContext(overrides = {}) {
     getDisplayName(filePath) {
       return filePath.replace(/\.md$/u, '');
     },
+    gitApiClient,
     gitPanel: {
       async refresh() {
         events.push(['refresh-git-panel']);

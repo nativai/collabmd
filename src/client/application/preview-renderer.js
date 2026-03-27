@@ -10,23 +10,27 @@ export class PreviewRenderer {
   constructor({
     getContent,
     getFileList,
+    loadFileSource = null,
     getSourceFilePath,
     onAfterRenderCommit,
     onBeforeRenderCommit,
     onPreviewLayoutChange,
     onRenderComplete,
     outlineController,
+    plantUmlRenderClient = null,
     previewContainer,
     previewElement,
   }) {
     this.getContent = getContent;
     this.getFileList = getFileList;
+    this.loadFileSource = loadFileSource;
     this.getSourceFilePath = getSourceFilePath;
     this.onAfterRenderCommit = onAfterRenderCommit;
     this.onBeforeRenderCommit = onBeforeRenderCommit;
     this.onPreviewLayoutChange = onPreviewLayoutChange;
     this.onRenderComplete = onRenderComplete;
     this.outlineController = outlineController;
+    this.plantUmlRenderClient = plantUmlRenderClient;
     this.previewContainer = previewContainer;
     this.previewElement = previewElement;
     this.renderHost = null;
@@ -78,8 +82,13 @@ export class PreviewRenderer {
       this.plantUmlHydrator.scheduleActiveRefit();
     };
 
-    this.mermaidHydrator = new MermaidPreviewHydrator(this);
-    this.plantUmlHydrator = new PlantUmlPreviewHydrator(this);
+    this.mermaidHydrator = new MermaidPreviewHydrator(this, {
+      loadFileSource,
+    });
+    this.plantUmlHydrator = new PlantUmlPreviewHydrator(this, {
+      loadFileSource,
+      renderClient: plantUmlRenderClient,
+    });
     this.renderScheduler = new PreviewRenderScheduler({ getRenderProfileFn: getRenderProfile });
     this.renderExecutor = new PreviewRenderExecutor({
       attachmentApiPath: resolveApiUrl('/attachment'),

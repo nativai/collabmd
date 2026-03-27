@@ -1,5 +1,4 @@
 import { createWorkspaceChange } from '../../../domain/workspace-change.js';
-import { resolveApiUrl } from '../../domain/runtime-paths.js';
 import { createWorkspaceRequestId } from '../../domain/workspace-request-id.js';
 
 function normalizeWorkspaceChange(workspaceChange = {}) {
@@ -257,15 +256,10 @@ export const gitFeature = {
     this.syncFileHistoryButton({ filePath: resolvedCurrentFilePath, mode: 'history-preview' });
 
     try {
-      const query = new URLSearchParams();
-      query.set('hash', hash);
-      query.set('path', filePath);
-      const response = await fetch(resolveApiUrl(`/git/file-snapshot?${query.toString()}`));
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to load historical file preview');
-      }
-
+      const data = await this.gitApiClient.readFileSnapshot({
+        hash,
+        path: filePath,
+      });
       this.setStaticPreviewDocument?.({
         ...data,
         currentFilePath: resolvedCurrentFilePath,
@@ -286,7 +280,7 @@ export const gitFeature = {
       }
 
       this.elements.outlineToggle?.classList.add('hidden');
-      this.renderTextFilePreview({
+      this.renderTextFilePreview?.({
         content: data.content,
         filePath: resolvedCurrentFilePath,
       });
@@ -294,7 +288,7 @@ export const gitFeature = {
       console.error('[git-preview] Failed to load file snapshot:', error);
       this.clearStaticPreviewDocument?.();
       this.toastController.show('Failed to load historical file preview');
-      this.renderTextFilePreview({
+      this.renderTextFilePreview?.({
         content: 'Failed to load historical file preview.',
         filePath: resolvedCurrentFilePath,
       });
@@ -302,28 +296,26 @@ export const gitFeature = {
     }
   },
 
-  async postGitAction(endpoint, payload) {
+  async postGitAction(actionName, payload) {
     const requestId = createWorkspaceRequestId();
     this.pendingWorkspaceRequestIds?.add(requestId);
     try {
-      const response = await fetch(endpoint, {
-        body: JSON.stringify(payload),
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CollabMD-Request-Id': requestId,
-        },
-        method: 'POST',
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        this.pendingWorkspaceRequestIds?.delete(requestId);
-        const error = new Error(data.error || 'Git action failed');
-        if (typeof data?.code === 'string') {
-          error.code = data.code;
-        }
-        throw error;
+      switch (actionName) {
+        case 'stage':
+          return await this.gitApiClient.stageFile({ path: payload.path, requestId });
+        case 'unstage':
+          return await this.gitApiClient.unstageFile({ path: payload.path, requestId });
+        case 'push':
+          return await this.gitApiClient.pushBranch({ requestId });
+        case 'pull':
+          return await this.gitApiClient.pullBranch({ requestId });
+        case 'reset-file':
+          return await this.gitApiClient.resetFile({ path: payload.path, requestId });
+        case 'commit':
+          return await this.gitApiClient.commit({ message: payload.message, requestId });
+        default:
+          throw new Error(`Unsupported git action: ${actionName}`);
       }
-      return data;
     } catch (error) {
       this.pendingWorkspaceRequestIds?.delete(requestId);
       throw error;
@@ -483,7 +475,7 @@ export const gitFeature = {
     }
 
     await this.runGitActionWithStatus('Staging changes...', async () => {
-      const result = await this.postGitAction(resolveApiUrl('/git/stage'), { path: filePath });
+      const result = await this.postGitAction('stage', { path: filePath });
       await this.finalizeGitAction({
         action: 'stage',
         filePath,
@@ -499,7 +491,7 @@ export const gitFeature = {
     }
 
     await this.runGitActionWithStatus('Unstaging changes...', async () => {
-      const result = await this.postGitAction(resolveApiUrl('/git/unstage'), { path: filePath });
+      const result = await this.postGitAction('unstage', { path: filePath });
       await this.finalizeGitAction({
         action: 'unstage',
         filePath,
@@ -512,7 +504,7 @@ export const gitFeature = {
   async pushGitBranch() {
     await this.runGitActionWithStatus('Pushing branch...', async () => {
       try {
-        const result = await this.postGitAction(resolveApiUrl('/git/push'), {});
+        const result = await this.postGitAction('push', {});
         await this.finalizeGitAction({
           action: 'push',
           result,
@@ -526,7 +518,7 @@ export const gitFeature = {
   async pullGitBranch() {
     await this.runGitActionWithStatus('Pulling branch...', async () => {
       try {
-        const result = await this.postGitAction(resolveApiUrl('/git/pull'), {});
+        const result = await this.postGitAction('pull', {});
         await this.finalizeGitAction({
           action: 'pull',
           result,
@@ -598,7 +590,7 @@ export const gitFeature = {
     }
     try {
       await this.runGitActionWithStatus('Resetting file...', async () => {
-        const result = await this.postGitAction(resolveApiUrl('/git/reset-file'), { path: filePath });
+        const result = await this.postGitAction('reset-file', { path: filePath });
         await this.finalizeGitAction({
           action: 'reset',
           filePath,
@@ -676,7 +668,7 @@ export const gitFeature = {
     }
     try {
       await this.runGitActionWithStatus('Committing changes...', async () => {
-        const result = await this.postGitAction(resolveApiUrl('/git/commit'), {
+        const result = await this.postGitAction('commit', {
           message,
         });
         await this.finalizeGitAction({

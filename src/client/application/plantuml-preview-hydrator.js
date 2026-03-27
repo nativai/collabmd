@@ -1,6 +1,5 @@
 import { clamp } from '../domain/vault-utils.js';
 import { setDiagramActionButtonIcon } from '../domain/diagram-action-icons.js';
-import { resolveApiUrl } from '../domain/runtime-paths.js';
 import { DiagramPreviewHydrator } from './diagram-preview-hydrator.js';
 import {
   createPlantUmlPlaceholderCard,
@@ -13,7 +12,7 @@ import {
 } from './preview-diagram-utils.js';
 
 export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
-  constructor(renderer) {
+  constructor(renderer, { loadFileSource = null, renderClient = null } = {}) {
     super(renderer, {
       batchSize: PLANTUML_BATCH_SIZE,
       datasetKeys: {
@@ -28,10 +27,12 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
         target: 'plantumlTarget',
       },
       filePathLabel: 'PlantUML',
+      loadFileSource,
       shellClassName: 'plantuml-shell',
       sourceClassName: 'plantuml-source',
     });
     this.renderer = renderer;
+    this.renderClient = renderClient;
     this.svgCache = new Map();
     this.svgInflightRequests = new Map();
     this.shellRefits = new WeakMap();
@@ -206,20 +207,9 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
       return this.svgInflightRequests.get(cacheKey);
     }
 
-    const request = fetch(resolveApiUrl('/plantuml/render'), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ source }),
-    })
-      .then(async (response) => {
-        const data = await response.json().catch(() => null);
-        if (!response.ok || !data?.ok || typeof data.svg !== 'string') {
-          throw new Error(data?.error || 'Failed to render PlantUML');
-        }
-
-        const sanitized = sanitizeSvgMarkup(data.svg);
+    const request = this.renderClient.renderSvg(source)
+      .then((svgMarkup) => {
+        const sanitized = sanitizeSvgMarkup(svgMarkup);
         this.svgCache.set(cacheKey, sanitized);
         return sanitized;
       })

@@ -1,6 +1,5 @@
 import { stripVaultFileExtension } from '../../domain/file-kind.js';
 import { escapeHtml } from '../domain/vault-utils.js';
-import { resolveApiUrl } from '../domain/runtime-paths.js';
 
 /**
  * BacklinksPanel — renders "Linked Mentions" for the current file.
@@ -13,6 +12,7 @@ export class BacklinksPanel {
     documentRef = document,
     headerPanelElement = null,
     inlinePanelElement = null,
+    loadBacklinks = null,
     onFileSelect,
     panelElement,
   }) {
@@ -20,6 +20,7 @@ export class BacklinksPanel {
     this.headerPanel = headerPanelElement;
     this.panelRoot = panelElement;
     this.inlinePanel = inlinePanelElement;
+    this.loadBacklinks = loadBacklinks;
     this.onFileSelect = onFileSelect;
 
     this._expanded = false;
@@ -132,15 +133,11 @@ export class BacklinksPanel {
     this._fetchController = new AbortController();
 
     try {
-      const response = await fetch(
-        resolveApiUrl(`/backlinks?file=${encodeURIComponent(filePath)}`),
-        { signal: this._fetchController.signal },
-      );
-      const data = await response.json();
-
+      const backlinks = await this.loadBacklinks(filePath, {
+        signal: this._fetchController.signal,
+      });
       if (this._currentFile !== filePath) return;
-
-      this._backlinks = data.backlinks ?? [];
+      this._backlinks = backlinks;
     } catch (error) {
       if (error.name === 'AbortError') return;
       console.warn('[backlinks] Failed to load:', error.message);
