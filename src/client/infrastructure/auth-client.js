@@ -156,7 +156,7 @@ function renderOidcPrompt(card, config, {
   actions.className = 'auth-gate-actions';
 
   const signInButton = document.createElement('button');
-  signInButton.className = 'auth-gate-button auth-gate-button--google';
+  signInButton.className = 'ui-button ui-button--secondary auth-gate-button auth-gate-button--google';
   signInButton.type = 'button';
   signInButton.append(createGoogleIcon(), document.createTextNode(config.submitLabel || 'Continue with Google'));
 
@@ -191,7 +191,7 @@ function renderStatusCard(card, {
 
   if (secondaryActionLabel && typeof onSecondaryAction === 'function') {
     const button = document.createElement('button');
-    button.className = 'auth-gate-secondary-button';
+    button.className = 'ui-button ui-button--secondary auth-gate-secondary-button';
     button.type = 'button';
     button.textContent = secondaryActionLabel;
     button.addEventListener('click', () => {
@@ -220,7 +220,7 @@ function renderPasswordPrompt(card, config, {
   label.textContent = config.passwordLabel;
 
   const input = document.createElement('input');
-  input.className = 'auth-gate-input';
+  input.className = 'ui-input auth-gate-input';
   input.type = 'password';
   input.name = 'password';
   input.autocomplete = 'current-password';
@@ -233,7 +233,7 @@ function renderPasswordPrompt(card, config, {
   actions.className = 'auth-gate-actions';
 
   const submitButton = document.createElement('button');
-  submitButton.className = 'auth-gate-button';
+  submitButton.className = 'ui-button ui-button--primary auth-gate-button';
   submitButton.type = 'submit';
   submitButton.textContent = config.submitLabel;
 
