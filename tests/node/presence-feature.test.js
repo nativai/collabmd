@@ -139,6 +139,29 @@ test('presenceFeature renders lobby presence for excalidraw routes without a mar
   assert.equal(badge.style.opacity, '1');
 });
 
+test('presenceFeature renders lobby presence for drawio routes without a markdown editor session', () => {
+  const badge = createBadge();
+  const context = {
+    ...presenceFeature,
+    connectionState: { status: 'disconnected', unreachable: false },
+    currentFilePath: 'diagram.drawio',
+    elements: { userCount: badge },
+    globalUsers: [{ clientId: 'local', isLocal: true, name: 'Andes' }],
+    isDrawioFile: (filePath) => filePath.endsWith('.drawio'),
+    lobby: {
+      getConnectionState() {
+        return { status: 'connected', unreachable: false };
+      },
+    },
+    session: null,
+  };
+
+  context.renderPresence();
+
+  assert.equal(badge.textContent, '1 online');
+  assert.equal(badge.style.opacity, '1');
+});
+
 test('presenceFeature still prioritizes editor session connection state for markdown files', () => {
   const badge = createBadge();
   const context = {

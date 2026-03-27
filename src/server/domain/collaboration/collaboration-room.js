@@ -45,10 +45,39 @@ function closeSlowClient(ws, clientState, { maxBufferedAmountBytes, name }) {
   return false;
 }
 
+function isExpectedSocketSendError(error) {
+  const code = String(error?.code || '').toUpperCase();
+  const message = String(error?.message || '');
+
+  return code === 'EPIPE'
+    || code === 'ECONNRESET'
+    || /EPIPE|ECONNRESET|WebSocket is not open|readyState/i.test(message);
+}
+
+function cleanupDisconnectedClient(room, ws, clientState) {
+  if (clientState?.transportCloseIssued) {
+    return false;
+  }
+
+  if (clientState) {
+    clientState.transportCloseIssued = true;
+  }
+
+  room?.removeClient?.(ws);
+
+  try {
+    ws.terminate?.();
+  } catch {
+    // Ignore termination errors while cleaning up disconnected clients.
+  }
+
+  return false;
+}
+
 function sendMessage(ws, payload, { maxBufferedAmountBytes, name }) {
   const clientState = this?.getClientState?.(ws) ?? null;
   if (ws.readyState !== ws.OPEN) {
-    return false;
+    return cleanupDisconnectedClient(this, ws, clientState);
   }
 
   const bufferedAmountBeforeSend = ws.bufferedAmount;
@@ -59,6 +88,11 @@ function sendMessage(ws, payload, { maxBufferedAmountBytes, name }) {
 
   ws.send(payload, (error) => {
     if (error) {
+      if (isExpectedSocketSendError(error)) {
+        cleanupDisconnectedClient(this, ws, clientState);
+        return;
+      }
+
       console.error(`[room:${name}] Failed to send websocket frame:`, error.message);
     }
   });
@@ -343,6 +377,7 @@ export class CollaborationRoom {
     const existingState = this.getClientState(ws);
     if (existingState) {
       existingState.backpressureCloseIssued = false;
+      existingState.transportCloseIssued = false;
       return existingState;
     }
 

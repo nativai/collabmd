@@ -2,6 +2,7 @@ function createClientState() {
   return {
     backpressureCloseIssued: false,
     controlledClientIds: new Set(),
+    transportCloseIssued: false,
   };
 }
 

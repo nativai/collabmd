@@ -148,6 +148,37 @@ test('CollaborationRoom allows a single oversized initial sync frame from an emp
   assert.equal(client.closeCalls.length, 0);
 });
 
+test('CollaborationRoom cleans up disconnected clients after expected socket send errors', async () => {
+  const room = new CollaborationRoom({
+    maxBufferedAmountBytes: 1024,
+    name: 'broken-pipe-room',
+    onEmpty: () => {},
+    vaultFileStore: null,
+  });
+
+  const origin = createSocket();
+  const disconnectedClient = createSocket();
+  disconnectedClient.terminateCalls = 0;
+  disconnectedClient.terminate = function terminate() {
+    this.terminateCalls += 1;
+    this.readyState = 3;
+  };
+  disconnectedClient.send = function send(payload, callback) {
+    this.sent.push(payload);
+    callback?.(Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }));
+  };
+
+  await room.addClient(origin);
+  await room.addClient(disconnectedClient);
+
+  const clientDoc = new Y.Doc();
+  clientDoc.getText('codemirror').insert(0, 'hello');
+  Y.applyUpdate(room.doc, Y.encodeStateAsUpdate(clientDoc), origin);
+
+  assert.equal(disconnectedClient.terminateCalls, 1);
+  assert.equal(room.clients.has(disconnectedClient), false);
+});
+
 test('CollaborationRoom primes a collaboration snapshot after content hydration when none exists', async () => {
   const snapshotWrites = [];
   const room = new CollaborationRoom({

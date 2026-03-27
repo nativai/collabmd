@@ -17,9 +17,11 @@ export const presenceFeature = {
     if (!badge) return;
 
     const hasEditorSession = Boolean(this.session);
+    const isDrawioRoute = Boolean(this.currentFilePath && this.isDrawioFile?.(this.currentFilePath));
     const isExcalidrawRoute = Boolean(this.currentFilePath && this.isExcalidrawFile?.(this.currentFilePath));
     const isImageRoute = Boolean(this.currentFilePath && this.isImageFile?.(this.currentFilePath));
-    const shouldUseLobbyState = !hasEditorSession && (!this.currentFilePath || isExcalidrawRoute || isImageRoute);
+    const shouldUseLobbyState = !hasEditorSession
+      && (!this.currentFilePath || isDrawioRoute || isExcalidrawRoute || isImageRoute);
     const effectiveConnectionState = shouldUseLobbyState
       ? this.lobby?.getConnectionState?.() ?? this.connectionState
       : this.connectionState;
