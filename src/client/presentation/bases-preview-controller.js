@@ -1,6 +1,9 @@
 import { isImageAttachmentFilePath } from '../../domain/file-kind.js';
 import { resolveApiUrl } from '../domain/runtime-paths.js';
 import { escapeHtml } from '../domain/vault-utils.js';
+import { buttonClassNames } from './components/ui/button.js';
+import { inputClassNames } from './components/ui/input.js';
+import { segmentedButtonClassNames, segmentedControlClassNames } from './components/ui/segmented-control.js';
 
 function createShellKey() {
   return `base-${Math.random().toString(36).slice(2, 10)}`;
@@ -73,11 +76,11 @@ function renderValue(cell = {}) {
       return `<a class="bases-link" href="${escapeHtml(cell.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(formatCellText(cell))}</a>`;
     }
     if (cell.path) {
-      return `<button type="button" class="bases-link bases-link-button" data-base-open-file="${escapeHtml(cell.path)}">${escapeHtml(formatCellText(cell))}</button>`;
+      return `<button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact', pill: true, extra: ['bases-link', 'bases-link-button'] }))}" data-base-open-file="${escapeHtml(cell.path)}">${escapeHtml(formatCellText(cell))}</button>`;
     }
   }
   if (type === 'file' && cell.path) {
-    return `<button type="button" class="bases-link bases-link-button" data-base-open-file="${escapeHtml(cell.path)}">${escapeHtml(formatCellText(cell))}</button>`;
+    return `<button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact', pill: true, extra: ['bases-link', 'bases-link-button'] }))}" data-base-open-file="${escapeHtml(cell.path)}">${escapeHtml(formatCellText(cell))}</button>`;
   }
 
   const text = formatCellText(cell);
@@ -92,7 +95,7 @@ function renderRowValue(column, row) {
     && cell.type !== 'empty'
     && (column.id === 'file.name' || column.id === 'file.basename')
   ) {
-    return `<button type="button" class="bases-link bases-link-button" data-base-open-file="${escapeHtml(row.path)}">${escapeHtml(formatCellText(cell))}</button>`;
+    return `<button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact', pill: true, extra: ['bases-link', 'bases-link-button'] }))}" data-base-open-file="${escapeHtml(row.path)}">${escapeHtml(formatCellText(cell))}</button>`;
   }
 
   return renderValue(cell);
@@ -171,7 +174,7 @@ function renderViewBody(result) {
 
 function renderViewTabs(result) {
   return (result.views ?? []).map((view) => (
-    `<button type="button" class="bases-view-tab${view.id === result.view.id ? ' is-active' : ''}" data-base-view="${escapeHtml(view.id)}">${escapeHtml(view.name)}</button>`
+    `<button type="button" class="${escapeHtml(segmentedButtonClassNames({ active: view.id === result.view.id, extra: 'bases-view-tab' }))}" data-base-view="${escapeHtml(view.id)}">${escapeHtml(view.name)}</button>`
   )).join('');
 }
 
@@ -180,14 +183,14 @@ function renderShellHtml(result, state) {
     <section class="bases-shell" data-base-shell-key="${escapeHtml(state.key)}">
       <header class="bases-toolbar">
         <div class="bases-toolbar-main">
-          <div class="bases-tabs" data-base-tabs>
+          <div class="${escapeHtml(segmentedControlClassNames({ pill: true, extra: 'bases-tabs' }))}" data-base-tabs>
             ${renderViewTabs(result)}
           </div>
           <div class="bases-meta" data-base-meta>${escapeHtml(String(result.totalRows ?? 0))} results</div>
         </div>
         <div class="bases-toolbar-actions">
-          <input class="bases-search-input" type="search" value="${escapeHtml(state.search)}" placeholder="Search this base">
-          <button type="button" class="bases-export-btn">Export CSV</button>
+          <input class="${escapeHtml(inputClassNames({ extra: 'bases-search-input' }))}" type="search" value="${escapeHtml(state.search)}" placeholder="Search this base">
+          <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact', pill: true, extra: 'bases-export-btn' }))}">Export CSV</button>
         </div>
       </header>
       <div data-base-summary-slot>${renderSummaryBar(result.summaries)}</div>
