@@ -49,9 +49,6 @@ const RULES = [
     name: 'server-auth-no-infrastructure',
     appliesTo: 'src/server/auth/',
     forbidden: ['src/server/infrastructure/'],
-    allowFiles: new Set([
-      'src/server/auth/create-auth-service.js',
-    ]),
   },
 ];
 
@@ -59,6 +56,8 @@ const ALLOWED_DEPENDENCIES = new Set([
   'src/server/domain/git-service.js -> src/server/infrastructure/git/git-service.js',
   'src/server/domain/plantuml-renderer.js -> src/server/infrastructure/plantuml/plantuml-renderer.js',
 ]);
+
+const RAW_FETCH_PATTERN = /\bfetch\s*\(/u;
 
 async function collectFiles(dirPath) {
   const entries = await readdir(dirPath, { withFileTypes: true });
@@ -198,4 +197,23 @@ test('internal module specifiers resolve consistently', async () => {
   }
 
   assert.deepEqual(unresolved, []);
+});
+
+test('client application and presentation modules do not issue raw fetch calls', async () => {
+  const files = await collectFiles(srcRoot);
+  const offenders = [];
+
+  for (const filePath of files) {
+    const repoPath = toRepoPath(filePath);
+    if (!repoPath.startsWith('src/client/application/') && !repoPath.startsWith('src/client/presentation/')) {
+      continue;
+    }
+
+    const source = await readFile(filePath, 'utf8');
+    if (RAW_FETCH_PATTERN.test(source)) {
+      offenders.push(repoPath);
+    }
+  }
+
+  assert.deepEqual(offenders, []);
 });
