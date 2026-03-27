@@ -189,8 +189,14 @@ function renderShellHtml(result, state) {
           <div class="bases-meta" data-base-meta>${escapeHtml(String(result.totalRows ?? 0))} results</div>
         </div>
         <div class="bases-toolbar-actions">
-          <input class="${escapeHtml(inputClassNames({ extra: 'bases-search-input' }))}" type="search" value="${escapeHtml(state.search)}" placeholder="Search this base">
-          <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', size: 'compact', pill: true, extra: 'bases-export-btn' }))}">Export CSV</button>
+          <label class="bases-search-shell" aria-label="Search this base">
+            <svg class="bases-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7"></circle>
+              <path d="m20 20-3.5-3.5"></path>
+            </svg>
+            <input class="${escapeHtml(inputClassNames({ extra: 'bases-search-input' }))}" type="search" value="${escapeHtml(state.search)}" placeholder="Search this base" aria-label="Search this base">
+          </label>
+          <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'secondary', pill: true, extra: 'bases-export-btn' }))}">Export CSV</button>
         </div>
       </header>
       <div data-base-summary-slot>${renderSummaryBar(result.summaries)}</div>
