@@ -687,6 +687,37 @@ test('CollaborationRoom serializes overlapping persists for the same room', asyn
   assert.equal(maxConcurrentPersists, 1);
 });
 
+test('CollaborationRoom still releases the room after duplicate client removal', async () => {
+  const roomRegistry = new RoomRegistry({
+    createRoom: ({ name, onEmpty }) => new CollaborationRoom({
+      idleGraceMs: 0,
+      maxBufferedAmountBytes: 1024,
+      name,
+      onEmpty,
+      vaultFileStore: {
+        async readMarkdownFile() {
+          return '# persisted\n';
+        },
+        async writeMarkdownFile() {
+          return { ok: true };
+        },
+      },
+    }),
+  });
+
+  const room = roomRegistry.getOrCreate('notes.md');
+  const socket = createSocket();
+
+  await room.addClient(socket);
+  room.removeClient(socket);
+  room.removeClient(socket);
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(roomRegistry.get('notes.md'), undefined);
+});
+
 test('CollaborationRoom does not persist malformed legacy excalidraw room text over a valid file', async () => {
   const writes = [];
   const room = new CollaborationRoom({

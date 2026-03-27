@@ -46,10 +46,10 @@ export class RoomPersistenceController {
       return;
     }
 
-    const generation = ++this.shutdownGeneration;
     if (this.finalizePromise) {
       return;
     }
+    const generation = ++this.shutdownGeneration;
 
     this.finalizePromise = (async () => {
       clearTimeout(this.persistTimer);
