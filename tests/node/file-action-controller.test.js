@@ -84,6 +84,12 @@ function createController(t, overrides = {}) {
 
       calls.push(['delete-file', path]);
     },
+    async downloadDirectory(path) {
+      calls.push(['download-directory', path]);
+    },
+    async downloadFile(path) {
+      calls.push(['download-file', path]);
+    },
     async renameDirectory({ newPath, oldPath, requestId }) {
       if (requestId) {
         calls.push(['rename-directory', oldPath, newPath, requestId]);
@@ -326,5 +332,65 @@ test('FileActionController creates base files with starter content and opens the
     ['create-file', 'views/tasks.base', 'views:\n  - type: table\n    name: Table\n    order:\n      - file.name\n'],
     ['refresh'],
     ['select', 'views/tasks.base'],
+  ]);
+});
+
+test('FileActionController moves files by drop through the rename flow', async (t) => {
+  const state = new FileTreeState();
+  state.activeFilePath = 'README.md';
+
+  const { calls, controller } = createController(t, { state });
+
+  const moved = await controller.moveEntryByDrop({
+    destinationDirectory: 'notes',
+    sourcePath: 'README.md',
+    sourceType: 'file',
+  });
+
+  assert.equal(moved, true);
+  assert.deepEqual(calls, [
+    ['rename-file', 'README.md', 'notes/README.md'],
+    ['refresh'],
+    ['select', 'notes/README.md'],
+  ]);
+});
+
+test('FileActionController rejects invalid drop moves', async (t) => {
+  const { calls, controller } = createController(t);
+
+  const sameFolderMove = await controller.moveEntryByDrop({
+    destinationDirectory: 'notes',
+    sourcePath: 'notes/daily.md',
+    sourceType: 'file',
+  });
+  const descendantMove = await controller.moveEntryByDrop({
+    destinationDirectory: 'docs/guides/archive',
+    sourcePath: 'docs/guides',
+    sourceType: 'directory',
+  });
+
+  assert.equal(sameFolderMove, false);
+  assert.equal(descendantMove, false);
+  assert.deepEqual(calls, [
+    ['toast', 'Item is already in that folder'],
+    ['toast', 'A folder cannot be moved into one of its descendants'],
+  ]);
+});
+
+test('FileActionController exposes download actions for files and directories', async (t) => {
+  const { calls, controller } = createController(t);
+
+  const fileItems = controller.getFileContextMenuItems('README.md');
+  const directoryItems = controller.getDirectoryContextMenuItems('notes');
+
+  assert.deepEqual(fileItems.map((item) => item.label), ['Rename / move', 'Download', 'Delete']);
+  assert.equal(directoryItems.some((item) => item.label === 'Download'), true);
+
+  await controller.downloadFileEntry('README.md');
+  await controller.downloadDirectoryEntry('notes');
+
+  assert.deepEqual(calls.slice(-2), [
+    ['download-file', 'README.md'],
+    ['download-directory', 'notes'],
   ]);
 });

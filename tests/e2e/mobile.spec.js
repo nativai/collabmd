@@ -471,6 +471,7 @@ test.describe('mobile sidebar', () => {
     await longPress(page.locator('#fileTree .file-tree-item', { hasText: 'README' }).first());
     await expect(page.locator('.file-action-sheet')).toBeVisible();
     await expect(page.locator('.file-action-sheet')).toContainText('Rename / move');
+    await expect(page.locator('.file-action-sheet')).toContainText('Download');
 
     await page.locator('.file-action-sheet-item', { hasText: 'Cancel' }).click();
     await expect(page.locator('.file-action-sheet')).toBeHidden();

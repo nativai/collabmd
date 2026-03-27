@@ -29,6 +29,7 @@ export class FileExplorerController {
         this.state.toggleDirectory(pathValue);
         this.renderTree();
       },
+      onEntryDrop: (payload) => this.actionController.moveEntryByDrop(payload),
       onFileContextMenu: (event, payload) => {
         if (payload.type === 'directory') {
           this.view.showContextMenu(event, this.actionController.getDirectoryContextMenuItems(payload.directoryPath));
@@ -40,6 +41,7 @@ export class FileExplorerController {
       onFileSelect: (filePath) => {
         this.onFileSelect?.(filePath);
       },
+      onValidateDrop: (payload) => this.actionController.canMoveEntryByDrop(payload),
       onSearchChange: (value) => {
         this.state.setSearchQuery(value);
         this.renderTree();

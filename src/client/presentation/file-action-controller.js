@@ -23,6 +23,12 @@ function getPathLeaf(path) {
     .pop() || '';
 }
 
+function getParentPath(pathValue) {
+  const normalized = String(pathValue ?? '').replace(/\/+$/u, '');
+  const separatorIndex = normalized.lastIndexOf('/');
+  return separatorIndex >= 0 ? normalized.slice(0, separatorIndex) : '';
+}
+
 function replacePathPrefix(pathValue, oldPrefix, newPrefix) {
   if (pathValue === oldPrefix) {
     return newPrefix;
@@ -202,6 +208,10 @@ export class FileActionController {
         onSelect: () => this.handleRenameDirectory(directoryPath),
       },
       {
+        label: 'Download',
+        onSelect: () => this.handleDownloadDirectory(directoryPath),
+      },
+      {
         label: 'Delete',
         danger: true,
         onSelect: () => this.handleDeleteDirectory(directoryPath),
@@ -214,6 +224,10 @@ export class FileActionController {
       {
         label: 'Rename / move',
         onSelect: () => this.handleRenameFile(filePath),
+      },
+      {
+        label: 'Download',
+        onSelect: () => this.handleDownloadFile(filePath),
       },
       {
         label: 'Delete',
@@ -627,6 +641,81 @@ export class FileActionController {
     }
   }
 
+  planMoveEntryByDrop({ destinationDirectory = '', sourcePath = '', sourceType = 'file' } = {}) {
+    const normalizedSourcePath = normalizeVaultPathInput(sourcePath);
+    const normalizedDestinationDirectory = normalizeVaultPathInput(destinationDirectory);
+    const currentParentPath = getParentPath(normalizedSourcePath);
+    const entryName = getPathLeaf(normalizedSourcePath);
+
+    if (!normalizedSourcePath || !entryName) {
+      return { ok: false, reason: 'Invalid item to move' };
+    }
+
+    if (currentParentPath === normalizedDestinationDirectory) {
+      return { ok: false, reason: 'Item is already in that folder' };
+    }
+
+    if (sourceType === 'directory') {
+      if (normalizedDestinationDirectory === normalizedSourcePath) {
+        return { ok: false, reason: 'A folder cannot be moved into itself' };
+      }
+
+      if (normalizedDestinationDirectory.startsWith(`${normalizedSourcePath}/`)) {
+        return { ok: false, reason: 'A folder cannot be moved into one of its descendants' };
+      }
+
+      return {
+        nextPath: composeVaultChildPath(normalizedDestinationDirectory, entryName),
+        ok: true,
+      };
+    }
+
+    const extension = getVaultFileExtension(normalizedSourcePath) || '.md';
+    return {
+      extension,
+      nextPath: composeVaultChildPath(normalizedDestinationDirectory, entryName),
+      ok: true,
+    };
+  }
+
+  canMoveEntryByDrop(payload = {}) {
+    return this.planMoveEntryByDrop(payload).ok;
+  }
+
+  async moveEntryByDrop(payload = {}) {
+    const plan = this.planMoveEntryByDrop(payload);
+    if (!plan.ok) {
+      this.showToast(plan.reason);
+      return false;
+    }
+
+    if (payload.sourceType === 'directory') {
+      return this.renameDirectory(payload.sourcePath, plan.nextPath);
+    }
+
+    return this.renameVaultFile(payload.sourcePath, plan.nextPath, plan.extension);
+  }
+
+  async downloadFileEntry(filePath) {
+    try {
+      await this.vaultClient.downloadFile(filePath);
+      return true;
+    } catch (error) {
+      this.showToast(error?.message || 'Failed to download file');
+      return false;
+    }
+  }
+
+  async downloadDirectoryEntry(directoryPath) {
+    try {
+      await this.vaultClient.downloadDirectory(directoryPath);
+      return true;
+    } catch (error) {
+      this.showToast(error?.message || 'Failed to download folder');
+      return false;
+    }
+  }
+
   getCreateContext(parentDir = '') {
     const normalizedParentDir = normalizeVaultPathInput(parentDir);
 
@@ -907,5 +996,13 @@ export class FileActionController {
       requiresInput: false,
       onSubmit: () => this.deleteDirectory(directoryPath, { recursive: hasDescendants }),
     });
+  }
+
+  handleDownloadFile(filePath) {
+    void this.downloadFileEntry(filePath);
+  }
+
+  handleDownloadDirectory(directoryPath) {
+    void this.downloadDirectoryEntry(directoryPath);
   }
 }

@@ -577,6 +577,87 @@ test('moves and deletes files from the sidebar with the custom dialog', async ({
   await expect(page.locator('#fileTree')).not.toContainText('release-notes');
 });
 
+test('moves files between folders by drag and drop in the sidebar', async ({ page }) => {
+  await openHome(page);
+
+  await chooseCreateAction(page, /Markdown note/i);
+  await page.locator('#fileActionInput').fill('scratchpad');
+  await page.locator('#fileActionSubmit').click();
+  await waitForEditor(page);
+
+  await chooseCreateAction(page, /^Folder/i);
+  await page.locator('#fileActionInput').fill('notes');
+  await page.locator('#fileActionSubmit').click();
+
+  const scratchpadItem = page.locator('#fileTree .file-tree-file', { hasText: 'scratchpad' }).first();
+  const notesItem = page.locator('#fileTree .file-tree-dir', { hasText: 'notes' }).first();
+  await scratchpadItem.dragTo(notesItem);
+
+  await expect(page.locator('#activeFileName')).toContainText('scratchpad');
+  await expect(page.locator('#fileTree')).toContainText('notes');
+  await expect(page.locator('#fileTree')).toContainText('scratchpad');
+  await expect(page.locator('#fileTree .file-tree-file').filter({ hasText: 'scratchpad' })).toHaveCount(1);
+  await expect.poll(async () => (
+    page.evaluate(async () => {
+      const response = await fetch('/api/file?path=notes%2Fscratchpad.md');
+      return response.ok;
+    })
+  )).toBe(true);
+});
+
+test('moves files back to the vault root through the root drop target', async ({ page }) => {
+  await openHome(page);
+
+  await chooseCreateAction(page, /Markdown note/i);
+  await page.locator('#fileActionInput').fill('notes/scratchpad');
+  await page.locator('#fileActionSubmit').click();
+  await waitForEditor(page);
+
+  const scratchpadItem = page.locator('#fileTree .file-tree-file', { hasText: 'scratchpad' }).first();
+  const rootZone = page.locator('#fileTree .file-tree-root-drop-zone');
+  await scratchpadItem.dragTo(rootZone);
+
+  await expect(page.locator('#activeFileName')).toContainText('scratchpad');
+  await expect.poll(async () => (
+    page.evaluate(async () => {
+      const rootResponse = await fetch('/api/file?path=scratchpad.md');
+      const nestedResponse = await fetch('/api/file?path=notes%2Fscratchpad.md');
+      return JSON.stringify({
+        nestedExists: nestedResponse.ok,
+        rootExists: rootResponse.ok,
+      });
+    })
+  )).toContain('"rootExists":true');
+  await expect.poll(async () => (
+    page.evaluate(async () => {
+      const nestedResponse = await fetch('/api/file?path=notes%2Fscratchpad.md');
+      return nestedResponse.status;
+    })
+  )).toBe(404);
+});
+
+test('rejects dragging a folder into one of its descendants', async ({ page }) => {
+  await openHome(page);
+
+  await chooseCreateAction(page, /^Folder/i);
+  await page.locator('#fileActionInput').fill('guides/archive');
+  await page.locator('#fileActionSubmit').click();
+
+  const guidesItem = page.locator('#fileTree .file-tree-dir', { hasText: 'guides' }).first();
+  const archiveItem = page.locator('#fileTree .file-tree-dir', { hasText: 'archive' }).first();
+  await guidesItem.dragTo(archiveItem);
+
+  await expect(page.locator('#fileTree')).toContainText('guides');
+  await expect(page.locator('#fileTree')).toContainText('archive');
+  await expect.poll(async () => (
+    page.evaluate(async () => {
+      const response = await fetch('/api/files');
+      const data = await response.json();
+      return JSON.stringify(data.tree || []);
+    })
+  )).toContain('"path":"guides/archive"');
+});
+
 test('renames folders from the sidebar context menu', async ({ page }) => {
   await openHome(page);
 
@@ -596,6 +677,22 @@ test('renames folders from the sidebar context menu', async ({ page }) => {
 
   await expect(page.locator('#fileTree')).toContainText('drafts-new');
   await expect(page.locator('#fileTree')).not.toContainText('drafts-old');
+});
+
+test('downloads files and directories from the sidebar context menu', async ({ page }) => {
+  await openHome(page);
+
+  const fileDownloadPromise = page.waitForEvent('download');
+  await page.locator('#fileTree .file-tree-file', { hasText: 'README' }).first().click({ button: 'right' });
+  await page.locator('.file-context-menu').getByRole('button', { name: 'Download' }).click();
+  const fileDownload = await fileDownloadPromise;
+  expect(fileDownload.suggestedFilename()).toBe('README.md');
+
+  const directoryDownloadPromise = page.waitForEvent('download');
+  await page.locator('#fileTree .file-tree-dir', { hasText: 'daily' }).first().click({ button: 'right' });
+  await page.locator('.file-context-menu').getByRole('button', { name: 'Download' }).click();
+  const directoryDownload = await directoryDownloadPromise;
+  expect(directoryDownload.suggestedFilename()).toBe('daily.zip');
 });
 
 test('deletes empty folders from the sidebar context menu', async ({ page }) => {

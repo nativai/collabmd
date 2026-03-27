@@ -38,23 +38,28 @@ function findNodeByPath(nodes = [], pathValue = '') {
 
 const MOBILE_LONG_PRESS_DELAY_MS = 420;
 const MOBILE_LONG_PRESS_MOVE_TOLERANCE_PX = 10;
+const DRAG_AUTO_EXPAND_DELAY_MS = 700;
 
 export class FileExplorerView {
   constructor({
     mobileBreakpointQuery = window.matchMedia('(max-width: 768px)'),
+    onEntryDrop,
     onDirectorySelect,
     onDirectoryToggle,
     onFileContextMenu,
     onFileSelect,
     onSearchChange,
     onTreeContextMenu,
+    onValidateDrop,
   }) {
+    this.onEntryDrop = onEntryDrop;
     this.onDirectorySelect = onDirectorySelect;
     this.onDirectoryToggle = onDirectoryToggle;
     this.onFileContextMenu = onFileContextMenu;
     this.onFileSelect = onFileSelect;
     this.onSearchChange = onSearchChange;
     this.onTreeContextMenu = onTreeContextMenu;
+    this.onValidateDrop = onValidateDrop;
     this.mobileBreakpointQuery = mobileBreakpointQuery;
     this.treeContainer = document.getElementById('fileTree');
     this.searchInput = document.getElementById('fileSearchInput');
@@ -66,6 +71,13 @@ export class FileExplorerView {
     this.suppressedActivationTarget = null;
     this.contextMenuCloseHandler = null;
     this.actionSheetCloseHandler = null;
+    this.dragSource = null;
+    this.currentSearchQuery = '';
+    this.activeDropTarget = null;
+    this.invalidDropAttempt = null;
+    this.autoExpandTimer = 0;
+    this.autoExpandTargetPath = '';
+    this.rootDropZone = null;
   }
 
   initialize() {
@@ -108,11 +120,25 @@ export class FileExplorerView {
     this.treeContainer?.addEventListener('scroll', () => {
       this.cancelLongPress();
     }, { passive: true });
+    this.treeContainer?.addEventListener('dragover', (event) => {
+      this.handleTreeDragOver(event);
+    });
+    this.treeContainer?.addEventListener('drop', (event) => {
+      this.handleTreeDrop(event);
+    });
+    this.treeContainer?.addEventListener('dragleave', (event) => {
+      this.handleTreeDragLeave(event);
+    });
   }
 
   render({ activeFilePath, changedPaths = null, expandedDirs, reset = false, searchMatches, searchQuery, tree }) {
     if (!this.treeContainer) {
       return;
+    }
+
+    this.currentSearchQuery = String(searchQuery ?? '');
+    if (this.currentSearchQuery) {
+      this.clearDragFeedback();
     }
 
     if (this.searchInput && this.searchInput.value !== searchQuery) {
@@ -179,6 +205,7 @@ export class FileExplorerView {
 
     this.resetTreeIndexes();
     this.treeContainer.innerHTML = '';
+    this.rootDropZone = null;
 
     if (matches.length === 0) {
       this.treeContainer.innerHTML = '<div class="file-tree-empty">No matches</div>';
@@ -206,6 +233,7 @@ export class FileExplorerView {
   renderFullTree(tree, { activeFilePath, expandedDirs }) {
     this.resetTreeIndexes();
     this.treeContainer.innerHTML = '';
+    this.rootDropZone = null;
 
     if (tree.length === 0) {
       this.treeContainer.innerHTML = '<div class="file-tree-empty">No vault files found</div>';
@@ -213,6 +241,7 @@ export class FileExplorerView {
     }
 
     const fragment = document.createDocumentFragment();
+    fragment.appendChild(this.createRootDropZone());
     this.renderNodes(tree, fragment, {
       activeFilePath,
       depth: 0,
@@ -258,11 +287,15 @@ export class FileExplorerView {
 
     const isExpanded = expandedDirs.has(node.path);
     button.setAttribute('aria-expanded', String(isExpanded));
+    button.dataset.path = node.path;
+    button.dataset.entryType = 'directory';
     button.innerHTML = `
       <svg class="file-tree-chevron${isExpanded ? ' expanded' : ''}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
       <svg class="file-tree-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
       <span class="file-tree-name">${escapeHtml(node.name)}</span>
     `;
+    this.configureDragSource(button, { path: node.path, type: 'directory' });
+    this.bindDirectoryDropTarget(button, node.path);
 
     button.addEventListener('click', (event) => {
       if (this.consumeSuppressedActivation(button, event)) {
@@ -303,6 +336,8 @@ export class FileExplorerView {
     button.className = 'file-tree-item file-tree-dir';
     button.style.setProperty('--depth', 0);
     button.dataset.depth = 0;
+    button.dataset.path = node.path;
+    button.dataset.entryType = 'directory';
     button.innerHTML = `
       <svg class="file-tree-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
       <span class="file-tree-name">${escapeHtml(node.name || getPathLeaf(node.path))}</span>
@@ -415,10 +450,12 @@ export class FileExplorerView {
     button.style.setProperty('--depth', depth);
     button.dataset.depth = depth;
     button.dataset.path = filePath;
+    button.dataset.entryType = 'file';
     button.innerHTML = `
       ${this.getFileIconSvg({ isBase, isDrawio, isExcalidraw, isImage, isMermaid, isPlantUml })}
       <span class="file-tree-name">${escapeHtml(stripVaultFileExtension(name))}</span>
     `;
+    this.configureDragSource(button, { path: filePath, type: 'file' });
 
     button.addEventListener('click', (event) => {
       if (this.consumeSuppressedActivation(button, event)) {
@@ -439,6 +476,336 @@ export class FileExplorerView {
 
   isMobileViewport() {
     return Boolean(this.mobileBreakpointQuery?.matches);
+  }
+
+  isDragAndDropEnabled() {
+    return !this.isMobileViewport() && !this.currentSearchQuery;
+  }
+
+  configureDragSource(element, payload) {
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+
+    const isEnabled = this.isDragAndDropEnabled();
+    element.draggable = isEnabled;
+    if (!isEnabled) {
+      return;
+    }
+
+    element.addEventListener('dragstart', (event) => {
+      this.dragSource = {
+        path: payload.path,
+        type: payload.type,
+      };
+      document.body?.classList.add('is-file-tree-dragging');
+      if (this.treeContainer) {
+        this.treeContainer.dataset.dragActive = 'true';
+      }
+      element.classList.add('is-dragging');
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', payload.path);
+      }
+    });
+    element.addEventListener('dragend', () => {
+      element.classList.remove('is-dragging');
+      const dragSource = this.dragSource;
+      if (this.invalidDropAttempt && dragSource) {
+        void this.onEntryDrop?.(this.invalidDropAttempt);
+      }
+      this.dragSource = null;
+      this.invalidDropAttempt = null;
+      this.clearDragFeedback();
+    });
+
+    if (payload.type === 'file') {
+      element.addEventListener('dragenter', (event) => {
+        this.handleNonDropTargetDragOver(event);
+      });
+      element.addEventListener('dragover', (event) => {
+        this.handleNonDropTargetDragOver(event);
+      });
+    }
+  }
+
+  bindDirectoryDropTarget(element, directoryPath) {
+    if (!(element instanceof HTMLElement) || this.isMobileViewport()) {
+      return;
+    }
+
+    element.addEventListener('dragenter', (event) => {
+      this.handleDirectoryDragEnter(event, element, directoryPath);
+    });
+    element.addEventListener('dragover', (event) => {
+      this.handleDirectoryDragOver(event, element, directoryPath);
+    });
+    element.addEventListener('drop', (event) => {
+      this.handleDirectoryDrop(event, directoryPath);
+    });
+  }
+
+  createRootDropZone() {
+    const zone = document.createElement('div');
+    zone.className = 'file-tree-root-drop-zone';
+    zone.textContent = 'Drop here to move to vault root';
+    zone.addEventListener('dragenter', (event) => {
+      this.handleRootZoneDragEnter(event);
+    });
+    zone.addEventListener('dragover', (event) => {
+      this.handleRootZoneDragOver(event);
+    });
+    zone.addEventListener('drop', (event) => {
+      this.handleRootZoneDrop(event);
+    });
+    this.rootDropZone = zone;
+    return zone;
+  }
+
+  validateDrop(destinationDirectory) {
+    if (!this.dragSource || this.currentSearchQuery) {
+      return false;
+    }
+
+    return this.onValidateDrop?.({
+      destinationDirectory,
+      sourcePath: this.dragSource.path,
+      sourceType: this.dragSource.type,
+    }) === true;
+  }
+
+  setDropTarget(target) {
+    if (this.activeDropTarget?.element && this.activeDropTarget.element !== target?.element) {
+      this.activeDropTarget.element.classList.remove('is-drop-target', 'is-drop-invalid');
+    }
+
+    if (this.activeDropTarget?.root && !target?.root) {
+      this.treeContainer?.classList.remove('is-drop-target-root', 'is-drop-invalid');
+    }
+    if (this.activeDropTarget?.rootZone && !target?.rootZone) {
+      this.rootDropZone?.classList.remove('is-drop-target', 'is-drop-invalid');
+    }
+
+    this.activeDropTarget = target;
+    if (!target || target.isValid) {
+      this.invalidDropAttempt = null;
+    } else if (this.dragSource) {
+      this.invalidDropAttempt = {
+        destinationDirectory: target.destinationDirectory || '',
+        sourcePath: this.dragSource.path,
+        sourceType: this.dragSource.type,
+      };
+    }
+
+    if (!target) {
+      return;
+    }
+
+    if (target.root) {
+      this.treeContainer?.classList.toggle('is-drop-target-root', target.isValid);
+      this.treeContainer?.classList.toggle('is-drop-invalid', !target.isValid);
+      return;
+    }
+
+    if (target.rootZone) {
+      this.rootDropZone?.classList.toggle('is-drop-target', target.isValid);
+      this.rootDropZone?.classList.toggle('is-drop-invalid', !target.isValid);
+      return;
+    }
+
+    target.element.classList.toggle('is-drop-target', target.isValid);
+    target.element.classList.toggle('is-drop-invalid', !target.isValid);
+  }
+
+  scheduleAutoExpand(element, directoryPath) {
+    const isExpanded = element.getAttribute('aria-expanded') === 'true';
+    if (isExpanded || this.autoExpandTargetPath === directoryPath) {
+      return;
+    }
+
+    this.cancelAutoExpand();
+    this.autoExpandTargetPath = directoryPath;
+    this.autoExpandTimer = window.setTimeout(() => {
+      this.autoExpandTimer = 0;
+      this.autoExpandTargetPath = '';
+      if (element.isConnected && element.getAttribute('aria-expanded') !== 'true') {
+        this.onDirectoryToggle?.(directoryPath);
+      }
+    }, DRAG_AUTO_EXPAND_DELAY_MS);
+  }
+
+  cancelAutoExpand() {
+    if (this.autoExpandTimer) {
+      window.clearTimeout(this.autoExpandTimer);
+      this.autoExpandTimer = 0;
+    }
+    this.autoExpandTargetPath = '';
+  }
+
+  clearDragFeedback() {
+    this.cancelAutoExpand();
+    this.setDropTarget(null);
+    document.body?.classList.remove('is-file-tree-dragging');
+    if (this.treeContainer) {
+      delete this.treeContainer.dataset.dragActive;
+    }
+  }
+
+  handleDirectoryDragEnter(event, element, directoryPath) {
+    if (!this.dragSource) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const isValid = this.validateDrop(directoryPath);
+    this.setDropTarget({ destinationDirectory: directoryPath, element, isValid, root: false });
+    if (isValid) {
+      this.scheduleAutoExpand(element, directoryPath);
+    } else {
+      this.cancelAutoExpand();
+    }
+  }
+
+  handleDirectoryDragOver(event, element, directoryPath) {
+    if (!this.dragSource) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const isValid = this.validateDrop(directoryPath);
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = isValid ? 'move' : 'none';
+    }
+    this.setDropTarget({ destinationDirectory: directoryPath, element, isValid, root: false });
+    if (isValid) {
+      this.scheduleAutoExpand(element, directoryPath);
+    } else {
+      this.cancelAutoExpand();
+    }
+  }
+
+  handleDirectoryDrop(event, directoryPath) {
+    if (!this.dragSource) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const payload = {
+      destinationDirectory: directoryPath,
+      sourcePath: this.dragSource.path,
+      sourceType: this.dragSource.type,
+    };
+    this.clearDragFeedback();
+    void this.onEntryDrop?.(payload);
+  }
+
+  handleTreeDragOver(event) {
+    if (!this.dragSource || !this.treeContainer) {
+      return;
+    }
+
+    if (event.target.closest('.file-tree-dir') || event.target.closest('.file-tree-item')) {
+      return;
+    }
+
+    event.preventDefault();
+    this.cancelAutoExpand();
+    const isValid = this.validateDrop('');
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = isValid ? 'move' : 'none';
+    }
+    this.setDropTarget({ destinationDirectory: '', element: this.treeContainer, isValid, root: true });
+  }
+
+  handleTreeDrop(event) {
+    if (!this.dragSource || !this.treeContainer) {
+      return;
+    }
+
+    if (event.target.closest('.file-tree-dir') || event.target.closest('.file-tree-item')) {
+      return;
+    }
+
+    event.preventDefault();
+    const payload = {
+      destinationDirectory: '',
+      sourcePath: this.dragSource.path,
+      sourceType: this.dragSource.type,
+    };
+    this.clearDragFeedback();
+    void this.onEntryDrop?.(payload);
+  }
+
+  handleTreeDragLeave(event) {
+    if (!this.dragSource || !this.treeContainer) {
+      return;
+    }
+
+    const nextTarget = event.relatedTarget;
+    if (nextTarget && this.treeContainer.contains(nextTarget)) {
+      return;
+    }
+
+    this.clearDragFeedback();
+  }
+
+  handleRootZoneDragEnter(event) {
+    if (!this.dragSource) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const isValid = this.validateDrop('');
+    this.cancelAutoExpand();
+    this.setDropTarget({ destinationDirectory: '', element: this.rootDropZone, isValid, rootZone: true });
+  }
+
+  handleRootZoneDragOver(event) {
+    if (!this.dragSource) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const isValid = this.validateDrop('');
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = isValid ? 'move' : 'none';
+    }
+    this.cancelAutoExpand();
+    this.setDropTarget({ destinationDirectory: '', element: this.rootDropZone, isValid, rootZone: true });
+  }
+
+  handleRootZoneDrop(event) {
+    if (!this.dragSource) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const payload = {
+      destinationDirectory: '',
+      sourcePath: this.dragSource.path,
+      sourceType: this.dragSource.type,
+    };
+    this.clearDragFeedback();
+    void this.onEntryDrop?.(payload);
+  }
+
+  handleNonDropTargetDragOver(event) {
+    if (!this.dragSource) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'none';
+    }
+    this.clearDragFeedback();
   }
 
   bindLongPress(element, callback) {
@@ -659,6 +1026,7 @@ export class FileExplorerView {
 
   removeContextMenu() {
     this.cancelLongPress();
+    this.clearDragFeedback();
     document.querySelectorAll('.file-context-menu').forEach((menu) => menu.remove());
     if (this.contextMenuCloseHandler) {
       document.removeEventListener('click', this.contextMenuCloseHandler);

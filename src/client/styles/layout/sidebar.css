@@ -118,6 +118,17 @@
   overflow-x: hidden;
   overflow-y: auto;
   padding: var(--space-2) 0;
+  transition: box-shadow var(--transition-interactive), background var(--transition-interactive);
+}
+
+.file-tree.is-drop-target-root {
+  background: color-mix(in oklab, var(--color-primary-highlight) 58%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-primary) 48%, transparent);
+}
+
+.file-tree.is-drop-invalid {
+  background: color-mix(in oklab, var(--color-danger) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-danger) 42%, transparent);
 }
 
 .file-tree-empty {
@@ -125,6 +136,43 @@
   color: var(--color-text-faint);
   text-align: center;
   font-size: var(--text-xs);
+}
+
+.file-tree-root-drop-zone {
+  display: block;
+  margin: 0 var(--space-2);
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed transparent;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  line-height: 1.3;
+  opacity: 0.88;
+  transition:
+    opacity var(--transition-interactive),
+    border-color var(--transition-interactive),
+    background var(--transition-interactive),
+    color var(--transition-interactive);
+}
+
+.file-tree-root-drop-zone:hover {
+  border-color: color-mix(in oklab, var(--color-border) 85%, transparent);
+  background: color-mix(in oklab, var(--color-surface-offset) 72%, transparent);
+  color: var(--color-text);
+}
+
+.file-tree-root-drop-zone.is-drop-target {
+  border-color: color-mix(in oklab, var(--color-primary) 54%, transparent);
+  background: color-mix(in oklab, var(--color-primary-highlight) 72%, transparent);
+  color: var(--color-primary);
+}
+
+.file-tree-root-drop-zone.is-drop-invalid {
+  border-color: color-mix(in oklab, var(--color-danger) 48%, transparent);
+  background: color-mix(in oklab, var(--color-danger) 10%, transparent);
+  color: var(--color-danger);
 }
 
 .file-tree-item {
@@ -151,6 +199,16 @@
   font-size: var(--text-ui-sm);
 }
 
+.file-tree-item.is-dragging,
+.file-tree-item[draggable='true']:active {
+  cursor: grabbing;
+}
+
+body.is-file-tree-dragging,
+body.is-file-tree-dragging * {
+  cursor: grabbing !important;
+}
+
 .file-tree-item:not([data-depth='0'])::before {
   content: '';
   position: absolute;
@@ -169,6 +227,20 @@
 .file-tree-item:hover {
   background: var(--color-surface-offset);
   color: var(--color-text);
+}
+
+.file-tree-item.is-dragging {
+  opacity: 0.52;
+}
+
+.file-tree-dir.is-drop-target {
+  background: color-mix(in oklab, var(--color-primary-highlight) 78%, transparent);
+  color: var(--color-primary);
+}
+
+.file-tree-dir.is-drop-invalid {
+  background: color-mix(in oklab, var(--color-danger) 10%, transparent);
+  color: var(--color-danger);
 }
 
 .file-tree-file.active {
