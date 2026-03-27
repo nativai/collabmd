@@ -1,3 +1,4 @@
+import archiver from 'archiver';
 import { basename } from 'node:path';
 
 import {
@@ -9,7 +10,7 @@ import {
   isPlantUmlFilePath,
 } from '../../../domain/file-kind.js';
 import { parseJsonBody } from './request-body.js';
-import { jsonResponse, sendResponse } from './http-response.js';
+import { jsonResponse, sendResponse, sendStreamResponse } from './http-response.js';
 
 const SVG_MIME_TYPE = 'image/svg+xml';
 const SVG_ATTACHMENT_CSP = "default-src 'none'; img-src 'self' data: blob:; style-src 'unsafe-inline'; sandbox";
@@ -43,6 +44,15 @@ function createAttachmentHeaders(attachment) {
   return headers;
 }
 
+function createDownloadHeaders(fileName, contentType) {
+  return {
+    'Cache-Control': 'no-store',
+    'Content-Disposition': `attachment; filename="${createSafeAsciiFilename(fileName)}"; filename*=UTF-8''${encodeContentDispositionFilename(fileName)}`,
+    'Content-Type': contentType,
+    'X-Content-Type-Options': 'nosniff',
+  };
+}
+
 function selectReadOperation(vaultFileStore, filePath) {
   if (isExcalidrawFilePath(filePath)) {
     return vaultFileStore.readExcalidrawFile(filePath);
@@ -65,6 +75,46 @@ function selectReadOperation(vaultFileStore, filePath) {
   }
 
   return vaultFileStore.readMarkdownFile(filePath);
+}
+
+async function streamDirectoryArchive(req, res, {
+  entries = [],
+  rootName = 'archive',
+} = {}) {
+  const archive = archiver('zip', {
+    zlib: {
+      level: 6,
+    },
+  });
+
+  archive.on('warning', (error) => {
+    if (error?.code !== 'ENOENT') {
+      archive.emit('error', error);
+    }
+  });
+
+  const responsePromise = sendStreamResponse(req, res, {
+    headers: createDownloadHeaders(`${rootName}.zip`, 'application/zip'),
+    statusCode: 200,
+    stream: archive,
+  });
+
+  for (const entry of entries) {
+    if (entry.type === 'directory') {
+      const directoryName = entry.path
+        ? `${rootName}/${entry.path}/`
+        : `${rootName}/`;
+      archive.append('', { name: directoryName });
+      continue;
+    }
+
+    archive.file(entry.absolutePath, {
+      name: `${rootName}/${entry.path}`,
+    });
+  }
+
+  await archive.finalize();
+  await responsePromise;
 }
 
 export function createVaultApiQueryHandler({
@@ -162,6 +212,64 @@ export function createVaultApiQueryHandler({
       } catch (error) {
         console.error('[api] Failed to read file:', error.message);
         jsonResponse(req, res, 500, { error: 'Failed to read file' });
+      }
+      return true;
+    }
+
+    if (requestUrl.pathname === '/api/download/file' && req.method === 'GET') {
+      const filePath = requestUrl.searchParams.get('path');
+      if (!filePath) {
+        jsonResponse(req, res, 400, { error: 'Missing path parameter' });
+        return true;
+      }
+
+      try {
+        const download = await vaultFileStore.readDownloadFile(filePath);
+        if (!download) {
+          jsonResponse(req, res, 404, { error: 'File not found' });
+          return true;
+        }
+
+        sendResponse(req, res, {
+          body: download.content,
+          headers: createDownloadHeaders(
+            basename(String(download.path ?? 'download')),
+            download.mimeType || 'application/octet-stream',
+          ),
+          statusCode: 200,
+        });
+      } catch (error) {
+        console.error('[api] Failed to download file:', error.message);
+        jsonResponse(req, res, 500, { error: 'Failed to download file' });
+      }
+      return true;
+    }
+
+    if (requestUrl.pathname === '/api/download/directory' && req.method === 'GET') {
+      const directoryPath = requestUrl.searchParams.get('path');
+      if (!directoryPath) {
+        jsonResponse(req, res, 400, { error: 'Missing path parameter' });
+        return true;
+      }
+
+      try {
+        const result = await vaultFileStore.listDirectoryEntriesForDownload(directoryPath);
+        if (!result.ok) {
+          jsonResponse(req, res, result.error === 'Directory not found' ? 404 : 400, { error: result.error });
+          return true;
+        }
+
+        await streamDirectoryArchive(req, res, {
+          entries: result.entries,
+          rootName: result.rootName || 'archive',
+        });
+      } catch (error) {
+        console.error('[api] Failed to download directory:', error.message);
+        if (!res.headersSent) {
+          jsonResponse(req, res, 500, { error: 'Failed to download directory' });
+        } else {
+          res.destroy(error);
+        }
       }
       return true;
     }

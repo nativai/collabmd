@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFile as execFileCallback } from 'node:child_process';
 import { createServer } from 'node:http';
 import { request } from 'node:http';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,6 +62,38 @@ function extractAssetPath(html, pattern, label) {
   const match = String(html || '').match(pattern);
   assert.ok(match, `expected ${label} asset path`);
   return match[1];
+}
+
+function listZipEntryNames(buffer) {
+  const endOfCentralDirectorySignature = 0x06054b50;
+  const centralDirectoryFileHeaderSignature = 0x02014b50;
+  let endOfCentralDirectoryOffset = -1;
+
+  for (let index = buffer.length - 22; index >= 0; index -= 1) {
+    if (buffer.readUInt32LE(index) === endOfCentralDirectorySignature) {
+      endOfCentralDirectoryOffset = index;
+      break;
+    }
+  }
+
+  assert.notEqual(endOfCentralDirectoryOffset, -1, 'expected zip end of central directory');
+
+  const centralDirectoryOffset = buffer.readUInt32LE(endOfCentralDirectoryOffset + 16);
+  const entryCount = buffer.readUInt16LE(endOfCentralDirectoryOffset + 10);
+  const entryNames = [];
+  let cursor = centralDirectoryOffset;
+
+  for (let index = 0; index < entryCount; index += 1) {
+    assert.equal(buffer.readUInt32LE(cursor), centralDirectoryFileHeaderSignature, 'expected central directory header');
+
+    const fileNameLength = buffer.readUInt16LE(cursor + 28);
+    const extraFieldLength = buffer.readUInt16LE(cursor + 30);
+    const fileCommentLength = buffer.readUInt16LE(cursor + 32);
+    entryNames.push(buffer.toString('utf8', cursor + 46, cursor + 46 + fileNameLength));
+    cursor += 46 + fileNameLength + extraFieldLength + fileCommentLength;
+  }
+
+  return entryNames;
 }
 
 async function createPublicDirSnapshot() {
@@ -1021,6 +1053,43 @@ test('HTTP server uploads and serves vault-owned image attachments', async (t) =
   assert.equal(treeResponse.statusCode, 200);
   assert.match(treeResponse.body, /"type":"image"/);
   assert.match(treeResponse.body, /"name":"test\.assets"/);
+});
+
+test('HTTP server downloads vault files as attachments', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  const response = await httpRequest(`${app.baseUrl}/api/download/file?path=${encodeURIComponent('test.md')}`);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers['content-type'], 'text/markdown; charset=utf-8');
+  assert.match(String(response.headers['content-disposition']), /attachment; filename="test\.md"/);
+  assert.match(response.body, /Hello from test vault/);
+});
+
+test('HTTP server downloads directories as zip archives and excludes ignored entries', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  await mkdir(join(app.vaultDir, 'docs', 'empty-dir'), { recursive: true });
+  await mkdir(join(app.vaultDir, 'docs', '.git'), { recursive: true });
+  await writeFile(join(app.vaultDir, 'docs', 'guide.md'), '# Guide\n', 'utf-8');
+  await writeFile(join(app.vaultDir, 'docs', '.git', 'config'), 'secret', 'utf-8');
+  await writeFile(join(app.vaultDir, 'docs', '.hidden.md'), '# Hidden\n', 'utf-8');
+
+  const response = await httpRequest(`${app.baseUrl}/api/download/directory?path=${encodeURIComponent('docs')}`);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers['content-type'], 'application/zip');
+  assert.match(String(response.headers['content-disposition']), /attachment; filename="docs\.zip"/);
+  assert.equal(response.bodyBuffer[0], 0x50);
+  assert.equal(response.bodyBuffer[1], 0x4b);
+
+  const entries = listZipEntryNames(response.bodyBuffer);
+  assert.deepEqual(entries, [
+    'docs/empty-dir/',
+    'docs/guide.md',
+  ]);
 });
 
 test('HTTP server serves attachment bytes for password-authenticated workspaces with a session cookie', async (t) => {

@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, rename, rm, rmdir, stat, writeFile } from 'fs
 import { basename, dirname, extname, join, relative, resolve } from 'path';
 
 import {
+  getVaultFileKind,
   getVaultTreeNodeType,
   isImageAttachmentFilePath,
   isMarkdownFilePath,
@@ -36,6 +37,14 @@ const MIME_TYPE_TO_IMAGE_EXTENSION = Object.freeze({
   'image/png': '.png',
   'image/svg+xml': '.svg',
   'image/webp': '.webp',
+});
+const TEXT_FILE_MIME_TYPES = Object.freeze({
+  base: 'text/yaml; charset=utf-8',
+  drawio: 'application/xml; charset=utf-8',
+  excalidraw: 'application/json; charset=utf-8',
+  markdown: 'text/markdown; charset=utf-8',
+  mermaid: 'text/plain; charset=utf-8',
+  plantuml: 'text/plain; charset=utf-8',
 });
 const WORKSPACE_SCAN_CONCURRENCY = 8;
 
@@ -199,6 +208,15 @@ function createAttachmentMarkdownSnippet({ altText, documentPath, storedPath }) 
   const relativePath = relative(dirname(documentPath), storedPath).replace(/\\/g, '/');
   const encodedRelativePath = encodeMarkdownPath(relativePath || basename(storedPath));
   return `![${escapeMarkdownText(altText)}](${encodedRelativePath})`;
+}
+
+function getDownloadMimeType(filePath) {
+  const fileKind = getVaultFileKind(filePath);
+  if (fileKind === 'image') {
+    return IMAGE_EXTENSION_TO_MIME_TYPE[extname(String(filePath ?? '')).toLowerCase()] || 'application/octet-stream';
+  }
+
+  return TEXT_FILE_MIME_TYPES[fileKind] || 'application/octet-stream';
 }
 
 export class VaultFileStore {
@@ -463,6 +481,36 @@ export class VaultFileStore {
     };
   }
 
+  async readDownloadFile(filePath) {
+    const normalizedPath = String(filePath ?? '').replace(/\\/g, '/').trim();
+    if (!normalizedPath || !isVaultFilePath(normalizedPath)) {
+      return null;
+    }
+
+    if (isImageAttachmentFilePath(normalizedPath)) {
+      return this.readImageAttachmentFile(normalizedPath);
+    }
+
+    const absolute = this.resolveContentPath(normalizedPath, { requireVaultFile: false });
+    if (!absolute) {
+      return null;
+    }
+
+    try {
+      return {
+        content: await readFile(absolute),
+        mimeType: getDownloadMimeType(normalizedPath),
+        path: normalizedPath,
+      };
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
   async persistCollaborationState(filePath, {
     commentThreads = [],
     content = '',
@@ -658,6 +706,68 @@ export class VaultFileStore {
 
     await visitDirectory(absolute);
     return sortWorkspacePaths(paths);
+  }
+
+  async listDirectoryEntriesForDownload(dirPath) {
+    const normalizedPath = String(dirPath ?? '').replace(/\\/g, '/').trim();
+    const { absolute, error } = resolveVaultDirectoryPath(this.vaultDir, normalizedPath);
+    if (!absolute) {
+      return { ok: false, error };
+    }
+
+    try {
+      const info = await stat(absolute);
+      if (!info.isDirectory()) {
+        return { ok: false, error: 'Directory not found' };
+      }
+    } catch (statError) {
+      if (statError.code === 'ENOENT') {
+        return { ok: false, error: 'Directory not found' };
+      }
+
+      throw statError;
+    }
+
+    const entries = [];
+    const visitDirectory = async (directoryAbsolutePath, relativeDirectoryPath = '') => {
+      const dirEntries = sortDirectoryEntries(await readdir(directoryAbsolutePath, { withFileTypes: true }))
+        .filter((entry) => !isIgnoredVaultEntry(entry.name));
+
+      if (dirEntries.length === 0) {
+        entries.push({
+          path: relativeDirectoryPath,
+          type: 'directory',
+        });
+        return;
+      }
+
+      for (const entry of dirEntries) {
+        const childAbsolutePath = join(directoryAbsolutePath, entry.name);
+        const childRelativePath = relativeDirectoryPath
+          ? `${relativeDirectoryPath}/${entry.name}`
+          : entry.name;
+
+        if (entry.isDirectory()) {
+          await visitDirectory(childAbsolutePath, childRelativePath);
+          continue;
+        }
+
+        if (isVaultFilePath(entry.name)) {
+          entries.push({
+            absolutePath: childAbsolutePath,
+            path: childRelativePath,
+            type: 'file',
+          });
+        }
+      }
+    };
+
+    await visitDirectory(absolute);
+    return {
+      entries,
+      ok: true,
+      rootName: basename(normalizedPath),
+    };
   }
 
   async deleteFile(filePath) {

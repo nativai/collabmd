@@ -4,6 +4,39 @@ function encodeHeaderMetadata(value) {
   return encodeURIComponent(String(value ?? ''));
 }
 
+function getPathLeaf(pathValue) {
+  return String(pathValue ?? '')
+    .replace(/\/+$/u, '')
+    .split('/')
+    .filter(Boolean)
+    .pop() || '';
+}
+
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function parseDownloadFileName(contentDisposition = '', fallbackName = 'download') {
+  const utfMatch = String(contentDisposition).match(/filename\*=UTF-8''([^;]+)/iu);
+  if (utfMatch) {
+    try {
+      return decodeURIComponent(utfMatch[1]);
+    } catch {
+      return fallbackName;
+    }
+  }
+
+  const asciiMatch = String(contentDisposition).match(/filename="([^"]+)"/iu);
+  return asciiMatch?.[1] || fallbackName;
+}
+
 function createRequestHeaders(requestId, headers = {}) {
   const nextHeaders = { ...headers };
   if (requestId) {
@@ -23,6 +56,24 @@ async function parseApiResponse(response, fallbackError) {
   }
 
   return data;
+}
+
+async function triggerDownload(url, {
+  fallbackError,
+  fallbackFileName,
+} = {}) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || fallbackError);
+  }
+
+  const blob = await response.blob();
+  downloadBlob(
+    blob,
+    parseDownloadFileName(response.headers.get('content-disposition') || '', fallbackFileName),
+  );
+  return response;
 }
 
 export class VaultApiClient {
@@ -169,6 +220,22 @@ export class VaultApiClient {
       method: 'POST',
     });
     return parseApiResponse(response, 'Failed to upload image');
+  }
+
+  async downloadFile(path) {
+    const fallbackFileName = getPathLeaf(path) || 'download';
+    return triggerDownload(resolveApiUrl(`/download/file?path=${encodeURIComponent(path)}`), {
+      fallbackError: 'Failed to download file',
+      fallbackFileName,
+    });
+  }
+
+  async downloadDirectory(path) {
+    const directoryName = getPathLeaf(path) || 'vault';
+    return triggerDownload(resolveApiUrl(`/download/directory?path=${encodeURIComponent(path)}`), {
+      fallbackError: 'Failed to download folder',
+      fallbackFileName: `${directoryName}.zip`,
+    });
   }
 }
 

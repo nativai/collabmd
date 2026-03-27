@@ -179,6 +179,62 @@ export function sendResponse(req, res, {
   });
 }
 
+export function sendStreamResponse(req, res, {
+  headers = {},
+  statusCode = 200,
+  stream,
+} = {}) {
+  writeResponseHead(res, statusCode, headers, null);
+
+  if (!stream) {
+    res.end();
+    return Promise.resolve();
+  }
+
+  if (req.method === 'HEAD' || statusCode === 204 || statusCode === 304) {
+    stream.destroy?.();
+    res.end();
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const finish = (error = null) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      res.off('finish', handleFinish);
+      res.off('error', handleError);
+      res.off('close', handleClose);
+      stream.off('error', handleError);
+
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve();
+    };
+
+    const handleFinish = () => finish();
+    const handleError = (error) => finish(error);
+    const handleClose = () => {
+      if (!res.writableEnded) {
+        finish(new Error('Response stream closed before completion'));
+      }
+    };
+
+    res.on('finish', handleFinish);
+    res.on('error', handleError);
+    res.on('close', handleClose);
+    stream.on('error', handleError);
+    stream.pipe(res);
+  });
+}
+
 export function jsonResponse(req, res, statusCode, data) {
   const body = JSON.stringify(data);
   sendResponse(req, res, {

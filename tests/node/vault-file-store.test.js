@@ -479,6 +479,37 @@ test('VaultFileStore writes image attachments next to their source markdown docu
   );
 });
 
+test('VaultFileStore exposes download metadata for files and directory archive entries', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  await store.createDirectory('notes/empty');
+  await store.createFile('notes/reference.base', 'views:\n  - type: table\n');
+
+  const fileDownload = await store.readDownloadFile('notes/reference.base');
+  assert.equal(fileDownload?.mimeType, 'text/yaml; charset=utf-8');
+  assert.match(fileDownload?.content?.toString('utf8') ?? '', /type: table/);
+
+  const directoryEntries = await store.listDirectoryEntriesForDownload('notes');
+  assert.equal(directoryEntries.ok, true);
+  assert.deepEqual(directoryEntries.entries, [
+    {
+      path: 'empty',
+      type: 'directory',
+    },
+    {
+      absolutePath: join(store.vaultDir, 'notes', 'daily.md'),
+      path: 'daily.md',
+      type: 'file',
+    },
+    {
+      absolutePath: join(store.vaultDir, 'notes', 'reference.base'),
+      path: 'reference.base',
+      type: 'file',
+    },
+  ]);
+});
+
 test('VaultFileStore rejects non-markdown delete and rename source paths', async (t) => {
   const { store, cleanup, vaultDir } = await createVaultStore();
   t.after(cleanup);
