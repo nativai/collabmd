@@ -58,43 +58,52 @@
   object-fit: contain;
 }
 
-.preview-content .mermaid-shell {
+.preview-content .mermaid-shell,
+.mermaid-maximized-root .mermaid-shell {
   display: grid;
   gap: 0;
 }
 
-.preview-content .mermaid-placeholder-card {
+.preview-content .mermaid-placeholder-card,
+.mermaid-maximized-root .mermaid-placeholder-card {
   border-radius: 0;
 }
 
-.preview-content .mermaid-toolbar {
+.preview-content .mermaid-toolbar,
+.mermaid-maximized-root .mermaid-toolbar {
   justify-content: flex-end;
 }
 
-.preview-content .mermaid-zoom-btn {
+.preview-content .mermaid-zoom-btn,
+.mermaid-maximized-root .mermaid-zoom-btn {
   min-width: 32px;
   line-height: 1.5;
 }
 
-.preview-content .mermaid-zoom-btn:disabled {
+.preview-content .mermaid-zoom-btn:disabled,
+.mermaid-maximized-root .mermaid-zoom-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.preview-content .mermaid-frame {
+.preview-content .mermaid-frame,
+.mermaid-maximized-root .mermaid-frame {
   max-width: none;
 }
 
-.preview-content .mermaid-frame.is-pannable {
+.preview-content .mermaid-frame.is-pannable,
+.mermaid-maximized-root .mermaid-frame.is-pannable {
   cursor: grab;
 }
 
-.preview-content .mermaid-frame.is-dragging {
+.preview-content .mermaid-frame.is-dragging,
+.mermaid-maximized-root .mermaid-frame.is-dragging {
   cursor: grabbing;
   user-select: none;
 }
 
-.preview-content .mermaid-frame svg {
+.preview-content .mermaid-frame svg,
+.mermaid-maximized-root .mermaid-frame svg {
   display: block;
 }
 
@@ -111,7 +120,15 @@ body.mermaid-maximized-open::before {
   backdrop-filter: blur(2px);
 }
 
-.preview-content .mermaid-shell.is-maximized {
+.mermaid-maximized-root {
+  position: fixed;
+  inset: 0;
+  z-index: 171;
+  pointer-events: none;
+}
+
+.preview-content .mermaid-shell.is-maximized,
+.mermaid-maximized-root .mermaid-shell.is-maximized {
   position: fixed;
   inset: var(--space-4);
   z-index: 171;
@@ -122,7 +139,12 @@ body.mermaid-maximized-open::before {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-.preview-content .mermaid-shell.is-maximized .mermaid-frame {
+.mermaid-maximized-root .mermaid-shell.is-maximized {
+  pointer-events: auto;
+}
+
+.preview-content .mermaid-shell.is-maximized .mermaid-frame,
+.mermaid-maximized-root .mermaid-shell.is-maximized .mermaid-frame {
   max-height: none;
   height: 100%;
 }

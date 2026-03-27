@@ -35,6 +35,101 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     this.loader = null;
     this.runtime = null;
     this.shellRefits = new WeakMap();
+    this.activeMaximizedShell = null;
+    this.maximizedRoot = null;
+  }
+
+  destroy() {
+    this.cancelHydration();
+    this.preservedShells.clear();
+    this.clearActiveShell();
+    this.maximizedRoot?.remove();
+    this.maximizedRoot = null;
+  }
+
+  cancelHydration() {
+    super.cancelHydration();
+
+    const activeShell = this.syncActiveShell();
+    if (!activeShell) {
+      return;
+    }
+
+    this.restoreShellMount(activeShell);
+    activeShell.classList.remove('is-maximized');
+    this.clearActiveShell();
+    document.body.classList.remove('mermaid-maximized-open');
+  }
+
+  clearActiveShell() {
+    this.activeMaximizedShell = null;
+    if (this.maximizedRoot && this.maximizedRoot.childElementCount === 0) {
+      this.maximizedRoot.hidden = true;
+    }
+  }
+
+  syncActiveShell() {
+    if (
+      this.activeMaximizedShell?.isConnected
+      && this.activeMaximizedShell.classList.contains('is-maximized')
+    ) {
+      return this.activeMaximizedShell;
+    }
+
+    this.clearActiveShell();
+    return null;
+  }
+
+  ensureMaximizedRoot() {
+    if (this.maximizedRoot?.isConnected && this.maximizedRoot.parentElement === document.body) {
+      return this.maximizedRoot;
+    }
+
+    let maximizedRoot = document.body.querySelector('[data-mermaid-maximized-root="true"]');
+    if (!maximizedRoot) {
+      maximizedRoot = document.createElement('div');
+      maximizedRoot.dataset.mermaidMaximizedRoot = 'true';
+      maximizedRoot.className = 'mermaid-maximized-root';
+      document.body.appendChild(maximizedRoot);
+    }
+
+    this.maximizedRoot = maximizedRoot;
+    return maximizedRoot;
+  }
+
+  mountShellInMaximizedRoot(shell) {
+    if (!shell) {
+      return;
+    }
+
+    const maximizedRoot = this.ensureMaximizedRoot();
+    maximizedRoot.hidden = false;
+    shell._mermaidRestoreParent = shell.parentElement || null;
+    shell._mermaidRestoreNextSibling = shell.nextSibling || null;
+    maximizedRoot.appendChild(shell);
+  }
+
+  restoreShellMount(shell) {
+    if (!shell) {
+      return;
+    }
+
+    const restoreParent = shell._mermaidRestoreParent;
+    const restoreNextSibling = shell._mermaidRestoreNextSibling;
+    if (restoreParent?.isConnected) {
+      if (restoreNextSibling?.parentElement === restoreParent) {
+        restoreParent.insertBefore(shell, restoreNextSibling);
+      } else {
+        restoreParent.appendChild(shell);
+      }
+    }
+
+    shell._mermaidRestoreParent = null;
+    shell._mermaidRestoreNextSibling = null;
+
+    if (this.maximizedRoot && this.maximizedRoot.childElementCount === 0) {
+      this.maximizedRoot.hidden = true;
+    }
   }
 
   applyTheme(theme) {
@@ -111,6 +206,7 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     if (restoredMaximizedShell) {
       document.body.classList.add('mermaid-maximized-open');
     }
+    this.syncActiveShell();
   }
 
   async prepareHydrationBatch() {
@@ -240,6 +336,10 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     }
 
     const hydratedShells = Array.from(previewElement.querySelectorAll('.mermaid-shell[data-mermaid-hydrated="true"]'));
+    const activeShell = this.syncActiveShell();
+    if (activeShell && !hydratedShells.includes(activeShell)) {
+      hydratedShells.push(activeShell);
+    }
     if (hydratedShells.length === 0) {
       return;
     }
@@ -447,11 +547,14 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     };
 
     const setMaximizedState = (shouldMaximize) => {
-      const previewElement = this.renderer.previewElement;
       if (shouldMaximize) {
-        const activeContainer = previewElement.querySelector('.mermaid-shell.is-maximized');
+        const activeContainer = this.syncActiveShell();
         if (activeContainer && activeContainer !== shell) {
+          this.restoreShellMount(activeContainer);
           activeContainer.classList.remove('is-maximized');
+          if (this.activeMaximizedShell === activeContainer) {
+            this.clearActiveShell();
+          }
           this.shellRefits.get(activeContainer)?.();
           const activeButton = activeContainer.querySelector('.mermaid-maximize-btn');
           if (activeButton) {
@@ -460,15 +563,21 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
             activeButton.title = 'Maximize diagram';
           }
         }
+        this.mountShellInMaximizedRoot(shell);
         shell.classList.add('is-maximized');
+        this.activeMaximizedShell = shell;
         document.body.classList.add('mermaid-maximized-open');
         syncMaximizeButtonState();
         scheduleResetZoomToFit({ force: true });
         return;
       }
 
+      this.restoreShellMount(shell);
       shell.classList.remove('is-maximized');
-      if (!previewElement.querySelector('.mermaid-shell.is-maximized')) {
+      if (this.activeMaximizedShell === shell) {
+        this.clearActiveShell();
+      }
+      if (!this.syncActiveShell()) {
         document.body.classList.remove('mermaid-maximized-open');
       }
       syncMaximizeButtonState();
@@ -548,6 +657,12 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
   }
 
   scheduleActiveRefit() {
+    const activeShell = this.syncActiveShell();
+    if (activeShell) {
+      this.shellRefits.get(activeShell)?.();
+      return;
+    }
+
     const previewElement = this.renderer.previewElement;
     if (!previewElement) {
       return;

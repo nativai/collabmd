@@ -1,6 +1,7 @@
 import {
   ACTIVE_MAXIMIZED_DRAWIO_SELECTOR,
   ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR,
+  ACTIVE_MAXIMIZED_MERMAID_SELECTOR,
   ACTIVE_MAXIMIZED_PLANTUML_SELECTOR,
   README_TEST_DOCUMENT,
   duplicateVaultFile,
@@ -875,16 +876,22 @@ test('opens .mmd files with side-by-side Mermaid preview', async ({ page }) => {
   await expect(page.locator('#backlinksPanel')).toHaveClass(/hidden/);
 
   await page.locator('#previewContent .mermaid-maximize-btn[aria-label="Maximize diagram"]').click();
-  await expect(page.locator('#previewContent .mermaid-shell.is-maximized .mermaid-maximize-btn[aria-label="Restore diagram size"]')).toBeVisible();
+  await expect(page.locator(`${ACTIVE_MAXIMIZED_MERMAID_SELECTOR} .mermaid-maximize-btn[aria-label="Restore diagram size"]`)).toBeVisible();
 
   const maximizedBounds = await page.evaluate(() => {
-    const shell = document.querySelector('#previewContent .mermaid-shell.is-maximized');
+    const shell = document.querySelector('[data-mermaid-maximized-root="true"] .mermaid-shell.is-maximized');
+    const restoreButton = document.querySelector('[data-mermaid-maximized-root="true"] .mermaid-maximize-btn[aria-label="Restore diagram size"]');
     if (!(shell instanceof HTMLElement)) {
       return null;
     }
 
     const rect = shell.getBoundingClientRect();
+    const restoreRect = restoreButton?.getBoundingClientRect();
+    const probeX = restoreRect ? Math.round(restoreRect.left + (restoreRect.width / 2)) : null;
+    const probeY = restoreRect ? Math.round(restoreRect.top + (restoreRect.height / 2)) : null;
+    const topElement = probeX === null || probeY === null ? null : document.elementFromPoint(probeX, probeY);
     return {
+      hitRestoreButton: Boolean(topElement?.closest('.mermaid-maximize-btn[aria-label="Restore diagram size"]')),
       left: rect.left,
       position: window.getComputedStyle(shell).position,
       right: rect.right,
@@ -893,9 +900,14 @@ test('opens .mmd files with side-by-side Mermaid preview', async ({ page }) => {
   });
 
   expect(maximizedBounds).not.toBeNull();
+  expect(maximizedBounds.hitRestoreButton).toBeTruthy();
   expect(maximizedBounds.position).toBe('fixed');
   expect(maximizedBounds.left).toBeGreaterThanOrEqual(0);
   expect(maximizedBounds.right).toBeLessThanOrEqual(maximizedBounds.viewportWidth);
+
+  await page.locator(`${ACTIVE_MAXIMIZED_MERMAID_SELECTOR} .mermaid-maximize-btn[aria-label="Restore diagram size"]`).click();
+  await expect(page.locator(ACTIVE_MAXIMIZED_MERMAID_SELECTOR)).toHaveCount(0);
+  await expect(page.locator('#previewContent .mermaid-maximize-btn[aria-label="Maximize diagram"]')).toBeVisible();
 });
 
 test('preserves manual Mermaid zoom after preview layout sync runs', async ({ page }) => {

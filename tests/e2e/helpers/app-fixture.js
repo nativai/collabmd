@@ -7,6 +7,7 @@ import { resetE2EVaultSnapshot, runtimeVaultDir, templateVaultDir } from './vaul
 export const E2E_USER_NAME = 'E2E User';
 export const ACTIVE_MAXIMIZED_DRAWIO_SELECTOR = '[data-drawio-maximized-root="true"] .drawio-embed.is-maximized';
 export const ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR = '[data-excalidraw-maximized-root="true"] .excalidraw-embed.is-maximized';
+export const ACTIVE_MAXIMIZED_MERMAID_SELECTOR = '[data-mermaid-maximized-root="true"] .mermaid-shell.is-maximized';
 export const ACTIVE_MAXIMIZED_PLANTUML_SELECTOR = '[data-plantuml-maximized-root="true"] .plantuml-shell.is-maximized';
 export const README_TEST_DOCUMENT = `# My Vault
 
@@ -562,7 +563,7 @@ export async function getPlantUmlZoomMetrics(page) {
 
 export async function getMermaidZoomMetrics(page) {
   return page.evaluate(() => {
-    const activeShell = document.querySelector('#previewContent .mermaid-shell.is-maximized')
+    const activeShell = document.querySelector('[data-mermaid-maximized-root="true"] .mermaid-shell.is-maximized')
       || document.querySelector('#previewContent .mermaid-shell');
     const frame = activeShell?.querySelector('.mermaid-frame');
     const svg = frame?.querySelector('svg');
