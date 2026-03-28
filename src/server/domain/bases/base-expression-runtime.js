@@ -1055,6 +1055,9 @@ export function evaluateFilterNode(filterNode, rootContext) {
     return filterNode.or.some((entry) => evaluateFilterNode(entry, rootContext));
   }
   if (filterNode.not != null) {
+    if (Array.isArray(filterNode.not)) {
+      return !filterNode.not.some((entry) => evaluateFilterNode(entry, rootContext));
+    }
     return !evaluateFilterNode(filterNode.not, rootContext);
   }
 

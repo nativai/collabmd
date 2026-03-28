@@ -935,6 +935,181 @@ test('BasesPreviewController preserves empty filter group conjunction selections
   assert.match(entry.placeholder.innerHTML, /<option value="or" selected>Any of the following are true<\/option>/);
 });
 
+test('BasesPreviewController serializes not filter groups as arrays', async () => {
+  const transformCalls = [];
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async transformBase(payload) {
+        transformCalls.push(payload);
+        return {
+          result: {
+            result: createBaseResult({
+              meta: {
+                activeViewConfig: payload.mutation.config,
+                availableProperties: [{
+                  filterOperators: ['is', 'is not'],
+                  groupable: true,
+                  id: 'note.value',
+                  kind: 'note',
+                  label: 'Value',
+                  sortable: true,
+                  sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                  valueType: 'text',
+                  visible: true,
+                }],
+                editable: true,
+              },
+            }),
+            source: 'views:\n  - type: table\n',
+          },
+        };
+      },
+    },
+  });
+  const entry = {
+    key: 'not-filter-array',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: 'views:\n  - type: table\n',
+      sourcePath: 'views/tasks.base',
+      view: '',
+    },
+    placeholder: createPlaceholder(),
+    propertyValueOptions: new Map(),
+    requestVersion: 0,
+    result: createBaseResult({
+      meta: {
+        activeViewConfig: {
+          filters: {
+            not: [
+              'note.value == "before"',
+            ],
+          },
+          groupBy: null,
+          order: ['note.value'],
+          sort: [],
+        },
+        availableProperties: [{
+          filterOperators: ['is', 'is not'],
+          groupable: true,
+          id: 'note.value',
+          kind: 'note',
+          label: 'Value',
+          sortable: true,
+          sortDirections: [{ id: 'asc', label: 'A → Z' }],
+          valueType: 'text',
+          visible: true,
+        }],
+        editable: true,
+      },
+    }),
+    search: '',
+    ui: {
+      builderFilter: null,
+      filterMode: 'builder',
+      openPanel: 'filter',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+  controller.entries.set(entry.key, entry);
+
+  const shell = { dataset: { baseShellKey: entry.key } };
+  const filterConjunction = {
+    dataset: { baseFilterConjunction: '' },
+    value: 'not',
+  };
+
+  controller.handleChange({
+    target: {
+      closest(selector) {
+        switch (selector) {
+          case '[data-base-shell-key]':
+            return shell;
+          case '[data-base-filter-conjunction]':
+            return filterConjunction;
+          default:
+            return null;
+        }
+      },
+    },
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(transformCalls.at(-1).mutation.config.filters, {
+    not: ['note.value == "before"'],
+  });
+});
+
+test('BasesPreviewController parses nested not filter objects into builder state', async () => {
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBase() {
+        return {
+          result: createBaseResult({
+            meta: {
+              activeViewConfig: {
+                filters: {
+                  not: {
+                    or: [
+                      'note.value == "before"',
+                    ],
+                  },
+                },
+                groupBy: null,
+                order: ['note.value'],
+                sort: [],
+              },
+              availableProperties: [{
+                filterOperators: ['is', 'is not'],
+                groupable: true,
+                id: 'note.value',
+                kind: 'note',
+                label: 'Value',
+                sortable: true,
+                sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                valueType: 'text',
+                visible: true,
+              }],
+              editable: true,
+            },
+          }),
+        };
+      },
+    },
+  });
+  const entry = {
+    key: 'parse-nested-not-filter',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: null,
+      sourcePath: '',
+      view: '',
+    },
+    placeholder: createPlaceholder(),
+    requestVersion: 0,
+    result: null,
+    search: '',
+  };
+
+  await controller.renderEntry(entry);
+
+  assert.deepEqual(entry.ui.builderFilter, {
+    children: [{
+      operator: 'is',
+      propertyId: 'note.value',
+      type: 'rule',
+      value: 'before',
+    }],
+    conjunction: 'not',
+    type: 'group',
+  });
+});
+
 test('BasesPreviewController does not render stale property suggestions after filters change', async () => {
   const placeholder = createPlaceholder();
   const initialResult = createBaseResult({

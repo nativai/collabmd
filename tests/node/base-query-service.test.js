@@ -383,6 +383,43 @@ test('BaseQueryService compares file dates against quoted date strings in filter
   ]);
 });
 
+test('BaseQueryService evaluates not filters expressed as arrays', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/open.md', [
+    '---',
+    'status: open',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('notes/done.md', [
+    '---',
+    'status: done',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('views/not-array.base', [
+    'properties:',
+    '  note.status: {}',
+    'views:',
+    '  - type: table',
+    '    name: Active',
+    '    filters:',
+    '      not:',
+    '        - note.status == "done"',
+    '    order: [file.name, note.status]',
+  ].join('\n'));
+
+  const result = await service.query({
+    basePath: 'views/not-array.base',
+    view: 'Active',
+  });
+
+  assert.deepEqual(result.rows.map((row) => row.path), [
+    'notes/open.md',
+    'views/not-array.base',
+  ]);
+});
+
 test('BaseQueryService exposes file embeds and backlinks', async (t) => {
   const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
   t.after(cleanup);
@@ -698,4 +735,37 @@ test('BaseQueryService transform rewrites legacy formulas into top-level formula
   assert.match(transformed.source, /formulas:\n {2}bucket:/);
   assert.doesNotMatch(transformed.source, /formula:\s+'if\(note\.status/);
   assert.match(transformed.source, /filters: note\.status == "open"/);
+});
+
+test('BaseQueryService transform serializes not filters as arrays', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('views/not-transform.base', [
+    'views:',
+    '  - type: table',
+    '    name: Table',
+  ].join('\n'));
+
+  const transformed = await service.transform({
+    basePath: 'views/not-transform.base',
+    mutation: {
+      config: {
+        filters: {
+          not: [
+            'note.status == "done"',
+          ],
+        },
+        groupBy: null,
+        order: [],
+        sort: [],
+      },
+      type: 'set-view-config',
+      view: 'Table',
+    },
+    view: 'Table',
+  });
+
+  assert.match(transformed.source, /filters:\n\s+not:\n\s+- note\.status == "done"/);
+  assert.doesNotMatch(transformed.source, /not:\n\s+or:/);
 });

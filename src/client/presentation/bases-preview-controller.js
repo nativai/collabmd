@@ -430,9 +430,7 @@ function compileFilterGroup(group, result) {
 
   if (group.conjunction === 'not') {
     return {
-      not: {
-        or: compiledChildren,
-      },
+      not: compiledChildren,
     };
   }
 
@@ -543,16 +541,29 @@ function parseFilterNode(filterNode) {
   }
 
   if (filterNode.not != null) {
-    const parsed = parseFilterNode(filterNode.not);
-    if (!parsed) {
-      return null;
-    }
-
-    return {
-      children: parsed.children ?? [parsed],
-      conjunction: 'not',
-      type: 'group',
-    };
+    const notChildren = Array.isArray(filterNode.not)
+      ? filterNode.not
+      : (() => {
+        const parsed = parseFilterNode(filterNode.not);
+        if (!parsed) {
+          return [];
+        }
+        return parsed.type === 'group' && parsed.conjunction === 'or'
+          ? (parsed.children ?? [])
+          : [parsed];
+      })();
+    const children = notChildren.flatMap((child) => {
+      const parsedChild = child?.type ? child : parseFilterNode(child);
+      if (!parsedChild) {
+        return [null];
+      }
+      return parsedChild.type === 'group' && parsedChild.conjunction === 'and' && parsedChild.children?.length === 1 && parsedChild.children[0]?.type === 'rule'
+        ? parsedChild.children
+        : [parsedChild];
+    });
+    return children.every(Boolean)
+      ? { children, conjunction: 'not', type: 'group' }
+      : null;
   }
 
   return null;
