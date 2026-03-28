@@ -114,6 +114,64 @@ class FakeShellNode {
   }
 }
 
+class FakeInputNode {
+  constructor() {
+    this.selectionEnd = 0;
+    this.selectionStart = 0;
+    this.value = '';
+    this.focused = false;
+  }
+
+  focus() {
+    this.focused = true;
+    if (globalThis.document) {
+      globalThis.document.activeElement = this;
+    }
+  }
+
+  setSelectionRange(start, end) {
+    this.selectionStart = start;
+    this.selectionEnd = end;
+  }
+}
+
+class FakePanelSlotNode {
+  constructor() {
+    this._innerHTML = '';
+    this.propertiesList = null;
+    this.propertiesSearch = null;
+  }
+
+  set innerHTML(value) {
+    this._innerHTML = String(value);
+    if (this._innerHTML.includes('data-base-properties-list')) {
+      this.propertiesList = { scrollTop: 0 };
+      const search = new FakeInputNode();
+      search.value = this._innerHTML.match(/data-base-properties-search[^>]*value="([^"]*)"/u)?.[1] ?? '';
+      search.selectionStart = search.value.length;
+      search.selectionEnd = search.value.length;
+      this.propertiesSearch = search;
+    } else {
+      this.propertiesList = null;
+      this.propertiesSearch = null;
+    }
+  }
+
+  get innerHTML() {
+    return this._innerHTML;
+  }
+
+  querySelector(selector) {
+    if (selector === '[data-base-properties-list]') {
+      return this.propertiesList;
+    }
+    if (selector === '[data-base-properties-search]') {
+      return this.propertiesSearch;
+    }
+    return null;
+  }
+}
+
 class FakeRenderedPlaceholder {
   constructor() {
     const classes = new Set(['bases-embed-placeholder', 'diagram-preview-shell']);
@@ -144,15 +202,18 @@ class FakeRenderedPlaceholder {
     const shell = new FakeShellNode();
     const tabs = new FakeShellNode();
     const meta = new FakeShellNode();
+    const panelSlot = new FakePanelSlotNode();
     const summarySlot = new FakeShellNode();
     const content = new FakeShellNode();
     const input = new FakeShellNode();
 
     input.value = this._innerHTML.match(/class="bases-search-input" type="search" value="([^"]*)"/u)?.[1] ?? '';
     meta.textContent = this._innerHTML.match(/data-base-meta>([^<]*)</u)?.[1] ?? '';
+    panelSlot.innerHTML = this._innerHTML.match(/<div class="bases-panels" data-base-panel-slot>([\s\S]*?)<\/div>\s*<div data-base-summary-slot>/u)?.[1] ?? '';
 
     shell.querySelectorMap.set('[data-base-tabs]', tabs);
     shell.querySelectorMap.set('[data-base-meta]', meta);
+    shell.querySelectorMap.set('[data-base-panel-slot]', panelSlot);
     shell.querySelectorMap.set('[data-base-summary-slot]', summarySlot);
     shell.querySelectorMap.set('[data-base-content]', content);
     shell.querySelectorMap.set('.bases-search-input', input);
@@ -850,6 +911,346 @@ test('BasesPreviewController preserves implicit columns when enabling a new prop
     'note.value',
     'note.extra',
   ]);
+});
+
+test('BasesPreviewController preserves properties search focus while typing', async () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = { activeElement: null };
+  try {
+    const controller = new BasesPreviewController({
+      vaultApiClient: {
+        async queryBase() {
+          return {
+            result: createBaseResult({
+              columns: [
+                { id: 'file.name', label: 'Name' },
+                { id: 'note.value', label: 'Value' },
+              ],
+              meta: {
+                activeViewConfig: {
+                  filters: null,
+                  groupBy: null,
+                  order: ['file.name', 'note.value'],
+                  sort: [],
+                },
+                availableProperties: [
+                  {
+                    filterOperators: ['is', 'is not'],
+                    groupable: true,
+                    id: 'file.name',
+                    kind: 'file',
+                    label: 'Name',
+                    sortable: true,
+                    sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                    valueType: 'text',
+                    visible: true,
+                  },
+                  {
+                    filterOperators: ['is', 'is not'],
+                    groupable: true,
+                    id: 'note.value',
+                    kind: 'note',
+                    label: 'Value',
+                    sortable: true,
+                    sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                    valueType: 'text',
+                    visible: true,
+                  },
+                ],
+                editable: true,
+              },
+            }),
+          };
+        },
+      },
+    });
+    const placeholder = new FakeRenderedPlaceholder();
+    const entry = {
+      key: 'properties-search-focus',
+      payload: {
+        path: 'views/tasks.base',
+        search: '',
+        source: null,
+        sourcePath: '',
+        view: '',
+      },
+      placeholder,
+      propertyValueOptions: new Map(),
+      requestVersion: 0,
+      result: null,
+      search: '',
+      ui: {
+        builderFilter: null,
+        filterMode: 'builder',
+        openPanel: 'properties',
+        propertySearch: '',
+        rawFilterText: '',
+      },
+    };
+    controller.entries.set(entry.key, entry);
+
+    await controller.renderEntry(entry);
+
+    const panelSlot = placeholder.querySelector('[data-base-shell-key="properties-search-focus"]').querySelector('[data-base-panel-slot]');
+    const searchInput = panelSlot.querySelector('[data-base-properties-search]');
+    searchInput.value = 'n';
+    searchInput.selectionStart = 1;
+    searchInput.selectionEnd = 1;
+    searchInput.focus();
+
+    const shell = {
+      dataset: { baseShellKey: entry.key },
+      closest(selector) {
+        return selector === '[data-base-shell-key]' ? this : null;
+      },
+    };
+    searchInput.closest = (selector) => (selector === '[data-base-shell-key]' ? shell : null);
+
+    controller.handleInput({
+      target: {
+        closest(selector) {
+          switch (selector) {
+            case '.bases-search-input':
+              return null;
+            case '[data-base-properties-search]':
+              return searchInput;
+            default:
+              return null;
+          }
+        },
+      },
+    });
+
+    const nextSearchInput = panelSlot.querySelector('[data-base-properties-search]');
+    assert.equal(entry.ui.propertySearch, 'n');
+    assert.equal(globalThis.document.activeElement, nextSearchInput);
+    assert.equal(nextSearchInput.selectionStart, 1);
+    assert.equal(nextSearchInput.selectionEnd, 1);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test('BasesPreviewController preserves properties-list scroll position when toggling a property', async () => {
+  const transformCalls = [];
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBase() {
+        return {
+          result: createBaseResult({
+            columns: [
+              { id: 'file.name', label: 'Name' },
+              { id: 'note.value', label: 'Value' },
+            ],
+            meta: {
+              activeViewConfig: {
+                filters: null,
+                groupBy: null,
+                order: ['file.name', 'note.value'],
+                sort: [],
+              },
+              availableProperties: [
+                {
+                  filterOperators: ['is', 'is not'],
+                  groupable: true,
+                  id: 'file.name',
+                  kind: 'file',
+                  label: 'Name',
+                  sortable: true,
+                  sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                  valueType: 'text',
+                  visible: true,
+                },
+                {
+                  filterOperators: ['is', 'is not'],
+                  groupable: true,
+                  id: 'note.value',
+                  kind: 'note',
+                  label: 'Value',
+                  sortable: true,
+                  sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                  valueType: 'text',
+                  visible: true,
+                },
+                {
+                  filterOperators: ['is', 'is not'],
+                  groupable: true,
+                  id: 'note.extra',
+                  kind: 'note',
+                  label: 'Extra',
+                  sortable: true,
+                  sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                  valueType: 'text',
+                  visible: false,
+                },
+              ],
+              editable: true,
+            },
+          }),
+        };
+      },
+      async transformBase(payload) {
+        transformCalls.push(payload);
+        return {
+          result: {
+            result: createBaseResult({
+              columns: [
+                { id: 'file.name', label: 'Name' },
+                { id: 'note.value', label: 'Value' },
+                { id: 'note.extra', label: 'Extra' },
+              ],
+              meta: {
+                activeViewConfig: payload.mutation.config,
+                availableProperties: [
+                  {
+                    filterOperators: ['is', 'is not'],
+                    groupable: true,
+                    id: 'file.name',
+                    kind: 'file',
+                    label: 'Name',
+                    sortable: true,
+                    sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                    valueType: 'text',
+                    visible: true,
+                  },
+                  {
+                    filterOperators: ['is', 'is not'],
+                    groupable: true,
+                    id: 'note.value',
+                    kind: 'note',
+                    label: 'Value',
+                    sortable: true,
+                    sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                    valueType: 'text',
+                    visible: true,
+                  },
+                  {
+                    filterOperators: ['is', 'is not'],
+                    groupable: true,
+                    id: 'note.extra',
+                    kind: 'note',
+                    label: 'Extra',
+                    sortable: true,
+                    sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                    valueType: 'text',
+                    visible: true,
+                  },
+                ],
+                editable: true,
+              },
+            }),
+            source: 'views:\n  - type: table\n',
+          },
+        };
+      },
+      async writeFile() {},
+    },
+  });
+  const placeholder = new FakeRenderedPlaceholder();
+  const entry = {
+    key: 'properties-scroll',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: 'views:\n  - type: table\n',
+      sourcePath: 'views/tasks.base',
+      view: '',
+    },
+    placeholder,
+    propertyValueOptions: new Map(),
+    requestVersion: 0,
+    result: createBaseResult({
+      columns: [
+        { id: 'file.name', label: 'Name' },
+        { id: 'note.value', label: 'Value' },
+      ],
+      meta: {
+        activeViewConfig: {
+          filters: null,
+          groupBy: null,
+          order: ['file.name', 'note.value'],
+          sort: [],
+        },
+        availableProperties: [
+          {
+            filterOperators: ['is', 'is not'],
+            groupable: true,
+            id: 'file.name',
+            kind: 'file',
+            label: 'Name',
+            sortable: true,
+            sortDirections: [{ id: 'asc', label: 'A → Z' }],
+            valueType: 'text',
+            visible: true,
+          },
+          {
+            filterOperators: ['is', 'is not'],
+            groupable: true,
+            id: 'note.value',
+            kind: 'note',
+            label: 'Value',
+            sortable: true,
+            sortDirections: [{ id: 'asc', label: 'A → Z' }],
+            valueType: 'text',
+            visible: true,
+          },
+          {
+            filterOperators: ['is', 'is not'],
+            groupable: true,
+            id: 'note.extra',
+            kind: 'note',
+            label: 'Extra',
+            sortable: true,
+            sortDirections: [{ id: 'asc', label: 'A → Z' }],
+            valueType: 'text',
+            visible: false,
+          },
+        ],
+        editable: true,
+      },
+    }),
+    search: '',
+    ui: {
+      builderFilter: null,
+      filterMode: 'builder',
+      openPanel: 'properties',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+  controller.entries.set(entry.key, entry);
+
+  await controller.renderEntry(entry);
+  const panelSlot = placeholder.querySelector('[data-base-shell-key="properties-scroll"]').querySelector('[data-base-panel-slot]');
+  const propertiesList = panelSlot.querySelector('[data-base-properties-list]');
+  propertiesList.scrollTop = 240;
+
+  const shell = { dataset: { baseShellKey: entry.key } };
+  const propertyToggle = {
+    checked: true,
+    dataset: { basePropertyToggle: 'note.extra' },
+  };
+
+  controller.handleChange({
+    target: {
+      closest(selector) {
+        switch (selector) {
+          case '[data-base-shell-key]':
+            return shell;
+          case '[data-base-property-toggle]':
+            return propertyToggle;
+          default:
+            return null;
+        }
+      },
+    },
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(transformCalls[0].mutation.config.order.includes('note.extra'), true);
+  assert.equal(panelSlot.querySelector('[data-base-properties-list]').scrollTop, 240);
 });
 
 test('BasesPreviewController preserves empty filter group conjunction selections in the builder UI', async () => {

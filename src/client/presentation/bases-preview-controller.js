@@ -741,7 +741,7 @@ function renderPropertiesPanel(result, entry) {
       <label class="bases-properties-search">
         <input class="${escapeHtml(inputClassNames({ extra: 'bases-properties-search-input' }))}" type="search" value="${escapeHtml(entry.ui.propertySearch ?? '')}" placeholder="Find property" data-base-properties-search>
       </label>
-      <div class="bases-properties-list">
+      <div class="bases-properties-list" data-base-properties-list>
         ${properties.map((property) => `
           <label class="bases-property-option">
             <input type="checkbox" data-base-property-toggle="${escapeHtml(property.id)}"${visibleIds.has(property.id) ? ' checked' : ''}>
@@ -752,6 +752,53 @@ function renderPropertiesPanel(result, entry) {
       </div>
     </section>
   `;
+}
+
+function capturePanelState(panelSlot) {
+  const propertiesList = panelSlot?.querySelector?.('[data-base-properties-list]') ?? null;
+  const propertiesSearch = panelSlot?.querySelector?.('[data-base-properties-search]') ?? null;
+  const activeElement = typeof document !== 'undefined' ? document.activeElement : null;
+  const selectionStart = typeof propertiesSearch?.selectionStart === 'number'
+    ? propertiesSearch.selectionStart
+    : null;
+  const selectionEnd = typeof propertiesSearch?.selectionEnd === 'number'
+    ? propertiesSearch.selectionEnd
+    : selectionStart;
+  return {
+    propertiesListScrollTop: propertiesList ? propertiesList.scrollTop : null,
+    propertiesSearchFocused: Boolean(propertiesSearch && activeElement === propertiesSearch),
+    propertiesSearchSelectionEnd: selectionEnd,
+    propertiesSearchSelectionStart: selectionStart,
+  };
+}
+
+function restorePanelState(panelSlot, panelState) {
+  if (!panelState) {
+    return;
+  }
+
+  if (panelState.propertiesListScrollTop != null) {
+    const propertiesList = panelSlot?.querySelector?.('[data-base-properties-list]') ?? null;
+    if (propertiesList) {
+      propertiesList.scrollTop = panelState.propertiesListScrollTop;
+    }
+  }
+
+  if (panelState.propertiesSearchFocused) {
+    const propertiesSearch = panelSlot?.querySelector?.('[data-base-properties-search]') ?? null;
+    if (propertiesSearch) {
+      propertiesSearch.focus?.();
+      if (
+        typeof propertiesSearch.setSelectionRange === 'function'
+        && panelState.propertiesSearchSelectionStart != null
+      ) {
+        propertiesSearch.setSelectionRange(
+          panelState.propertiesSearchSelectionStart,
+          panelState.propertiesSearchSelectionEnd ?? panelState.propertiesSearchSelectionStart,
+        );
+      }
+    }
+  }
 }
 
 function renderPanel(result, entry) {
@@ -846,7 +893,9 @@ function updateShellContent(entry, result) {
 
   const panelSlot = shell.querySelector('[data-base-panel-slot]');
   if (panelSlot) {
+    const panelState = capturePanelState(panelSlot);
     panelSlot.innerHTML = renderPanel(result, entry);
+    restorePanelState(panelSlot, panelState);
   }
 
   const summarySlot = shell.querySelector('[data-base-summary-slot]');
