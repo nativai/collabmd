@@ -194,7 +194,7 @@
   border-radius: calc(var(--radius-lg) + 2px);
   background: var(--color-surface);
   box-shadow: var(--shadow-md);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .preview-content .bases-embed-placeholder > .bases-shell {

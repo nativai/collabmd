@@ -676,20 +676,29 @@ function getPropertyValueOptionText(option = {}) {
 
 function renderFilterRule(result, rule, path, entry) {
   const encodedPath = encodePath(path);
-  const propertyMeta = findPropertyMeta(result, rule.propertyId);
   const operators = getPropertyFilterOperators(result, rule.propertyId);
   const suggestionQuery = String(rule.value ?? '').trim().toLowerCase();
-  const valueSuggestions = getCachedPropertyValueOptions(entry, rule.propertyId, result)
+  const propertyValueOptions = getCachedPropertyValueOptions(entry, rule.propertyId, result)
     .map((option) => ({
       count: option?.count,
       text: getPropertyValueOptionText(option),
     }))
     .filter((option, index, items) => (
       option.text
-      && (!suggestionQuery || option.text.toLowerCase().includes(suggestionQuery))
       && items.findIndex((candidate) => candidate.text === option.text) === index
     ));
-  const suggestionsEnabled = suggestionQuery.length > 0 && valueSuggestions.length > 0 && !['is empty', 'is not empty'].includes(rule.operator);
+  const hasExactSuggestionMatch = propertyValueOptions.some((option) => (
+    option.text.toLowerCase() === suggestionQuery
+  ));
+  const matchingValueSuggestions = propertyValueOptions.filter((option) => (
+    !suggestionQuery || option.text.toLowerCase().includes(suggestionQuery)
+  ));
+  const valueSuggestions = !suggestionQuery || hasExactSuggestionMatch
+    ? propertyValueOptions
+    : matchingValueSuggestions.length > 0
+      ? matchingValueSuggestions
+      : propertyValueOptions;
+  const suggestionsEnabled = valueSuggestions.length > 0 && !['is empty', 'is not empty'].includes(rule.operator);
   const suggestionListId = `bases-filter-suggestions-${escapeHtml(entry.key)}-${escapeHtml(encodedPath.replace(/\./g, '-'))}`;
   const valueInputClasses = inputClassNames({
     extra: suggestionsEnabled
@@ -780,7 +789,7 @@ function renderFilterPanel(result, entry) {
         ` : ''}
       </div>
       ${mode === 'advanced'
-    ? `
+      ? `
         <label class="bases-filter-advanced-label">
           <textarea class="${escapeHtml(inputClassNames({ extra: 'bases-filter-advanced' }))}" data-base-filter-advanced>${escapeHtml(rawText)}</textarea>
         </label>
@@ -788,7 +797,7 @@ function renderFilterPanel(result, entry) {
           <button type="button" class="${escapeHtml(buttonClassNames({ variant: 'primary', size: 'compact' }))}" data-base-filter-save-advanced>Save filter</button>
         </div>
       `
-    : renderFilterGroup(result, parsed ?? createEmptyFilterGroup('and'), [], entry, { isRoot: true })}
+      : renderFilterGroup(result, parsed ?? createEmptyFilterGroup('and'), [], entry, { isRoot: true })}
     </section>
   `;
 }
@@ -1294,19 +1303,21 @@ export class BasesPreviewController {
       const filterProperty = event.target.closest('[data-base-filter-property]');
       if (filterProperty) {
         const path = decodePath(filterProperty.dataset.baseFilterProperty || '');
-        void this.ensurePropertyValues(entry, filterProperty.value);
-        void this.updateBuilderFilter(entry, (group) => updateNodeAtPath(group, path, (node) => {
-          const nextOperators = getPropertyFilterOperators(entry.result, filterProperty.value);
-          const nextOperator = nextOperators.includes(node.operator)
-            ? node.operator
-            : (nextOperators[0] ?? 'is');
-          return {
-            ...node,
-            operator: nextOperator,
-            propertyId: filterProperty.value,
-            value: ['is empty', 'is not empty'].includes(nextOperator) ? '' : (node.value ?? ''),
-          };
-        }));
+        void (async () => {
+          await this.updateBuilderFilter(entry, (group) => updateNodeAtPath(group, path, (node) => {
+            const nextOperators = getPropertyFilterOperators(entry.result, filterProperty.value);
+            const nextOperator = nextOperators.includes(node.operator)
+              ? node.operator
+              : (nextOperators[0] ?? 'is');
+            return {
+              ...node,
+              operator: nextOperator,
+              propertyId: filterProperty.value,
+              value: ['is empty', 'is not empty'].includes(nextOperator) ? '' : (node.value ?? ''),
+            };
+          }));
+          await this.ensurePropertyValues(entry, filterProperty.value);
+        })();
         return;
       }
 

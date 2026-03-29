@@ -1869,6 +1869,82 @@ test('BasesPreviewController reuses property suggestions while typing the same p
   assert.doesNotMatch(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="Done"/);
 });
 
+test('BasesPreviewController keeps alternate property suggestions visible after selecting an exact value', async () => {
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBase() {
+        return {
+          result: createBaseResult({
+            meta: {
+              activeViewConfig: {
+                filters: 'note.value == "Done"',
+                groupBy: null,
+                order: ['note.value'],
+                sort: [],
+              },
+              availableProperties: [{
+                filterOperators: ['is', 'is not'],
+                groupable: true,
+                id: 'note.value',
+                kind: 'note',
+                label: 'Value',
+                sortable: true,
+                sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                valueType: 'text',
+                visible: true,
+              }],
+              editable: true,
+            },
+          }),
+        };
+      },
+    },
+  });
+  const entry = {
+    key: 'selected-filter-suggestions',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: 'views:\n  - type: table\n',
+      sourcePath: 'views/tasks.base',
+      view: '',
+    },
+    placeholder: createPlaceholder(),
+    propertyValueOptions: new Map([
+      ['note.value', {
+        cacheKey: JSON.stringify({
+          filters: null,
+          path: 'views/tasks.base',
+          source: 'views:\n  - type: table\n',
+          sourcePath: 'views/tasks.base',
+          view: 'view-0',
+        }),
+        values: [
+          { count: 4, text: 'Done', value: 'Done' },
+          { count: 2, text: 'Doing', value: 'Doing' },
+          { count: 1, text: 'Todo', value: 'Todo' },
+        ],
+      }],
+    ]),
+    requestVersion: 0,
+    result: null,
+    search: '',
+    ui: {
+      builderFilter: null,
+      filterMode: 'builder',
+      openPanel: 'filter',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+
+  await controller.renderEntry(entry);
+
+  assert.match(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="Done"/);
+  assert.match(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="Doing"/);
+  assert.match(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="Todo"/);
+});
+
 test('BasesPreviewController does not render stale property suggestions after filters change', async () => {
   const placeholder = createPlaceholder();
   const initialResult = createBaseResult({
@@ -1956,4 +2032,232 @@ test('BasesPreviewController does not render stale property suggestions after fi
   assert.doesNotMatch(placeholder.innerHTML, /data-base-filter-suggestion-value="stale"/);
 });
 
+test('BasesPreviewController renders cached property suggestions for empty filter values', async () => {
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBase() {
+        return {
+          result: createBaseResult({
+            meta: {
+              activeViewConfig: {
+                filters: 'note.value == ""',
+                groupBy: null,
+                order: ['note.value'],
+                sort: [],
+              },
+              availableProperties: [{
+                filterOperators: ['is', 'is not'],
+                groupable: true,
+                id: 'note.value',
+                kind: 'note',
+                label: 'Value',
+                sortable: true,
+                sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                valueType: 'text',
+                visible: true,
+              }],
+              editable: true,
+            },
+          }),
+        };
+      },
+    },
+  });
+  const entry = {
+    key: 'empty-filter-suggestions',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: 'views:\n  - type: table\n',
+      sourcePath: 'views/tasks.base',
+      view: '',
+    },
+    placeholder: createPlaceholder(),
+    propertyValueOptions: new Map([
+      ['note.value', {
+        cacheKey: JSON.stringify({
+          filters: null,
+          path: 'views/tasks.base',
+          source: 'views:\n  - type: table\n',
+          sourcePath: 'views/tasks.base',
+          view: 'view-0',
+        }),
+        values: [
+          { count: 4, text: 'Done', value: 'Done' },
+          { count: 2, text: 'Doing', value: 'Doing' },
+        ],
+      }],
+    ]),
+    requestVersion: 0,
+    result: null,
+    search: '',
+    ui: {
+      builderFilter: null,
+      filterMode: 'builder',
+      openPanel: 'filter',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
 
+  await controller.renderEntry(entry);
+
+  assert.match(entry.placeholder.innerHTML, /bases-filter-suggestion-list/);
+  assert.match(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="Done"/);
+  assert.match(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="Doing"/);
+});
+
+test('BasesPreviewController refreshes property suggestions after switching filter property', async () => {
+  const propertyValueCalls = [];
+  const controller = new BasesPreviewController({
+    vaultApiClient: {
+      async queryBasePropertyValues(payload) {
+        propertyValueCalls.push(payload);
+        return {
+          result: {
+            values: [
+              { count: 3, text: '1', value: '1' },
+              { count: 1, text: '2', value: '2' },
+            ],
+          },
+        };
+      },
+      async transformBase(payload) {
+        return {
+          result: {
+            result: createBaseResult({
+              meta: {
+                activeViewConfig: payload.mutation.config,
+                availableProperties: [
+                  {
+                    filterOperators: ['contains', 'does not contain'],
+                    groupable: true,
+                    id: 'note.title',
+                    kind: 'note',
+                    label: 'Title',
+                    sortable: true,
+                    sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                    valueType: 'text',
+                    visible: true,
+                  },
+                  {
+                    filterOperators: ['>', '<', 'is empty'],
+                    groupable: true,
+                    id: 'note.score',
+                    kind: 'note',
+                    label: 'Score',
+                    sortable: true,
+                    sortDirections: [{ id: 'asc', label: 'A → Z' }],
+                    valueType: 'number',
+                    visible: true,
+                  },
+                ],
+                editable: true,
+              },
+            }),
+            source: 'views:\n  - type: table\n',
+          },
+        };
+      },
+    },
+  });
+  const entry = {
+    key: 'refresh-filter-suggestions',
+    payload: {
+      path: 'views/tasks.base',
+      search: '',
+      source: 'views:\n  - type: table\n',
+      sourcePath: 'views/tasks.base',
+      view: '',
+    },
+    placeholder: createPlaceholder(),
+    propertyValueOptions: new Map(),
+    requestVersion: 0,
+    result: createBaseResult({
+      meta: {
+        activeViewConfig: {
+          filters: 'note.title.contains("done")',
+          groupBy: null,
+          order: ['note.title'],
+          sort: [],
+        },
+        availableProperties: [
+          {
+            filterOperators: ['contains', 'does not contain'],
+            groupable: true,
+            id: 'note.title',
+            kind: 'note',
+            label: 'Title',
+            sortable: true,
+            sortDirections: [{ id: 'asc', label: 'A → Z' }],
+            valueType: 'text',
+            visible: true,
+          },
+          {
+            filterOperators: ['>', '<', 'is empty'],
+            groupable: true,
+            id: 'note.score',
+            kind: 'note',
+            label: 'Score',
+            sortable: true,
+            sortDirections: [{ id: 'asc', label: 'A → Z' }],
+            valueType: 'number',
+            visible: true,
+          },
+        ],
+        editable: true,
+      },
+    }),
+    search: '',
+    ui: {
+      builderFilter: {
+        children: [{
+          operator: 'contains',
+          propertyId: 'note.title',
+          type: 'rule',
+          value: 'done',
+        }],
+        conjunction: 'and',
+        type: 'group',
+      },
+      filterMode: 'builder',
+      openPanel: 'filter',
+      propertySearch: '',
+      rawFilterText: '',
+    },
+  };
+  controller.entries.set(entry.key, entry);
+  entry.placeholder.innerHTML = '<section class="bases-shell" data-base-shell-key="refresh-filter-suggestions"><div class="bases-panels" data-base-panel-slot></div><div data-base-summary-slot></div><div data-base-content></div></section>';
+
+  const shell = { dataset: { baseShellKey: entry.key } };
+  const filterProperty = {
+    dataset: { baseFilterProperty: '0' },
+    value: 'note.score',
+  };
+
+  controller.handleChange({
+    target: {
+      closest(selector) {
+        switch (selector) {
+          case '[data-base-shell-key]':
+            return shell;
+          case '[data-base-filter-property]':
+            return filterProperty;
+          default:
+            return null;
+        }
+      },
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(propertyValueCalls.length, 1);
+  assert.equal(propertyValueCalls[0].propertyId, 'note.score');
+  assert.deepEqual(entry.propertyValueOptions.get('note.score')?.values, [
+    { count: 3, text: '1', value: '1' },
+    { count: 1, text: '2', value: '2' },
+  ]);
+  assert.match(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="1"/);
+  assert.match(entry.placeholder.innerHTML, /data-base-filter-suggestion-value="2"/);
+});
