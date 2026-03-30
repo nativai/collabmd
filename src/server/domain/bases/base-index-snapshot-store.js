@@ -121,6 +121,16 @@ function createBacklinkEntry(sourcePath = '') {
   });
 }
 
+function addRawTargetSourceContribution(snapshot, sourcePath, rawTargetKey) {
+  if (!rawTargetKey) {
+    return;
+  }
+
+  const sources = snapshot.rawTargetSourcesByKey.get(rawTargetKey) ?? new Set();
+  sources.add(sourcePath);
+  snapshot.rawTargetSourcesByKey.set(rawTargetKey, sources);
+}
+
 export class BaseIndexSnapshotStore {
   constructor({
     vaultFileStore,
@@ -183,6 +193,11 @@ export class BaseIndexSnapshotStore {
           .map((link) => link?.path)
           .filter((targetPath) => targetPath && targetPath !== filePath),
       ),
+      rawTargetKeys: new Set(
+        references.links
+          .map((link) => normalizeWikiTargetKey(link?.rawTarget))
+          .filter(Boolean),
+      ),
       row: {
         file: fileValue,
         noteProperties,
@@ -224,6 +239,29 @@ export class BaseIndexSnapshotStore {
         snapshot.backlinkSourcesByTarget.delete(targetPath);
       }
       affectedTargetPaths.add(targetPath);
+    });
+  }
+
+  removeRawTargetSourceContributions(snapshot, sourcePath) {
+    const rawTargetKeys = snapshot.rawTargetKeysBySourcePath.get(sourcePath) ?? new Set();
+    rawTargetKeys.forEach((rawTargetKey) => {
+      const sources = snapshot.rawTargetSourcesByKey.get(rawTargetKey);
+      if (!sources) {
+        return;
+      }
+
+      sources.delete(sourcePath);
+      if (sources.size === 0) {
+        snapshot.rawTargetSourcesByKey.delete(rawTargetKey);
+      }
+    });
+    snapshot.rawTargetKeysBySourcePath.delete(sourcePath);
+  }
+
+  addRawTargetSourceContributions(snapshot, sourcePath, rawTargetKeys = new Set()) {
+    snapshot.rawTargetKeysBySourcePath.set(sourcePath, rawTargetKeys);
+    rawTargetKeys.forEach((rawTargetKey) => {
+      addRawTargetSourceContribution(snapshot, sourcePath, rawTargetKey);
     });
   }
 
@@ -277,11 +315,19 @@ export class BaseIndexSnapshotStore {
 
     const rowsByPath = new Map();
     const forwardLinksByPath = new Map();
+    const rawTargetKeysBySourcePath = new Map();
+    const rawTargetSourcesByKey = new Map();
     fileEntries.forEach((filePath) => {
       const markdownContent = markdownContents.get(filePath) ?? null;
       const rowRecord = this.createSnapshotRow(filePath, resolvedWorkspaceState, wikiTargetIndex, markdownContent);
       rowsByPath.set(filePath, rowRecord.row);
       forwardLinksByPath.set(filePath, rowRecord.forwardLinks);
+      rawTargetKeysBySourcePath.set(filePath, rowRecord.rawTargetKeys);
+      rowRecord.rawTargetKeys.forEach((rawTargetKey) => {
+        addRawTargetSourceContribution({
+          rawTargetSourcesByKey,
+        }, filePath, rawTargetKey);
+      });
     });
 
     const snapshot = {
@@ -289,6 +335,8 @@ export class BaseIndexSnapshotStore {
       backlinksByPath: new Map(),
       filePaths: fileEntries,
       forwardLinksByPath,
+      rawTargetKeysBySourcePath,
+      rawTargetSourcesByKey,
       rowsByPath,
       scannedAt: resolvedWorkspaceState.scannedAt,
       wikiTargetIndex,
@@ -305,6 +353,7 @@ export class BaseIndexSnapshotStore {
   }
 
   removeSnapshotPath(snapshot, filePath) {
+    this.removeRawTargetSourceContributions(snapshot, filePath);
     snapshot.rowsByPath.delete(filePath);
     snapshot.forwardLinksByPath.delete(filePath);
     snapshot.backlinkSourcesByTarget.delete(filePath);
@@ -334,13 +383,12 @@ export class BaseIndexSnapshotStore {
     }
 
     const impactedPaths = new Set();
-    snapshot.rowsByPath.forEach((row, filePath) => {
-      const links = row?.file?.links ?? [];
-      if (links.some((link) => affectedTargetKeys.has(normalizeWikiTargetKey(link?.rawTarget)))) {
+    affectedTargetKeys.forEach((targetKey) => {
+      const sourcePaths = snapshot.rawTargetSourcesByKey.get(targetKey);
+      sourcePaths?.forEach((filePath) => {
         impactedPaths.add(filePath);
-      }
+      });
     });
-
     return impactedPaths;
   }
 
@@ -356,8 +404,10 @@ export class BaseIndexSnapshotStore {
         ? await this.vaultFileStore.readMarkdownFile(filePath)
         : null;
       const rowRecord = this.createSnapshotRow(filePath, workspaceState, snapshot.wikiTargetIndex, markdownContent);
+      this.removeRawTargetSourceContributions(snapshot, filePath);
       snapshot.rowsByPath.set(filePath, rowRecord.row);
       snapshot.forwardLinksByPath.set(filePath, rowRecord.forwardLinks);
+      this.addRawTargetSourceContributions(snapshot, filePath, rowRecord.rawTargetKeys);
     });
   }
 

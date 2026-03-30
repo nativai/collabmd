@@ -250,43 +250,59 @@ export class BaseQueryService {
 
   collectCandidateRows({
     activeView,
+    astCache = new Map(),
     definition,
     evaluatedPropertyIds,
     snapshot,
     thisFile,
   }) {
-    return snapshot.filePaths
-      .map((filePath) => snapshot.rowsByPath.get(filePath))
-      .filter(Boolean)
-      .filter((row) => {
-        const globalContext = createEvaluationRootContext({
-          currentRow: row,
-          definition,
-          snapshot,
-          thisFile,
-        });
-        if (!evaluateFilterNode(definition.filters, globalContext)) {
-          return false;
-        }
+    const rows = [];
 
-        const viewContext = createEvaluationRootContext({
-          currentRow: row,
-          definition,
-          snapshot,
-          thisFile,
-        });
-        return evaluateFilterNode(activeView.filters, viewContext);
-      })
-      .map((row) => {
-        const rawCells = {};
-        evaluatedPropertyIds.forEach((propertyId) => {
-          rawCells[propertyId] = getPropertyValue(propertyId, row, definition, snapshot, thisFile);
-        });
-        return {
-          file: row.file,
-          rawCells,
-        };
+    snapshot.filePaths.forEach((filePath) => {
+      const row = snapshot.rowsByPath.get(filePath);
+      if (!row) {
+        return;
+      }
+
+      const rowContext = this.createRowQueryContext({
+        astCache,
+        definition,
+        row,
+        snapshot,
+        thisFile,
       });
+      if (!evaluateFilterNode(definition.filters, rowContext) || !evaluateFilterNode(activeView.filters, rowContext)) {
+        return;
+      }
+
+      const rawCells = {};
+      evaluatedPropertyIds.forEach((propertyId) => {
+        rawCells[propertyId] = getPropertyValue(propertyId, row, definition, snapshot, thisFile, rowContext);
+      });
+
+      rows.push({
+        file: row.file,
+        rawCells,
+      });
+    });
+
+    return rows;
+  }
+
+  createRowQueryContext({
+    astCache = new Map(),
+    definition,
+    row,
+    snapshot,
+    thisFile,
+  }) {
+    return createEvaluationRootContext({
+      astCache,
+      currentRow: row,
+      definition,
+      snapshot,
+      thisFile,
+    });
   }
 
   getPropertyCatalog(snapshot) {
@@ -361,7 +377,11 @@ export class BaseQueryService {
       view: requestedView,
     });
 
-    let rows = this.collectCandidateRows(context);
+    const astCache = new Map();
+    let rows = this.collectCandidateRows({
+      ...context,
+      astCache,
+    });
     rows = rows.filter((row) => rowMatchesSearch(row, context.columns, search));
     rows = sortRows(rows, buildSortChain(context.activeView));
 
@@ -435,8 +455,10 @@ export class BaseQueryService {
         filters: pruneFilterNodeForProperty(context.definition?.filters, propertyId),
       },
     };
+    const astCache = new Map();
     const rows = this.collectCandidateRows({
       ...propertyValueContext,
+      astCache,
       evaluatedPropertyIds: [...new Set([
         ...(context.evaluatedPropertyIds ?? []),
         propertyId,

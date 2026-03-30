@@ -264,6 +264,20 @@ function normalizeFormulaEntries(rawFormulas, rawProperties) {
   return formulas;
 }
 
+function createFormulaLookup(formulas = {}) {
+  const lookup = new Map();
+
+  Object.keys(formulas).forEach((propertyId) => {
+    const bareName = bareFormulaName(propertyId);
+    if (bareName) {
+      lookup.set(bareName, propertyId);
+    }
+    lookup.set(propertyId, propertyId);
+  });
+
+  return lookup;
+}
+
 export function normalizeBaseDefinition(source = '') {
   const raw = yaml.load(String(source ?? '')) ?? {};
   const rawObject = isPlainObject(raw) ? raw : {};
@@ -288,6 +302,7 @@ export function normalizeBaseDefinition(source = '') {
   return {
     filters: rawObject.filters ?? null,
     formulas,
+    formulaLookup: createFormulaLookup(formulas),
     properties,
     raw: rawObject,
     views,

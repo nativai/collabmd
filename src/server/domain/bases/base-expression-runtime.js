@@ -1068,6 +1068,22 @@ function normalizeFormulaLookupName(name = '') {
   return String(name ?? '').replace(/^formula\./u, '');
 }
 
+function resolveFormulaPropertyId(definition, name = '') {
+  const formulaName = normalizeFormulaLookupName(name);
+  if (!formulaName) {
+    return null;
+  }
+
+  const precomputedLookup = definition?.formulaLookup;
+  if (precomputedLookup instanceof Map) {
+    return precomputedLookup.get(formulaName) ?? precomputedLookup.get(`formula.${formulaName}`) ?? null;
+  }
+
+  return Object.keys(definition?.formulas ?? {}).find((propertyId) => (
+    normalizeFormulaLookupName(propertyId) === formulaName
+  )) ?? null;
+}
+
 export function createEvaluationRootContext({
   astCache = new Map(),
   currentRow,
@@ -1088,10 +1104,7 @@ export function createEvaluationRootContext({
     definition,
     evaluationState: nextEvaluationState,
     resolveFormulaValue: (name, row, state = nextEvaluationState) => {
-      const formulaName = normalizeFormulaLookupName(name);
-      const formulaPropertyId = Object.keys(definition.formulas ?? {}).find((propertyId) => (
-        normalizeFormulaLookupName(propertyId) === formulaName
-      ));
+      const formulaPropertyId = resolveFormulaPropertyId(definition, name);
       if (!formulaPropertyId) {
         return null;
       }
@@ -1150,13 +1163,13 @@ export function createEvaluationRootContext({
   };
 }
 
-export function getPropertyValue(propertyId, row, definition, snapshot, thisFile) {
+export function getPropertyValue(propertyId, row, definition, snapshot, thisFile, rootContext = null) {
   if (propertyId.startsWith('file.')) {
     return propertyId.split('.').slice(1).reduce((acc, segment) => acc?.[segment], row.file);
   }
 
   if (hasFormulaDefinition(definition, propertyId)) {
-    const context = createEvaluationRootContext({
+    const context = rootContext ?? createEvaluationRootContext({
       currentRow: row,
       definition,
       snapshot,
@@ -1170,7 +1183,7 @@ export function getPropertyValue(propertyId, row, definition, snapshot, thisFile
   }
 
   if (hasFormulaDefinition(definition, `formula.${propertyId}`)) {
-    const context = createEvaluationRootContext({
+    const context = rootContext ?? createEvaluationRootContext({
       currentRow: row,
       definition,
       snapshot,

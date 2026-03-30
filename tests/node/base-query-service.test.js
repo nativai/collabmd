@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { serializeBaseDefinition, BaseQueryService } from '../../src/server/domain/bases/base-query-service.js';
+import { normalizeBaseDefinition } from '../../src/server/domain/bases/base-definition.js';
 import { VaultFileStore } from '../../src/server/infrastructure/persistence/vault-file-store.js';
 
 async function createBaseWorkspace() {
@@ -123,6 +124,21 @@ test('BaseQueryService omits csv output by default', async (t) => {
   });
 
   assert.equal('csv' in result, false);
+});
+
+test('normalizeBaseDefinition precomputes formula lookup aliases', () => {
+  const definition = normalizeBaseDefinition([
+    'formulas:',
+    '  bucket: \'if(true, "Closed", "Open")\'',
+    'properties:',
+    '  formula.rank:',
+    '    formula: \'1\'',
+  ].join('\n'));
+
+  assert.equal(definition.formulaLookup.get('bucket'), 'formula.bucket');
+  assert.equal(definition.formulaLookup.get('formula.bucket'), 'formula.bucket');
+  assert.equal(definition.formulaLookup.get('rank'), 'formula.rank');
+  assert.equal(definition.formulaLookup.get('formula.rank'), 'formula.rank');
 });
 
 test('BaseQueryService resolves this from the embedding source file and preserves unsupported views', async (t) => {
@@ -491,6 +507,60 @@ test('BaseQueryService exposes file embeds and backlinks', async (t) => {
   );
 });
 
+test('BaseQueryService creates one row evaluation context per candidate row', async (t) => {
+  const { cleanup, vaultDir, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/a.md', [
+    '---',
+    'status: open',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('notes/b.md', [
+    '---',
+    'status: done',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('views/tasks.base', [
+    'filters: file.ext == "md"',
+    'formulas:',
+    '  bucket: \'if(note.status == "done", "Closed", "Open")\'',
+    'views:',
+    '  - type: table',
+    '    name: Board',
+    '    filters: formula.bucket == "Open" || formula.bucket == "Closed"',
+    '    order: [file.name, formula.bucket]',
+  ].join('\n'));
+
+  class CountingQueryService extends BaseQueryService {
+    constructor(options) {
+      super(options);
+      this.rowContextCalls = 0;
+    }
+
+    createRowQueryContext(args) {
+      this.rowContextCalls += 1;
+      return super.createRowQueryContext(args);
+    }
+  }
+
+  const vaultFileStore = new VaultFileStore({ vaultDir });
+  let workspaceState = await vaultFileStore.scanWorkspaceState();
+  const service = new CountingQueryService({
+    vaultFileStore,
+    workspaceStateProvider: () => workspaceState,
+  });
+  await service.initializeFromWorkspaceState(workspaceState);
+
+  const result = await service.query({
+    basePath: 'views/tasks.base',
+    view: 'Board',
+  });
+
+  assert.equal(result.totalRows, 2);
+  assert.equal(service.rowContextCalls, service.indexSnapshot.filePaths.length);
+});
+
 test('BaseQueryService reuses the in-memory snapshot for repeated queries', async (t) => {
   const { cleanup, vaultDir, writeVaultFile } = await createBaseWorkspace();
   t.after(cleanup);
@@ -623,6 +693,12 @@ test('BaseQueryService refreshes rename membership changes incrementally', async
   service.snapshotStore.rebuildBacklinks = () => {
     throw new Error('full backlink rebuild should not run for incremental rename updates');
   };
+  let rowsByPathForEachCalls = 0;
+  const originalRowsByPathForEach = service.indexSnapshot.rowsByPath.forEach.bind(service.indexSnapshot.rowsByPath);
+  service.indexSnapshot.rowsByPath.forEach = (...args) => {
+    rowsByPathForEachCalls += 1;
+    return originalRowsByPathForEach(...args);
+  };
 
   await mkdir(join(vaultDir, 'archive'), { recursive: true });
   await rename(join(vaultDir, 'notes', 'b.md'), join(vaultDir, 'archive', 'b.md'));
@@ -645,6 +721,7 @@ test('BaseQueryService refreshes rename membership changes incrementally', async
     ['notes/a.md'],
   );
   assert.deepEqual(new Set(readPaths), new Set(['archive/b.md', 'notes/a.md']));
+  assert.equal(rowsByPathForEachCalls, 0);
 });
 
 test('BaseQueryService exposes property metadata and respects search before limit', async (t) => {
