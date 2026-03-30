@@ -9,6 +9,7 @@ import {
   test,
   waitForEditor,
   waitForPreview,
+  writeVaultFileAndResetCollab,
 } from './helpers/app-fixture.js';
 
 const OUTLINE_TEST_DOCUMENT = `# My Vault
@@ -173,6 +174,67 @@ test.describe('mobile editor typography', () => {
     await expect.poll(async () => (
       page.locator('.editor-container .cm-editor').evaluate((element) => getComputedStyle(element).fontSize)
     )).toBe('16px');
+  });
+});
+
+test.describe('mobile bases preview', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+  });
+
+  test('renders base edit actions without the desktop wrapper chrome on mobile', async ({ page }) => {
+    await writeVaultFileAndResetCollab(page, {
+      path: 'notes/mobile-base-item.md',
+      content: '# Mobile Base Item\n\n#mobiletest\n',
+    });
+    await writeVaultFileAndResetCollab(page, {
+      path: 'views/mobile-toolbar.base',
+      content: [
+        'filters: file.ext == "md" && file.hasTag("mobiletest")',
+        'views:',
+        '  - type: table',
+        '    name: All',
+        '    order: [file.name]',
+      ].join('\n'),
+    });
+
+    await openFile(page, 'views/mobile-toolbar.base', { waitFor: 'preview' });
+
+    const toolbarActions = page.locator('.bases-toolbar-edit-actions');
+    await expect(toolbarActions).toBeVisible();
+    await expect(toolbarActions).toContainText('Sort');
+    await expect(toolbarActions).toContainText('Filter');
+    await expect(toolbarActions).toContainText('Properties');
+
+    const metrics = await toolbarActions.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const buttons = [...element.querySelectorAll('.ui-button')].map((button) => {
+        const rect = button.getBoundingClientRect();
+        return {
+          left: Math.round(rect.left),
+          top: Math.round(rect.top),
+          width: Math.round(rect.width),
+        };
+      });
+
+      return {
+        backgroundColor: style.backgroundColor,
+        borderTopWidth: style.borderTopWidth,
+        boxShadow: style.boxShadow,
+        buttons,
+        display: style.display,
+      };
+    });
+
+    expect(metrics.display).toBe('grid');
+    expect(metrics.borderTopWidth).toBe('0px');
+    expect(metrics.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    expect(metrics.boxShadow).toBe('none');
+    expect(metrics.buttons).toHaveLength(3);
+    expect(metrics.buttons[0].top).toBe(metrics.buttons[1].top);
+    expect(metrics.buttons[2].top).toBeGreaterThan(metrics.buttons[0].top);
+    expect(Math.abs(metrics.buttons[2].left - metrics.buttons[0].left)).toBeLessThanOrEqual(2);
+    expect(metrics.buttons[2].width).toBeGreaterThan(metrics.buttons[0].width);
   });
 });
 
