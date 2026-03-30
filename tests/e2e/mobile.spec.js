@@ -22,6 +22,18 @@ Welcome to the test vault.
 - [[projects/collabmd]]
 `;
 
+const MOBILE_FRONTMATTER_DOCUMENT = `---
+title: Preview toggle
+tags:
+  - one
+  - two
+---
+
+# Heading
+
+Body copy
+`;
+
 async function longPress(locator, {
   clientX = 24,
   clientY = 24,
@@ -174,6 +186,52 @@ test.describe('mobile editor typography', () => {
     await expect.poll(async () => (
       page.locator('.editor-container .cm-editor').evaluate((element) => getComputedStyle(element).fontSize)
     )).toBe('16px');
+  });
+});
+
+test.describe('mobile frontmatter', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+  });
+
+  test('keeps the frontmatter toggle on the same row as Properties', async ({ page }) => {
+    await openFile(page, 'README.md', { waitFor: 'preview' });
+    await page.locator('#mobileViewToggle').click();
+    await waitForEditor(page);
+    await replaceEditorContent(page, MOBILE_FRONTMATTER_DOCUMENT);
+    await page.locator('#mobileViewToggle').click();
+    await waitForPreview(page);
+
+    const headerMetrics = await page.locator('#previewContent .frontmatter-header').evaluate((element) => {
+      const label = element.querySelector('.frontmatter-label');
+      const toggle = element.querySelector('.frontmatter-toggle');
+      if (!(label instanceof HTMLElement) || !(toggle instanceof HTMLElement)) {
+        throw new Error('Missing frontmatter label or toggle');
+      }
+
+      const style = getComputedStyle(element);
+      const labelRect = label.getBoundingClientRect();
+      const toggleRect = toggle.getBoundingClientRect();
+
+      return {
+        alignItems: style.alignItems,
+        flexDirection: style.flexDirection,
+        flexWrap: style.flexWrap,
+        labelBottom: Math.round(labelRect.bottom),
+        labelTop: Math.round(labelRect.top),
+        toggleBottom: Math.round(toggleRect.bottom),
+        toggleTop: Math.round(toggleRect.top),
+        toggleLeft: Math.round(toggleRect.left),
+        labelRight: Math.round(labelRect.right),
+      };
+    });
+
+    expect(headerMetrics.flexDirection).toBe('row');
+    expect(headerMetrics.alignItems).toBe('center');
+    expect(headerMetrics.flexWrap).toBe('nowrap');
+    expect(headerMetrics.toggleTop).toBeLessThan(headerMetrics.labelBottom);
+    expect(headerMetrics.toggleBottom).toBeGreaterThan(headerMetrics.labelTop);
+    expect(headerMetrics.toggleLeft).toBeGreaterThan(headerMetrics.labelRight);
   });
 });
 
