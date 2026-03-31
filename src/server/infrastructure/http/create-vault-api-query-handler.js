@@ -117,263 +117,285 @@ async function streamDirectoryArchive(req, res, {
   await responsePromise;
 }
 
+// --- Route handlers ---
+
+async function handleBaseQuery(req, res, _requestUrl, { baseQueryService }) {
+  try {
+    if (!baseQueryService?.query) {
+      jsonResponse(req, res, 503, { error: 'Bases query service is unavailable' });
+      return;
+    }
+
+    const body = await parseJsonBody(req);
+    const result = await baseQueryService.query({
+      activeFilePath: body?.activeFilePath ?? '',
+      basePath: body?.path ?? '',
+      search: body?.search ?? '',
+      source: typeof body?.source === 'string' ? body.source : null,
+      sourcePath: body?.sourcePath ?? '',
+      view: body?.view ?? '',
+    });
+
+    jsonResponse(req, res, 200, { ok: true, result });
+  } catch (error) {
+    console.error('[api] Failed to query base:', error.message);
+    jsonResponse(req, res, 400, { error: error.message || 'Failed to query base' });
+  }
+}
+
+async function handleBasePropertyValues(req, res, _requestUrl, { baseQueryService }) {
+  try {
+    if (!baseQueryService?.propertyValues) {
+      jsonResponse(req, res, 503, { error: 'Bases query service is unavailable' });
+      return;
+    }
+
+    const body = await parseJsonBody(req);
+    const result = await baseQueryService.propertyValues({
+      activeFilePath: body?.activeFilePath ?? '',
+      basePath: body?.path ?? '',
+      propertyId: body?.propertyId ?? '',
+      query: body?.query ?? '',
+      source: typeof body?.source === 'string' ? body.source : null,
+      sourcePath: body?.sourcePath ?? '',
+      view: body?.view ?? '',
+    });
+
+    jsonResponse(req, res, 200, { ok: true, result });
+  } catch (error) {
+    console.error('[api] Failed to read base property values:', error.message);
+    jsonResponse(req, res, 400, { error: error.message || 'Failed to read base property values' });
+  }
+}
+
+async function handleBaseTransform(req, res, _requestUrl, { baseQueryService }) {
+  try {
+    if (!baseQueryService?.transform) {
+      jsonResponse(req, res, 503, { error: 'Bases query service is unavailable' });
+      return;
+    }
+
+    const body = await parseJsonBody(req);
+    const result = await baseQueryService.transform({
+      activeFilePath: body?.activeFilePath ?? '',
+      basePath: body?.path ?? '',
+      mutation: body?.mutation ?? null,
+      source: typeof body?.source === 'string' ? body.source : null,
+      sourcePath: body?.sourcePath ?? '',
+      view: body?.view ?? '',
+    });
+
+    jsonResponse(req, res, 200, { ok: true, result });
+  } catch (error) {
+    console.error('[api] Failed to transform base:', error.message);
+    jsonResponse(req, res, 400, { error: error.message || 'Failed to transform base' });
+  }
+}
+
+async function handleBaseExport(req, res, _requestUrl, { baseQueryService }) {
+  try {
+    if (!baseQueryService?.query) {
+      jsonResponse(req, res, 503, { error: 'Bases query service is unavailable' });
+      return;
+    }
+
+    const body = await parseJsonBody(req);
+    const result = await baseQueryService.query({
+      activeFilePath: body?.activeFilePath ?? '',
+      basePath: body?.path ?? '',
+      includeCsv: true,
+      search: body?.search ?? '',
+      source: typeof body?.source === 'string' ? body.source : null,
+      sourcePath: body?.sourcePath ?? '',
+      view: body?.view ?? '',
+    });
+    const fileName = basename(String(body?.path || body?.sourcePath || 'base')).replace(/\.[^.]+$/u, '') || 'base';
+    sendResponse(req, res, {
+      body: result.csv,
+      headers: {
+        'Cache-Control': 'no-store',
+        'Content-Disposition': `attachment; filename="${createSafeAsciiFilename(`${fileName}.csv`)}"; filename*=UTF-8''${encodeContentDispositionFilename(`${fileName}.csv`)}`,
+        'Content-Type': 'text/csv; charset=utf-8',
+        'X-Content-Type-Options': 'nosniff',
+      },
+      statusCode: 200,
+    });
+  } catch (error) {
+    console.error('[api] Failed to export base CSV:', error.message);
+    jsonResponse(req, res, 400, { error: error.message || 'Failed to export base CSV' });
+  }
+}
+
+async function handleFileTree(req, res, _requestUrl, { vaultFileStore, workspaceMutationCoordinator }) {
+  try {
+    const tree = workspaceMutationCoordinator?.getWorkspaceTree?.() ?? await vaultFileStore.tree();
+    jsonResponse(req, res, 200, { tree });
+  } catch (error) {
+    console.error('[api] Failed to read file tree:', error.message);
+    jsonResponse(req, res, 500, { error: 'Failed to read file tree' });
+  }
+}
+
+async function handleFileRead(req, res, requestUrl, { vaultFileStore }) {
+  const filePath = requestUrl.searchParams.get('path');
+  if (!filePath) {
+    jsonResponse(req, res, 400, { error: 'Missing path parameter' });
+    return;
+  }
+
+  try {
+    const content = await selectReadOperation(vaultFileStore, filePath);
+    if (content === null) {
+      jsonResponse(req, res, 404, { error: 'File not found' });
+      return;
+    }
+
+    jsonResponse(req, res, 200, { path: filePath, content });
+  } catch (error) {
+    console.error('[api] Failed to read file:', error.message);
+    jsonResponse(req, res, 500, { error: 'Failed to read file' });
+  }
+}
+
+async function handleFileDownload(req, res, requestUrl, { vaultFileStore }) {
+  const filePath = requestUrl.searchParams.get('path');
+  if (!filePath) {
+    jsonResponse(req, res, 400, { error: 'Missing path parameter' });
+    return;
+  }
+
+  try {
+    const download = await vaultFileStore.readDownloadFile(filePath);
+    if (!download) {
+      jsonResponse(req, res, 404, { error: 'File not found' });
+      return;
+    }
+
+    sendResponse(req, res, {
+      body: download.content,
+      headers: createDownloadHeaders(
+        basename(String(download.path ?? 'download')),
+        download.mimeType || 'application/octet-stream',
+      ),
+      statusCode: 200,
+    });
+  } catch (error) {
+    console.error('[api] Failed to download file:', error.message);
+    jsonResponse(req, res, 500, { error: 'Failed to download file' });
+  }
+}
+
+async function handleDirectoryDownload(req, res, requestUrl, { vaultFileStore }) {
+  const directoryPath = requestUrl.searchParams.get('path');
+  if (!directoryPath) {
+    jsonResponse(req, res, 400, { error: 'Missing path parameter' });
+    return;
+  }
+
+  try {
+    const result = await vaultFileStore.listDirectoryEntriesForDownload(directoryPath);
+    if (!result.ok) {
+      jsonResponse(req, res, result.error === 'Directory not found' ? 404 : 400, { error: result.error });
+      return;
+    }
+
+    await streamDirectoryArchive(req, res, {
+      entries: result.entries,
+      rootName: result.rootName || 'archive',
+    });
+  } catch (error) {
+    console.error('[api] Failed to download directory:', error.message);
+    if (!res.headersSent) {
+      jsonResponse(req, res, 500, { error: 'Failed to download directory' });
+    } else {
+      res.destroy(error);
+    }
+  }
+}
+
+async function handleAttachmentRead(req, res, requestUrl, { vaultFileStore }) {
+  const filePath = requestUrl.searchParams.get('path');
+  if (!filePath) {
+    jsonResponse(req, res, 400, { error: 'Missing path parameter' });
+    return;
+  }
+
+  if (!isImageAttachmentFilePath(filePath)) {
+    jsonResponse(req, res, 400, { error: 'Unsupported attachment path' });
+    return;
+  }
+
+  try {
+    const attachment = await vaultFileStore.readImageAttachmentFile(filePath);
+    if (!attachment) {
+      jsonResponse(req, res, 404, { error: 'Attachment not found' });
+      return;
+    }
+
+    sendResponse(req, res, {
+      body: attachment.content,
+      headers: createAttachmentHeaders(attachment),
+      statusCode: 200,
+    });
+  } catch (error) {
+    console.error('[api] Failed to read attachment:', error.message);
+    jsonResponse(req, res, 500, { error: 'Failed to read attachment' });
+  }
+}
+
+async function handleBacklinks(req, res, requestUrl, { backlinkIndex }) {
+  const filePath = requestUrl.searchParams.get('file');
+  if (!filePath) {
+    jsonResponse(req, res, 400, { error: 'Missing file parameter' });
+    return;
+  }
+
+  try {
+    jsonResponse(req, res, 200, {
+      backlinks: backlinkIndex ? await backlinkIndex.getBacklinks(filePath) : [],
+      file: filePath,
+    });
+  } catch (error) {
+    console.error('[api] Failed to get backlinks:', error.message);
+    jsonResponse(req, res, 500, { error: 'Failed to get backlinks' });
+  }
+}
+
+// --- Route table ---
+
+function createRouteTable(context) {
+  return [
+    { method: 'POST', path: '/api/base/query', handler: handleBaseQuery },
+    { method: 'POST', path: '/api/base/property-values', handler: handleBasePropertyValues },
+    { method: 'POST', path: '/api/base/transform', handler: handleBaseTransform },
+    { method: 'POST', path: '/api/base/export', handler: handleBaseExport },
+    { method: 'GET', path: '/api/files', handler: handleFileTree },
+    { method: 'GET', path: '/api/file', handler: handleFileRead },
+    { method: 'GET', path: '/api/download/file', handler: handleFileDownload },
+    { method: 'GET', path: '/api/download/directory', handler: handleDirectoryDownload },
+    { method: 'GET', path: '/api/attachment', handler: handleAttachmentRead },
+    { method: 'GET', path: '/api/backlinks', handler: handleBacklinks },
+  ].map((route) => ({
+    ...route,
+    handler: (req, res, requestUrl) => route.handler(req, res, requestUrl, context),
+  }));
+}
+
 export function createVaultApiQueryHandler({
   baseQueryService = null,
   backlinkIndex,
   vaultFileStore,
   workspaceMutationCoordinator = null,
 }) {
+  const context = { baseQueryService, backlinkIndex, vaultFileStore, workspaceMutationCoordinator };
+  const routes = createRouteTable(context);
+
   return async function handleVaultApiQuery(req, res, requestUrl) {
-    if (requestUrl.pathname === '/api/base/query' && req.method === 'POST') {
-      try {
-        if (!baseQueryService?.query) {
-          jsonResponse(req, res, 503, { error: 'Bases query service is unavailable' });
-          return true;
-        }
-
-        const body = await parseJsonBody(req);
-        const result = await baseQueryService.query({
-          activeFilePath: body?.activeFilePath ?? '',
-          basePath: body?.path ?? '',
-          search: body?.search ?? '',
-          source: typeof body?.source === 'string' ? body.source : null,
-          sourcePath: body?.sourcePath ?? '',
-          view: body?.view ?? '',
-        });
-
-        jsonResponse(req, res, 200, { ok: true, result });
-      } catch (error) {
-        console.error('[api] Failed to query base:', error.message);
-        jsonResponse(req, res, 400, { error: error.message || 'Failed to query base' });
-      }
-      return true;
-    }
-
-    if (requestUrl.pathname === '/api/base/property-values' && req.method === 'POST') {
-      try {
-        if (!baseQueryService?.propertyValues) {
-          jsonResponse(req, res, 503, { error: 'Bases query service is unavailable' });
-          return true;
-        }
-
-        const body = await parseJsonBody(req);
-        const result = await baseQueryService.propertyValues({
-          activeFilePath: body?.activeFilePath ?? '',
-          basePath: body?.path ?? '',
-          propertyId: body?.propertyId ?? '',
-          query: body?.query ?? '',
-          source: typeof body?.source === 'string' ? body.source : null,
-          sourcePath: body?.sourcePath ?? '',
-          view: body?.view ?? '',
-        });
-
-        jsonResponse(req, res, 200, { ok: true, result });
-      } catch (error) {
-        console.error('[api] Failed to read base property values:', error.message);
-        jsonResponse(req, res, 400, { error: error.message || 'Failed to read base property values' });
-      }
-      return true;
-    }
-
-    if (requestUrl.pathname === '/api/base/transform' && req.method === 'POST') {
-      try {
-        if (!baseQueryService?.transform) {
-          jsonResponse(req, res, 503, { error: 'Bases query service is unavailable' });
-          return true;
-        }
-
-        const body = await parseJsonBody(req);
-        const result = await baseQueryService.transform({
-          activeFilePath: body?.activeFilePath ?? '',
-          basePath: body?.path ?? '',
-          mutation: body?.mutation ?? null,
-          source: typeof body?.source === 'string' ? body.source : null,
-          sourcePath: body?.sourcePath ?? '',
-          view: body?.view ?? '',
-        });
-
-        jsonResponse(req, res, 200, { ok: true, result });
-      } catch (error) {
-        console.error('[api] Failed to transform base:', error.message);
-        jsonResponse(req, res, 400, { error: error.message || 'Failed to transform base' });
-      }
-      return true;
-    }
-
-    if (requestUrl.pathname === '/api/base/export' && req.method === 'POST') {
-      try {
-        if (!baseQueryService?.query) {
-          jsonResponse(req, res, 503, { error: 'Bases query service is unavailable' });
-          return true;
-        }
-
-        const body = await parseJsonBody(req);
-        const result = await baseQueryService.query({
-          activeFilePath: body?.activeFilePath ?? '',
-          basePath: body?.path ?? '',
-          includeCsv: true,
-          search: body?.search ?? '',
-          source: typeof body?.source === 'string' ? body.source : null,
-          sourcePath: body?.sourcePath ?? '',
-          view: body?.view ?? '',
-        });
-        const fileName = basename(String(body?.path || body?.sourcePath || 'base')).replace(/\.[^.]+$/u, '') || 'base';
-        sendResponse(req, res, {
-          body: result.csv,
-          headers: {
-            'Cache-Control': 'no-store',
-            'Content-Disposition': `attachment; filename="${createSafeAsciiFilename(`${fileName}.csv`)}"; filename*=UTF-8''${encodeContentDispositionFilename(`${fileName}.csv`)}`,
-            'Content-Type': 'text/csv; charset=utf-8',
-            'X-Content-Type-Options': 'nosniff',
-          },
-          statusCode: 200,
-        });
-      } catch (error) {
-        console.error('[api] Failed to export base CSV:', error.message);
-        jsonResponse(req, res, 400, { error: error.message || 'Failed to export base CSV' });
-      }
-      return true;
-    }
-
-    if (requestUrl.pathname === '/api/files' && req.method === 'GET') {
-      try {
-        const tree = workspaceMutationCoordinator?.getWorkspaceTree?.() ?? await vaultFileStore.tree();
-        jsonResponse(req, res, 200, { tree });
-      } catch (error) {
-        console.error('[api] Failed to read file tree:', error.message);
-        jsonResponse(req, res, 500, { error: 'Failed to read file tree' });
-      }
-      return true;
-    }
-
-    if (requestUrl.pathname === '/api/file' && req.method === 'GET') {
-      const filePath = requestUrl.searchParams.get('path');
-      if (!filePath) {
-        jsonResponse(req, res, 400, { error: 'Missing path parameter' });
+    for (const route of routes) {
+      if (req.method === route.method && requestUrl.pathname === route.path) {
+        await route.handler(req, res, requestUrl);
         return true;
       }
-
-      try {
-        const content = await selectReadOperation(vaultFileStore, filePath);
-        if (content === null) {
-          jsonResponse(req, res, 404, { error: 'File not found' });
-          return true;
-        }
-
-        jsonResponse(req, res, 200, { path: filePath, content });
-      } catch (error) {
-        console.error('[api] Failed to read file:', error.message);
-        jsonResponse(req, res, 500, { error: 'Failed to read file' });
-      }
-      return true;
-    }
-
-    if (requestUrl.pathname === '/api/download/file' && req.method === 'GET') {
-      const filePath = requestUrl.searchParams.get('path');
-      if (!filePath) {
-        jsonResponse(req, res, 400, { error: 'Missing path parameter' });
-        return true;
-      }
-
-      try {
-        const download = await vaultFileStore.readDownloadFile(filePath);
-        if (!download) {
-          jsonResponse(req, res, 404, { error: 'File not found' });
-          return true;
-        }
-
-        sendResponse(req, res, {
-          body: download.content,
-          headers: createDownloadHeaders(
-            basename(String(download.path ?? 'download')),
-            download.mimeType || 'application/octet-stream',
-          ),
-          statusCode: 200,
-        });
-      } catch (error) {
-        console.error('[api] Failed to download file:', error.message);
-        jsonResponse(req, res, 500, { error: 'Failed to download file' });
-      }
-      return true;
-    }
-
-    if (requestUrl.pathname === '/api/download/directory' && req.method === 'GET') {
-      const directoryPath = requestUrl.searchParams.get('path');
-      if (!directoryPath) {
-        jsonResponse(req, res, 400, { error: 'Missing path parameter' });
-        return true;
-      }
-
-      try {
-        const result = await vaultFileStore.listDirectoryEntriesForDownload(directoryPath);
-        if (!result.ok) {
-          jsonResponse(req, res, result.error === 'Directory not found' ? 404 : 400, { error: result.error });
-          return true;
-        }
-
-        await streamDirectoryArchive(req, res, {
-          entries: result.entries,
-          rootName: result.rootName || 'archive',
-        });
-      } catch (error) {
-        console.error('[api] Failed to download directory:', error.message);
-        if (!res.headersSent) {
-          jsonResponse(req, res, 500, { error: 'Failed to download directory' });
-        } else {
-          res.destroy(error);
-        }
-      }
-      return true;
-    }
-
-    if (requestUrl.pathname === '/api/attachment' && req.method === 'GET') {
-      const filePath = requestUrl.searchParams.get('path');
-      if (!filePath) {
-        jsonResponse(req, res, 400, { error: 'Missing path parameter' });
-        return true;
-      }
-
-      if (!isImageAttachmentFilePath(filePath)) {
-        jsonResponse(req, res, 400, { error: 'Unsupported attachment path' });
-        return true;
-      }
-
-      try {
-        const attachment = await vaultFileStore.readImageAttachmentFile(filePath);
-        if (!attachment) {
-          jsonResponse(req, res, 404, { error: 'Attachment not found' });
-          return true;
-        }
-
-        sendResponse(req, res, {
-          body: attachment.content,
-          headers: createAttachmentHeaders(attachment),
-          statusCode: 200,
-        });
-      } catch (error) {
-        console.error('[api] Failed to read attachment:', error.message);
-        jsonResponse(req, res, 500, { error: 'Failed to read attachment' });
-      }
-      return true;
-    }
-
-    if (requestUrl.pathname === '/api/backlinks' && req.method === 'GET') {
-      const filePath = requestUrl.searchParams.get('file');
-      if (!filePath) {
-        jsonResponse(req, res, 400, { error: 'Missing file parameter' });
-        return true;
-      }
-
-      try {
-        jsonResponse(req, res, 200, {
-          backlinks: backlinkIndex ? await backlinkIndex.getBacklinks(filePath) : [],
-          file: filePath,
-        });
-      } catch (error) {
-        console.error('[api] Failed to get backlinks:', error.message);
-        jsonResponse(req, res, 500, { error: 'Failed to get backlinks' });
-      }
-      return true;
     }
 
     return false;

@@ -70,8 +70,7 @@ export function createRequestHandler(
     workspaceMutationCoordinator,
   });
 
-  return async function handleRequest(req, res) {
-    const originalRequestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  function handleBasePathRedirect(req, res, originalRequestUrl) {
     if (
       config.basePath
       && (req.method === 'GET' || req.method === 'HEAD')
@@ -80,6 +79,74 @@ export function createRequestHandler(
       const location = `${config.basePath}/${originalRequestUrl.search}`;
       res.writeHead(308, { Location: location });
       res.end();
+      return true;
+    }
+    return false;
+  }
+
+  function handleCorsPreflight(req, res, isSameOriginWrite) {
+    if (req.method !== 'OPTIONS') {
+      return false;
+    }
+
+    const requestedMethod = String(req.headers['access-control-request-method'] || '').toUpperCase();
+    const preflightTargetsWrite = WRITE_METHODS.has(requestedMethod);
+    if (preflightTargetsWrite && !isSameOriginWrite) {
+      jsonResponse(req, res, 403, { error: 'Cross-origin write requests are not allowed' });
+      return true;
+    }
+
+    if (isSameOriginWrite) {
+      applyCorsHeaders(res, req.headers.origin);
+    }
+
+    res.writeHead(204);
+    res.end();
+    return true;
+  }
+
+  function handleCorsWriteGuard(req, res, isSameOriginWrite) {
+    if (WRITE_METHODS.has(req.method) && !isSameOriginWrite) {
+      jsonResponse(req, res, 403, { error: 'Cross-origin write requests are not allowed' });
+      return true;
+    }
+    return false;
+  }
+
+  async function handleTestEndpoints(req, res, requestUrl) {
+    if (config.nodeEnv !== 'test') {
+      return false;
+    }
+
+    if (requestUrl.pathname === '/api/test/reset-state' && req.method === 'POST') {
+      await fileSystemSyncService?.resetForExternalStateChange?.();
+      await roomRegistry?.reset?.();
+      await backlinkIndex?.build?.();
+      await workspaceMutationCoordinator?.initialize?.();
+      await fileSystemSyncService?.resetForExternalStateChange?.();
+      jsonResponse(req, res, 200, { ok: true });
+      return true;
+    }
+
+    if (requestUrl.pathname === '/api/test/hydrate-delay' && req.method === 'POST') {
+      const body = await parseJsonBody(req).catch(() => ({}));
+      testControls.wsRoomHydrateDelayMs = Math.max(0, Number(body?.delayMs) || 0);
+      await fileSystemSyncService?.resetForExternalStateChange?.();
+      await roomRegistry?.reset?.();
+      await backlinkIndex?.build?.();
+      await workspaceMutationCoordinator?.initialize?.();
+      await fileSystemSyncService?.resetForExternalStateChange?.();
+      jsonResponse(req, res, 200, { delayMs: testControls.wsRoomHydrateDelayMs, ok: true });
+      return true;
+    }
+
+    return false;
+  }
+
+  return async function handleRequest(req, res) {
+    const originalRequestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+
+    if (handleBasePathRedirect(req, res, originalRequestUrl)) {
       return;
     }
 
@@ -91,47 +158,15 @@ export function createRequestHandler(
 
     setHeaders(res, SECURITY_HEADERS);
 
-    if (req.method === 'OPTIONS') {
-      const requestedMethod = String(req.headers['access-control-request-method'] || '').toUpperCase();
-      const preflightTargetsWrite = WRITE_METHODS.has(requestedMethod);
-      if (preflightTargetsWrite && !isSameOriginWrite) {
-        jsonResponse(req, res, 403, { error: 'Cross-origin write requests are not allowed' });
-        return;
-      }
-
-      if (isSameOriginWrite) {
-        applyCorsHeaders(res, req.headers.origin);
-      }
-
-      res.writeHead(204);
-      res.end();
+    if (handleCorsPreflight(req, res, isSameOriginWrite)) {
       return;
     }
 
-    if (WRITE_METHODS.has(req.method) && !isSameOriginWrite) {
-      jsonResponse(req, res, 403, { error: 'Cross-origin write requests are not allowed' });
+    if (handleCorsWriteGuard(req, res, isSameOriginWrite)) {
       return;
     }
 
-    if (config.nodeEnv === 'test' && requestUrl.pathname === '/api/test/reset-state' && req.method === 'POST') {
-      await fileSystemSyncService?.resetForExternalStateChange?.();
-      await roomRegistry?.reset?.();
-      await backlinkIndex?.build?.();
-      await workspaceMutationCoordinator?.initialize?.();
-      await fileSystemSyncService?.resetForExternalStateChange?.();
-      jsonResponse(req, res, 200, { ok: true });
-      return;
-    }
-
-    if (config.nodeEnv === 'test' && requestUrl.pathname === '/api/test/hydrate-delay' && req.method === 'POST') {
-      const body = await parseJsonBody(req).catch(() => ({}));
-      testControls.wsRoomHydrateDelayMs = Math.max(0, Number(body?.delayMs) || 0);
-      await fileSystemSyncService?.resetForExternalStateChange?.();
-      await roomRegistry?.reset?.();
-      await backlinkIndex?.build?.();
-      await workspaceMutationCoordinator?.initialize?.();
-      await fileSystemSyncService?.resetForExternalStateChange?.();
-      jsonResponse(req, res, 200, { delayMs: testControls.wsRoomHydrateDelayMs, ok: true });
+    if (await handleTestEndpoints(req, res, requestUrl)) {
       return;
     }
 
