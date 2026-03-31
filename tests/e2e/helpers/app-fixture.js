@@ -224,6 +224,12 @@ export async function openSampleFull(page, { plantUmlLabel = 'sample-full-plantu
 
 export async function duplicateVaultFile(page, sourcePath, targetPath) {
   await page.evaluate(async ({ sourcePath: source, targetPath: target }) => {
+    // Delete target if it already exists from a previous test run
+    const checkResponse = await fetch(`/api/file?path=${encodeURIComponent(target)}`);
+    if (checkResponse.ok) {
+      await fetch(`/api/file?path=${encodeURIComponent(target)}`, { method: 'DELETE' });
+    }
+
     const sourceResponse = await fetch(`/api/file?path=${encodeURIComponent(source)}`);
     if (!sourceResponse.ok) {
       throw new Error(`Failed to read ${source}`);

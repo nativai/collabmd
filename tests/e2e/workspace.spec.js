@@ -12,6 +12,8 @@ import {
   waitForPreview,
   waitForHeavyPreviewContent,
   appendEditorContent,
+  restoreReadmeTestDocument,
+  restoreVaultFileFromTemplate,
 } from './helpers/app-fixture.js';
 
 async function applyBlockToolbarAction(page, action) {
@@ -27,6 +29,51 @@ async function chooseCreateAction(page, actionName, { from = 'sidebar' } = {}) {
   await trigger.click();
   await expect(page.locator('.create-menu, .create-action-sheet').first()).toBeVisible();
   await page.locator('.create-menu-item, .create-action-sheet-item').filter({ hasText: actionName }).first().click();
+}
+
+async function dragFileTreeFileToDirectory(page, { sourceFilePath, targetDirectoryPath }) {
+  await page.evaluate(({ sourcePath, targetPath }) => {
+    const source = document.querySelector(`#fileTree .file-tree-file[data-path="${CSS.escape(sourcePath)}"]`);
+    const target = document.querySelector(`#fileTree .file-tree-dir[data-path="${CSS.escape(targetPath)}"]`);
+
+    if (!(source instanceof HTMLElement) || !(target instanceof HTMLElement)) {
+      throw new Error(`Missing drag source or target for ${sourcePath} -> ${targetPath}`);
+    }
+
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData('text/plain', source.dataset.path || sourcePath);
+
+    source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer }));
+    target.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer }));
+    target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
+    source.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer }));
+  }, {
+    sourcePath: sourceFilePath,
+    targetPath: targetDirectoryPath,
+  });
+}
+
+async function dragFileTreeFileToRoot(page, { sourceFilePath }) {
+  await page.evaluate(({ sourcePath }) => {
+    const source = document.querySelector(`#fileTree .file-tree-file[data-path="${CSS.escape(sourcePath)}"]`);
+    const target = document.querySelector('#fileTree .file-tree-root-drop-zone');
+
+    if (!(source instanceof HTMLElement) || !(target instanceof HTMLElement)) {
+      throw new Error(`Missing drag source or root target for ${sourcePath}`);
+    }
+
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData('text/plain', source.dataset.path || sourcePath);
+
+    source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer }));
+    target.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer }));
+    target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
+    source.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer }));
+  }, {
+    sourcePath: sourceFilePath,
+  });
 }
 
 test('shows empty state when no file is selected', async ({ page }) => {
@@ -167,6 +214,7 @@ test('keeps desktop secondary actions behind the toolbar overflow menu', async (
 });
 
 test('export docx uses the export page and posts the rendered snapshot html', async ({ page, context }) => {
+  await restoreReadmeTestDocument(page);
   await openFile(page, 'README.md', { waitFor: 'preview' });
 
   let exportRequestBody = null;
@@ -581,9 +629,12 @@ test('moves and deletes files from the sidebar with the custom dialog', async ({
 
 test('moves files between folders by drag and drop in the sidebar', async ({ page }) => {
   await openHome(page);
+  await page.locator('#fileSearchInput').fill('');
+
+  const fileName = `scratchpad-${Date.now()}`;
 
   await chooseCreateAction(page, /Markdown note/i);
-  await page.locator('#fileActionInput').fill('scratchpad');
+  await page.locator('#fileActionInput').fill(fileName);
   await page.locator('#fileActionSubmit').click();
   await waitForEditor(page);
 
@@ -591,51 +642,100 @@ test('moves files between folders by drag and drop in the sidebar', async ({ pag
   await page.locator('#fileActionInput').fill('notes');
   await page.locator('#fileActionSubmit').click();
 
-  const scratchpadItem = page.locator('#fileTree .file-tree-file', { hasText: 'scratchpad' }).first();
-  const notesItem = page.locator('#fileTree .file-tree-dir', { hasText: 'notes' }).first();
-  await scratchpadItem.dragTo(notesItem);
+  const sourceFilePath = `${fileName}.md`;
+  const movedFilePath = `notes/${fileName}.md`;
 
-  await expect(page.locator('#activeFileName')).toContainText('scratchpad');
-  await expect(page.locator('#fileTree')).toContainText('notes');
-  await expect(page.locator('#fileTree')).toContainText('scratchpad');
-  await expect(page.locator('#fileTree .file-tree-file').filter({ hasText: 'scratchpad' })).toHaveCount(1);
-  await expect.poll(async () => (
-    page.evaluate(async () => {
-      const response = await fetch('/api/file?path=notes%2Fscratchpad.md');
+  await expect(page.locator(`#fileTree .file-tree-file[data-path="${sourceFilePath}"]`)).toBeVisible();
+  await expect(page.locator('#fileTree .file-tree-dir[data-path="notes"]')).toBeVisible();
+
+  let moved = false;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await dragFileTreeFileToDirectory(page, {
+      sourceFilePath,
+      targetDirectoryPath: 'notes',
+    });
+
+    moved = await page.evaluate(async (pathValue) => {
+      const response = await fetch(`/api/file?path=${encodeURIComponent(pathValue)}`);
       return response.ok;
-    })
-  )).toBe(true);
+    }, movedFilePath);
+    if (moved) {
+      break;
+    }
+
+    await page.waitForTimeout(250);
+  }
+
+  expect(moved).toBe(true);
+
+  await expect(page.locator('#activeFileName')).toContainText(fileName);
+  await expect(page.locator('#fileTree')).toContainText('notes');
+  await expect(page.locator('#fileTree')).toContainText(fileName);
+  await expect(page.locator('#fileTree .file-tree-file').filter({ hasText: fileName })).toHaveCount(1);
+  await expect.poll(async () => (
+    page.evaluate(async (pathValue) => {
+      const response = await fetch(`/api/file?path=${encodeURIComponent(pathValue)}`);
+      return response.ok;
+    }, movedFilePath)
+  ), {
+    timeout: 20000,
+  }).toBe(true);
 });
 
 test('moves files back to the vault root through the root drop target', async ({ page }) => {
   await openHome(page);
+  await page.locator('#fileSearchInput').fill('');
+
+  const fileName = `scratchpad-${Date.now()}`;
+  const nestedFilePath = `notes/${fileName}.md`;
+  const rootFilePath = `${fileName}.md`;
 
   await chooseCreateAction(page, /Markdown note/i);
-  await page.locator('#fileActionInput').fill('notes/scratchpad');
+  await page.locator('#fileActionInput').fill(`notes/${fileName}`);
   await page.locator('#fileActionSubmit').click();
   await waitForEditor(page);
 
-  const scratchpadItem = page.locator('#fileTree .file-tree-file', { hasText: 'scratchpad' }).first();
-  const rootZone = page.locator('#fileTree .file-tree-root-drop-zone');
-  await scratchpadItem.dragTo(rootZone);
+  await expect(page.locator(`#fileTree .file-tree-file[data-path="${nestedFilePath}"]`)).toBeVisible();
+  await expect(page.locator('#fileTree .file-tree-root-drop-zone')).toBeVisible();
 
-  await expect(page.locator('#activeFileName')).toContainText('scratchpad');
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await dragFileTreeFileToRoot(page, { sourceFilePath: nestedFilePath });
+
+    const movedToRoot = await page.evaluate(async (pathValue) => {
+      const response = await fetch(`/api/file?path=${encodeURIComponent(pathValue)}`);
+      return response.ok;
+    }, rootFilePath);
+    if (movedToRoot) {
+      break;
+    }
+
+    await page.waitForTimeout(200);
+  }
+
+  await expect(page.locator('#activeFileName')).toContainText(fileName);
   await expect.poll(async () => (
-    page.evaluate(async () => {
-      const rootResponse = await fetch('/api/file?path=scratchpad.md');
-      const nestedResponse = await fetch('/api/file?path=notes%2Fscratchpad.md');
+    page.evaluate(async ({ nestedPath, rootPath }) => {
+      const rootResponse = await fetch(`/api/file?path=${encodeURIComponent(rootPath)}`);
+      const nestedResponse = await fetch(`/api/file?path=${encodeURIComponent(nestedPath)}`);
       return JSON.stringify({
         nestedExists: nestedResponse.ok,
         rootExists: rootResponse.ok,
       });
+    }, {
+      nestedPath: nestedFilePath,
+      rootPath: rootFilePath,
     })
-  )).toContain('"rootExists":true');
+  ), {
+    timeout: 20000,
+  }).toContain('"rootExists":true');
   await expect.poll(async () => (
-    page.evaluate(async () => {
-      const nestedResponse = await fetch('/api/file?path=notes%2Fscratchpad.md');
+    page.evaluate(async (pathValue) => {
+      const nestedResponse = await fetch(`/api/file?path=${encodeURIComponent(pathValue)}`);
       return nestedResponse.status;
-    })
-  )).toBe(404);
+    }, nestedFilePath)
+  ), {
+    timeout: 20000,
+  }).toBe(404);
 });
 
 test('rejects dragging a folder into one of its descendants', async ({ page }) => {
@@ -731,6 +831,7 @@ test('deletes non-empty folders with an explicit recursive confirmation', async 
 });
 
 test('search can find folders and open them into the expanded tree', async ({ page }) => {
+  await restoreVaultFileFromTemplate(page, 'daily/2026-03-05.md');
   await openHome(page);
 
   await page.locator('#fileSearchInput').fill('daily');

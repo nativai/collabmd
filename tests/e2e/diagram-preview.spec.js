@@ -619,19 +619,27 @@ test('switching directly between excalidraw files updates the reused iframe scen
 
   await seedStoredUserName(page);
   await page.goto('/?test=1#file=sample-excalidraw.excalidraw');
-  const firstFrame = await waitForExcalidrawFrameHarness(page);
-  await expect.poll(async () => (
-    firstFrame.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
-  ), { timeout: 60000 }).toEqual([]);
+  await expect.poll(async () => {
+    try {
+      const frame = await waitForExcalidrawFrameHarness(page);
+      return frame.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds());
+    } catch {
+      return null;
+    }
+  }, { timeout: 60000 }).toEqual([]);
 
   await page.locator('#refreshFilesBtn').click();
   await expect(page.locator('#fileTree')).toContainText('new-diagram');
   await page.locator('#fileTree .file-tree-item', { hasText: 'new-diagram' }).first().click();
 
-  const secondFrame = await waitForExcalidrawFrameHarness(page);
-  await expect.poll(async () => (
-    secondFrame.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
-  ), { timeout: 60000 }).toEqual(['shape-new']);
+  await expect.poll(async () => {
+    try {
+      const frame = await waitForExcalidrawFrameHarness(page);
+      return frame.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds());
+    } catch {
+      return null;
+    }
+  }, { timeout: 60000 }).toEqual(['shape-new']);
 });
 
 test('switching away from a direct excalidraw preview hides stale iframe overlays immediately', async ({ page }) => {

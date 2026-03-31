@@ -10,6 +10,8 @@ import {
   waitForEditor,
   waitForPreview,
   writeVaultFileAndResetCollab,
+  restoreReadmeTestDocument,
+  restoreVaultFileFromTemplate,
 } from './helpers/app-fixture.js';
 
 const OUTLINE_TEST_DOCUMENT = `# My Vault
@@ -343,6 +345,7 @@ test.describe('mobile editor commands', () => {
   });
 
   test('surfaces undo and redo as mobile toolbar actions', async ({ page }) => {
+    await restoreReadmeTestDocument(page);
     await openFile(page, 'README.md', { waitFor: 'preview' });
     await page.locator('#mobileViewToggle').click();
     await waitForEditor(page);
@@ -510,6 +513,8 @@ test.describe('mobile linked mentions', () => {
 
     await expect(inlinePanel).toHaveClass(/expanded/);
     await expect(inlinePanel.locator('.backlinks-body')).toBeVisible();
+
+    await restoreVaultFileFromTemplate(page, 'projects/collabmd.md');
   });
 });
 
