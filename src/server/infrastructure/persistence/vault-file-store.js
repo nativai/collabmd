@@ -108,6 +108,41 @@ function replacePathPrefix(pathValue, oldPrefix, newPrefix) {
   return `${newPrefix}${pathValue.slice(oldPrefix.length)}`;
 }
 
+function collectAncestorDirectoryPaths(pathValue) {
+  const normalizedPath = String(pathValue ?? '').replace(/\\/g, '/').trim();
+  if (!normalizedPath) {
+    return [];
+  }
+
+  const segments = normalizedPath.split('/').filter(Boolean);
+  const ancestors = [];
+  let currentPath = '';
+  for (let index = 0; index < Math.max(segments.length - 1, 0); index += 1) {
+    currentPath = currentPath ? `${currentPath}/${segments[index]}` : segments[index];
+    ancestors.push(currentPath);
+  }
+
+  return ancestors;
+}
+
+function expandManagedPaths(paths = []) {
+  const expandedPaths = new Set();
+
+  paths.filter(Boolean).forEach((pathValue) => {
+    const normalizedPath = String(pathValue ?? '').replace(/\\/g, '/').trim();
+    if (!normalizedPath) {
+      return;
+    }
+
+    expandedPaths.add(normalizedPath);
+    collectAncestorDirectoryPaths(normalizedPath).forEach((ancestorPath) => {
+      expandedPaths.add(ancestorPath);
+    });
+  });
+
+  return sortWorkspacePaths(Array.from(expandedPaths));
+}
+
 function sortWorkspacePaths(paths = [], direction = 'asc') {
   const factor = direction === 'desc' ? -1 : 1;
   return [...paths].sort((left, right) => {
@@ -833,7 +868,7 @@ export class VaultFileStore {
     }
 
     try {
-      await this.runManagedWrite([filePath], async () => {
+      await this.runManagedWrite(expandManagedPaths([filePath]), async () => {
         await rm(absolute, { force: true });
         await this.sidecarStore.deleteAllForFile(filePath);
       });
@@ -858,7 +893,7 @@ export class VaultFileStore {
     }
 
     try {
-      await this.runManagedWrite([oldPath, newPath], async () => {
+      await this.runManagedWrite(expandManagedPaths([oldPath, newPath]), async () => {
         await mkdir(dirname(absoluteNew), { recursive: true });
         await rename(absoluteOld, absoluteNew);
         await this.sidecarStore.renameAllForFile(oldPath, newPath);
@@ -901,7 +936,7 @@ export class VaultFileStore {
     const nextManagedPaths = managedPaths.map((pathValue) => replacePathPrefix(pathValue, oldPath, newPath));
 
     try {
-      await this.runManagedWrite([oldPath, newPath, ...managedPaths, ...nextManagedPaths], async () => {
+      await this.runManagedWrite(expandManagedPaths([oldPath, newPath, ...managedPaths, ...nextManagedPaths]), async () => {
         await mkdir(dirname(absoluteNew), { recursive: true });
         await rename(absoluteOld, absoluteNew);
         await Promise.all(
@@ -943,7 +978,7 @@ export class VaultFileStore {
         }
       }
 
-      await this.runManagedWrite([dirPath, ...managedPaths], async () => {
+      await this.runManagedWrite(expandManagedPaths([dirPath, ...managedPaths]), async () => {
         if (recursive) {
           await rm(absolute, { force: true, recursive: true });
         } else {

@@ -7,6 +7,37 @@ import { tmpdir } from 'node:os';
 import { VaultFileStore } from '../../src/server/infrastructure/persistence/vault-file-store.js';
 import { FileSystemSyncService } from '../../src/server/infrastructure/workspace/file-system-sync-service.js';
 
+function createWorkspaceState(entries = []) {
+  const normalizedEntries = entries.map(([pathValue, type = 'file']) => ({
+    path: pathValue,
+    type,
+  }));
+
+  return {
+    entries: new Map(normalizedEntries.map(({ path, type }) => [path, {
+      fileKind: type === 'directory' ? null : 'file',
+      name: path.split('/').pop(),
+      nodeType: type,
+      parentPath: path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '',
+      path,
+      type,
+    }])),
+    markdownPaths: normalizedEntries
+      .filter(({ path, type }) => type === 'file' && path.endsWith('.md'))
+      .map(({ path }) => path)
+      .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' })),
+    metadata: new Map(normalizedEntries.map(({ path, type }) => [path, {
+      inode: 1,
+      mtimeMs: 1,
+      path,
+      size: type === 'directory' ? 0 : 1,
+      type,
+    }])),
+    scannedAt: Date.now(),
+    vaultFileCount: normalizedEntries.filter(({ type }) => type === 'file').length,
+  };
+}
+
 async function createVault() {
   const vaultDir = await mkdtemp(join(tmpdir(), 'collabmd-fs-sync-'));
   await mkdir(join(vaultDir, 'docs'), { recursive: true });
@@ -195,4 +226,172 @@ test('FileSystemSyncService collapses overlapping pending paths during increment
 
   assert.equal(scanCount, 0);
   assert.deepEqual(applied?.workspaceChange?.changedPaths, ['docs/guide.md']);
+});
+
+test('FileSystemSyncService does not reintroduce a deleted file from a stale parent snapshot', async () => {
+  const staleState = createWorkspaceState([
+    ['docs', 'directory'],
+    ['docs/file.md', 'file'],
+  ]);
+  const authoritativeState = createWorkspaceState([
+    ['docs', 'directory'],
+  ]);
+  let scanCount = 0;
+  let applyCount = 0;
+  let syncCount = 0;
+  let replaceCount = 0;
+
+  const mutationCoordinator = {
+    filterManagedWorkspaceChange() {
+      return null;
+    },
+    async apply() {
+      applyCount += 1;
+    },
+    replaceWorkspaceState(nextState) {
+      replaceCount += 1;
+      this.workspaceState = nextState;
+    },
+    syncWorkspaceEntries() {
+      syncCount += 1;
+    },
+    workspaceState: authoritativeState,
+  };
+
+  const service = new FileSystemSyncService({
+    mutationCoordinator,
+    vaultFileStore: {
+      async scanWorkspaceState() {
+        scanCount += 1;
+        return authoritativeState;
+      },
+      vaultDir: process.cwd(),
+    },
+  });
+  service.lastState = staleState;
+  service.pendingEventTypesByPath.set('docs', new Set(['change']));
+  service.readWorkspacePathSnapshot = async () => staleState;
+
+  await service.flush();
+
+  assert.equal(scanCount, 1);
+  assert.equal(applyCount, 0);
+  assert.equal(syncCount, 0);
+  assert.equal(replaceCount, 0);
+  assert.equal(mutationCoordinator.workspaceState.entries.has('docs/file.md'), false);
+  assert.equal(service.lastState.entries.has('docs/file.md'), false);
+});
+
+test('FileSystemSyncService does not reintroduce a deleted directory tree from a stale ancestor snapshot', async () => {
+  const staleState = createWorkspaceState([
+    ['docs', 'directory'],
+    ['docs/guides', 'directory'],
+    ['docs/guides/guide.md', 'file'],
+  ]);
+  const authoritativeState = createWorkspaceState([
+    ['docs', 'directory'],
+  ]);
+  let scanCount = 0;
+  let applyCount = 0;
+  let syncCount = 0;
+  let replaceCount = 0;
+
+  const mutationCoordinator = {
+    filterManagedWorkspaceChange() {
+      return null;
+    },
+    async apply() {
+      applyCount += 1;
+    },
+    replaceWorkspaceState(nextState) {
+      replaceCount += 1;
+      this.workspaceState = nextState;
+    },
+    syncWorkspaceEntries() {
+      syncCount += 1;
+    },
+    workspaceState: authoritativeState,
+  };
+
+  const service = new FileSystemSyncService({
+    mutationCoordinator,
+    vaultFileStore: {
+      async scanWorkspaceState() {
+        scanCount += 1;
+        return authoritativeState;
+      },
+      vaultDir: process.cwd(),
+    },
+  });
+  service.lastState = staleState;
+  service.pendingEventTypesByPath.set('docs', new Set(['rename']));
+  service.readWorkspacePathSnapshot = async () => staleState;
+
+  await service.flush();
+
+  assert.equal(scanCount, 1);
+  assert.equal(applyCount, 0);
+  assert.equal(syncCount, 0);
+  assert.equal(replaceCount, 0);
+  assert.equal(mutationCoordinator.workspaceState.entries.has('docs/guides'), false);
+  assert.equal(mutationCoordinator.workspaceState.entries.has('docs/guides/guide.md'), false);
+  assert.equal(service.lastState.entries.has('docs/guides'), false);
+  assert.equal(service.lastState.entries.has('docs/guides/guide.md'), false);
+});
+
+test('FileSystemSyncService silently rebases workspace state during global suppression', async () => {
+  const baselineState = createWorkspaceState([
+    ['docs', 'directory'],
+  ]);
+  const externalChangeState = createWorkspaceState([
+    ['docs', 'directory'],
+    ['docs/external.md', 'file'],
+  ]);
+  let scanCount = 0;
+  let applyCount = 0;
+  let syncCount = 0;
+  let replaceCount = 0;
+
+  const mutationCoordinator = {
+    filterManagedWorkspaceChange() {
+      return null;
+    },
+    isGloballySuppressed() {
+      return true;
+    },
+    async apply() {
+      applyCount += 1;
+    },
+    replaceWorkspaceState(nextState) {
+      replaceCount += 1;
+      this.workspaceState = nextState;
+    },
+    syncWorkspaceEntries() {
+      syncCount += 1;
+    },
+    workspaceState: baselineState,
+  };
+
+  const service = new FileSystemSyncService({
+    mutationCoordinator,
+    vaultFileStore: {
+      async scanWorkspaceState() {
+        scanCount += 1;
+        return externalChangeState;
+      },
+      vaultDir: process.cwd(),
+    },
+  });
+  service.lastState = baselineState;
+  service.pendingEventTypesByPath.set('docs', new Set(['change']));
+  service.readWorkspacePathSnapshot = async () => externalChangeState;
+
+  await service.flush();
+
+  assert.equal(scanCount, 1);
+  assert.equal(applyCount, 0);
+  assert.equal(syncCount, 1);
+  assert.equal(replaceCount, 1);
+  assert.equal(mutationCoordinator.workspaceState.entries.has('docs/external.md'), true);
+  assert.equal(service.lastState.entries.has('docs/external.md'), true);
 });

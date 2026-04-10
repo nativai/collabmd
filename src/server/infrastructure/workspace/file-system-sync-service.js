@@ -253,6 +253,14 @@ function detectWorkspaceChange(previousState, nextState) {
   });
 }
 
+function hasWorkspacePaths(workspaceChange = {}) {
+  return (
+    (workspaceChange.changedPaths?.length ?? 0) > 0
+    || (workspaceChange.deletedPaths?.length ?? 0) > 0
+    || (workspaceChange.renamedPaths?.length ?? 0) > 0
+  );
+}
+
 export class FileSystemSyncService {
   constructor({
     debounceMs = 180,
@@ -560,22 +568,40 @@ export class FileSystemSyncService {
     this.consumePendingEvents();
 
     const previousWorkspaceState = this.mutationCoordinator.workspaceState;
-    const nextState = incrementalResult?.nextState ?? await this.vaultFileStore.scanWorkspaceState();
-    const workspaceChange = incrementalResult?.workspaceChange ?? detectWorkspaceChange(this.lastState, nextState);
+    const authoritativePreviousState = previousWorkspaceState ?? this.lastState;
+    let effectiveMode = incrementalResult ? 'incremental' : 'full-scan';
+    let effectiveFallbackReason = fallbackReason;
+    let nextState = incrementalResult?.nextState ?? await this.vaultFileStore.scanWorkspaceState();
+    let workspaceChange = incrementalResult?.workspaceChange ?? detectWorkspaceChange(this.lastState, nextState);
     this.lastState = nextState;
 
-    const filteredChange = this.mutationCoordinator.filterManagedWorkspaceChange(workspaceChange);
+    let filteredChange = this.mutationCoordinator.filterManagedWorkspaceChange(workspaceChange);
     if (!filteredChange) {
-      this.mutationCoordinator.syncWorkspaceEntries(nextState, {
-        previousState: previousWorkspaceState,
-      });
-      this.mutationCoordinator.replaceWorkspaceState(nextState);
+      const authoritativeChange = detectWorkspaceChange(authoritativePreviousState, nextState);
+      if (hasWorkspacePaths(authoritativeChange)) {
+        nextState = await this.vaultFileStore.scanWorkspaceState();
+        workspaceChange = detectWorkspaceChange(authoritativePreviousState, nextState);
+        this.lastState = nextState;
+        filteredChange = this.mutationCoordinator.filterManagedWorkspaceChange(workspaceChange);
+        effectiveMode = 'full-scan';
+        effectiveFallbackReason = effectiveFallbackReason || 'authoritative-rebase';
+      }
+    }
+
+    if (!filteredChange) {
+      if (this.mutationCoordinator.isGloballySuppressed?.()) {
+        this.mutationCoordinator.syncWorkspaceEntries(nextState, {
+          previousState: previousWorkspaceState,
+        });
+        this.mutationCoordinator.replaceWorkspaceState(nextState);
+      }
+
       logPerfEvent(this.perfLoggingEnabled, 'filesystem-sync', {
         changedPathCount: workspaceChange.changedPaths?.length ?? 0,
         deletedPathCount: workspaceChange.deletedPaths?.length ?? 0,
         durationMs: Date.now() - startedAt,
-        fallbackReason,
-        mode: incrementalResult ? 'incremental' : 'full-scan',
+        fallbackReason: effectiveFallbackReason,
+        mode: effectiveMode,
         pendingPathCount,
         renamedPathCount: workspaceChange.renamedPaths?.length ?? 0,
       });
@@ -592,8 +618,8 @@ export class FileSystemSyncService {
       changedPathCount: filteredChange.changedPaths?.length ?? 0,
       deletedPathCount: filteredChange.deletedPaths?.length ?? 0,
       durationMs: Date.now() - startedAt,
-      fallbackReason,
-      mode: incrementalResult ? 'incremental' : 'full-scan',
+      fallbackReason: effectiveFallbackReason,
+      mode: effectiveMode,
       pendingPathCount,
       renamedPathCount: filteredChange.renamedPaths?.length ?? 0,
     });
