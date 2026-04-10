@@ -253,11 +253,45 @@ test('ExcalidrawRoomClient rereads the file after a create conflict instead of f
     ydocFactory: () => ydoc,
   });
 
-  const scene = await client.connect({
-    initialUser: { color: '#111111', colorLight: '#11111133', name: 'Andes', peerId: 'peer-1' },
-  });
+  const scene = await client.loadSceneFromApi({ createIfMissing: true });
 
   assert.deepEqual(scene.elements.map((element) => element.id), ['shape-existing']);
+});
+
+test('ExcalidrawRoomClient does not recreate a missing file during connect', async () => {
+  const provider = createFakeProvider();
+  const ydoc = new Y.Doc();
+  let createCalls = 0;
+
+  const client = new ExcalidrawRoomClient({
+    filePath: 'deleted.excalidraw',
+    resolveWsBaseUrlFn: () => 'ws://localhost:3000',
+    setTimeoutFn: (callback) => {
+      callback();
+      return 1;
+    },
+    vaultClient: {
+      async createFile() {
+        createCalls += 1;
+        return { ok: true };
+      },
+      async readFile() {
+        const error = new Error('File not found');
+        error.status = 404;
+        throw error;
+      },
+    },
+    websocketProviderFactory: () => provider,
+    ydocFactory: () => ydoc,
+  });
+
+  await assert.rejects(
+    client.connect({
+      initialUser: { color: '#111111', colorLight: '#11111133', name: 'Andes', peerId: 'peer-1' },
+    }),
+    /File not found/,
+  );
+  assert.equal(createCalls, 0);
 });
 
 test('ExcalidrawRoomClient delays transient empty scene commits during active collaboration', async () => {

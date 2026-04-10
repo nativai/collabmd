@@ -210,7 +210,7 @@ export class ExcalidrawRoomClient {
     let initialJson = this.getStructuredSceneJson();
     let usedApiFallback = false;
     if (!initialJson) {
-      const sceneFromApi = await this.loadSceneFromApi();
+      const sceneFromApi = await this.loadSceneFromApi({ createIfMissing: false });
       const syncedJson = this.getStructuredSceneJson();
       if (syncedJson) {
         initialJson = syncedJson;
