@@ -97,3 +97,84 @@ test('WorkspaceSyncClient incrementally applies workspace entry add, rename, and
   client.entries.unobserve(client.handleEntriesChange);
   client.ydoc.destroy();
 });
+
+test('WorkspaceSyncClient nests incrementally updated files by path when parentPath is stale', () => {
+  const treeSnapshots = [];
+  const client = new WorkspaceSyncClient({
+    onTreeChange(tree) {
+      treeSnapshots.push(snapshotTree(tree));
+    },
+  });
+
+  client._didInitialSync = true;
+  client.entries.observe(client.handleEntriesChange);
+
+  client.ydoc.transact(() => {
+    client.entries.set('assets', {
+      fileKind: null,
+      name: 'assets',
+      nodeType: 'directory',
+      parentPath: '',
+      path: 'assets',
+      type: 'directory',
+    });
+    client.entries.set('assets/image.webp', {
+      fileKind: 'image',
+      name: 'image.webp',
+      nodeType: 'file',
+      parentPath: '',
+      path: 'assets/image.webp',
+      type: 'image',
+    });
+  });
+
+  assert.deepEqual(treeSnapshots.at(-1), [{
+    children: [{
+      name: 'image.webp',
+      path: 'assets/image.webp',
+      type: 'image',
+    }],
+    name: 'assets',
+    path: 'assets',
+    type: 'directory',
+  }]);
+
+  client.entries.unobserve(client.handleEntriesChange);
+  client.ydoc.destroy();
+});
+
+test('WorkspaceSyncClient rebuilds initial tree nesting from path when parentPath is stale', () => {
+  const client = new WorkspaceSyncClient();
+
+  const tree = client.treeModel.reset({
+    assets: {
+      fileKind: null,
+      name: 'assets',
+      nodeType: 'directory',
+      parentPath: '',
+      path: 'assets',
+      type: 'directory',
+    },
+    'assets/image.webp': {
+      fileKind: 'image',
+      name: 'image.webp',
+      nodeType: 'file',
+      parentPath: 'wrong-parent',
+      path: 'assets/image.webp',
+      type: 'image',
+    },
+  });
+
+  assert.deepEqual(snapshotTree(tree), [{
+    children: [{
+      name: 'image.webp',
+      path: 'assets/image.webp',
+      type: 'image',
+    }],
+    name: 'assets',
+    path: 'assets',
+    type: 'directory',
+  }]);
+
+  client.ydoc.destroy();
+});

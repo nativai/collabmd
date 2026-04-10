@@ -6,6 +6,29 @@ import { WORKSPACE_ROOM_NAME } from '../../domain/workspace-room.js';
 import { resolveWsBaseUrl } from '../domain/runtime-paths.js';
 import { stopReconnectOnControlledClose } from './yjs-provider-reset-guard.js';
 
+function normalizeWorkspacePath(pathValue = '') {
+  return String(pathValue ?? '')
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter(Boolean)
+    .join('/');
+}
+
+function getParentDirectoryPath(pathValue = '') {
+  const normalizedPath = normalizeWorkspacePath(pathValue);
+  if (!normalizedPath) {
+    return '';
+  }
+
+  const separatorIndex = normalizedPath.lastIndexOf('/');
+  return separatorIndex >= 0 ? normalizedPath.slice(0, separatorIndex) : '';
+}
+
+function getEntryParentPath(entry = {}) {
+  return getParentDirectoryPath(entry?.path ?? '');
+}
+
 function createNode(entry) {
   if (!entry?.path || !entry?.type) {
     return null;
@@ -87,7 +110,7 @@ class WorkspaceTreeModel {
     sortPathsByDepth(Array.from(this.nodesByPath.keys())).forEach((pathValue) => {
       const node = this.nodesByPath.get(pathValue);
       if (node) {
-        this.attachNode(pathValue, node, this.entriesByPath.get(pathValue)?.parentPath || '');
+        this.attachNode(pathValue, node, getEntryParentPath(this.entriesByPath.get(pathValue)));
       }
     });
 
@@ -170,7 +193,7 @@ class WorkspaceTreeModel {
     }
 
     this.entriesByPath.set(pathValue, entry);
-    this.attachNode(pathValue, node, entry.parentPath || '');
+    this.attachNode(pathValue, node, getEntryParentPath(entry));
 
     if (node.type === 'directory') {
       this.rehomeChildren(pathValue);
@@ -214,7 +237,7 @@ class WorkspaceTreeModel {
 
   rehomeChildren(parentPath) {
     this.entriesByPath.forEach((entry, pathValue) => {
-      if (entry?.parentPath !== parentPath) {
+      if (getEntryParentPath(entry) !== parentPath) {
         return;
       }
 
