@@ -730,6 +730,7 @@ export class GitPanelController {
       && this.selection.scope === file.scope;
     const dirPath = getPathDir(file.path);
     const displayName = getPathLeaf(file.path);
+    const fullPath = String(file.path || '');
     const statusClass = badgeClass(file.status);
     const stageAction = file.scope === 'staged'
       ? { label: 'Unstage', value: 'unstage' }
@@ -746,6 +747,7 @@ export class GitPanelController {
           type="button"
           data-git-path="${escapeHtml(file.path)}"
           data-git-scope="${escapeHtml(file.scope)}"
+          title="${escapeHtml(fullPath)}"
         >
           ${fileIconSvg()}
           <span class="ui-item-copy git-file-copy">

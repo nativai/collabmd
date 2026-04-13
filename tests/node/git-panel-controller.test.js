@@ -168,3 +168,43 @@ test('GitPanelController renders history rows and selects commits in history mod
 
   assert.deepEqual(selectedCommits, ['abc123456789']);
 });
+
+test('GitPanelController exposes the full file path as a hover title for trimmed file rows', async (t) => {
+  const harness = createPanelHarness();
+  t.after(() => harness.restore());
+
+  const controller = new GitPanelController();
+  controller.initialize();
+  controller.status = {
+    branch: {
+      ahead: 0,
+      behind: 0,
+      name: 'main',
+      upstream: 'origin/main',
+    },
+    isGitRepo: true,
+    sections: [{
+      files: [{
+        code: 'M',
+        path: 'Gold/Release Notes/release-process.md',
+        scope: 'unstaged',
+        status: 'modified',
+      }],
+      key: 'unstaged',
+      title: 'Changes',
+    }],
+    summary: {
+      additions: 0,
+      changedFiles: 1,
+      deletions: 0,
+      staged: 0,
+    },
+  };
+
+  controller.render();
+
+  assert.match(
+    harness.panel.innerHTML,
+    /title="Gold\/Release Notes\/release-process\.md"/,
+  );
+});
