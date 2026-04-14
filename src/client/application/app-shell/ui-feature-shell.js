@@ -39,6 +39,7 @@ function initialize() {
   this.scheduleEditorSessionPrewarm?.();
   this.outlineController.initialize();
   this.layoutController.initialize();
+  this.sidebarResizerController?.initialize();
   this.scrollSyncController.initialize();
   this.fileExplorer.initialize();
   this.gitPanel.initialize();

@@ -3,11 +3,12 @@
 .sidebar {
   display: flex;
   flex-direction: column;
-  width: 260px;
-  min-width: 260px;
-  max-width: 260px;
+  width: var(--sidebar-width, 260px);
+  min-width: 180px;
+  max-width: 500px;
+  flex-shrink: 0;
   overflow: hidden;
-  border-right: 1px solid var(--color-divider);
+  border-right: none;
   background: var(--color-surface);
   transition: width 180ms cubic-bezier(0.16, 1, 0.3, 1), min-width 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }

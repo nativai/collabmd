@@ -70,6 +70,7 @@ function applySidebarVisibility(showSidebar) {
   sidebar.toggleAttribute('hidden', hideForMobile);
   sidebar.setAttribute('aria-hidden', hideForMobile ? 'true' : 'false');
   sidebar.inert = isCollapsed;
+  this.sidebarResizerController?.syncVisibility(isCollapsed);
 }
 
 /** @this {UiSidebarContext} */

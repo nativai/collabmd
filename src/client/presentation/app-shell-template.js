@@ -95,6 +95,8 @@ export function appShellTemplate() {
         <div id="gitPanel" class="git-panel hidden" aria-label="Git changes"></div>
       </aside>
 
+      <div class="sidebar-resizer" id="sidebarResizer" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize sidebar" aria-controls="sidebar" aria-valuemin="180" aria-valuemax="500"></div>
+
       <main class="main-area" id="mainContent">
         <header class="toolbar" role="banner">
           <div class="toolbar-left">

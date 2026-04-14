@@ -102,6 +102,36 @@
   left: -6px;
 }
 
+/* ===== SIDEBAR RESIZER ===== */
+
+.sidebar-resizer {
+  position: relative;
+  z-index: 5;
+  width: 4px;
+  flex-shrink: 0;
+  background: var(--color-divider);
+  cursor: col-resize;
+  transition: background var(--transition-interactive);
+}
+
+.sidebar-resizer:hover,
+.sidebar-resizer.dragging {
+  background: var(--color-primary);
+}
+
+.sidebar-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: -6px;
+  bottom: 0;
+  left: -6px;
+}
+
+.sidebar-resizer.hidden {
+  display: none;
+}
+
 .editor-container {
   position: relative;
   flex: 1;

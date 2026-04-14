@@ -34,6 +34,7 @@ import { FileHistoryViewController } from '../presentation/file-history-view-con
 import { GitDiffViewController } from '../presentation/git-diff-view-controller.js';
 import { GitPanelController } from '../presentation/git-panel-controller.js';
 import { LayoutController } from '../presentation/layout-controller.js';
+import { SidebarResizerController } from '../presentation/sidebar-resizer-controller.js';
 import { OutlineController } from '../presentation/outline-controller.js';
 import { ScrollSyncController } from '../presentation/scroll-sync-controller.js';
 import { ThemeController } from '../presentation/theme-controller.js';
@@ -214,6 +215,7 @@ export class CollabMdAppShell {
       chatNotificationsKey: 'collabmd-chat-notifications-enabled',
       lineWrappingKey: 'collabmd-editor-line-wrap',
       sidebarVisibleKey: 'collabmd-sidebar-visible',
+      sidebarWidthKey: 'collabmd:sidebar-width',
       userNameKey: 'collabmd-user-name',
     });
     this.notifications = new BrowserNotificationPort();
@@ -371,6 +373,11 @@ export class CollabMdAppShell {
       mobileBreakpointQuery: this.mobileBreakpointQuery,
       onMeasureEditor: () => this.session?.requestMeasure(),
       onViewRequest: (view) => this.handleLayoutViewRequest(view),
+    });
+    this.sidebarResizerController = new SidebarResizerController({
+      sidebar: this.elements.sidebar,
+      resizer: document.getElementById('sidebarResizer'),
+      preferences: this.preferences,
     });
     this.scrollSyncController = new ScrollSyncController({
       getEditorLineNumber: () => this.session?.getTopVisibleLineNumber(0.35) ?? 1,

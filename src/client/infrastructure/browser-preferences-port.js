@@ -3,12 +3,14 @@ export class BrowserPreferencesPort {
     chatNotificationsKey,
     lineWrappingKey,
     sidebarVisibleKey,
+    sidebarWidthKey,
     userNameKey,
     storage = globalThis.localStorage,
   }) {
     this.chatNotificationsKey = chatNotificationsKey;
     this.lineWrappingKey = lineWrappingKey;
     this.sidebarVisibleKey = sidebarVisibleKey;
+    this.sidebarWidthKey = sidebarWidthKey;
     this.storage = storage;
     this.userNameKey = userNameKey;
   }
@@ -56,6 +58,22 @@ export class BrowserPreferencesPort {
   setSidebarVisible(showSidebar) {
     try {
       this.storage.setItem(this.sidebarVisibleKey, showSidebar ? 'true' : 'false');
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
+  getSidebarWidth() {
+    try {
+      return this.storage.getItem(this.sidebarWidthKey);
+    } catch {
+      return null;
+    }
+  }
+
+  setSidebarWidth(width) {
+    try {
+      this.storage.setItem(this.sidebarWidthKey, String(width));
     } catch {
       // Ignore storage errors.
     }
