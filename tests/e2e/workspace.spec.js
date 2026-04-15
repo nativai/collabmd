@@ -395,6 +395,21 @@ test('image toolbar uploads a vault attachment and inserts inline markdown', asy
     'src',
     /\/api\/attachment\?path=assets%2Finline-diagram-[^?]+\.webp/,
   );
+
+  const uploadedMarkdown = await page.evaluate(async () => {
+    const response = await fetch('/api/file?path=README.md');
+    const data = await response.json();
+    return data.content || '';
+  });
+  const uploadedPath = uploadedMarkdown.match(/!\[inline diagram\]\((assets\/inline-diagram-[^)]+\.webp)\)/i)?.[1];
+  if (!uploadedPath) {
+    throw new Error('Expected uploaded image markdown to contain an asset path.');
+  }
+
+  await openFile(page, uploadedPath, { waitFor: 'preview' });
+  await expect(page.locator('#previewContent .image-file-preview-image')).toBeVisible();
+  await expect(page.locator('#backlinksPanel')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#backlinksPanel .backlinks-count')).toHaveText('1');
 });
 
 test('image lightbox uses a fullscreen stage with click zoom, reset, and close', async ({ page }) => {

@@ -173,6 +173,141 @@ test('BacklinkIndex resolves markdown embeds that target non-markdown vault file
   ]);
 });
 
+test('BacklinkIndex resolves vault-local markdown image references', async () => {
+  const vaultFileStore = new StubVaultStore([
+    ['notes/source.md', [
+      '# Source',
+      '',
+      '![Cover](../assets/cover.png)',
+      '![Encoded](../assets/image%20two.webp)',
+      '![Remote](https://cdn.example.com/remote.png)',
+      '![Data](data:image/png;base64,abc)',
+      '![Root](/assets/root.png)',
+      '![Not image](../assets/readme.txt)',
+    ].join('\n')],
+    ['assets/cover.png', 'png-bytes'],
+    ['assets/image two.webp', 'webp-bytes'],
+    ['assets/root.png', 'png-bytes'],
+  ]);
+  const index = new BacklinkIndex({ vaultFileStore });
+
+  await index.build();
+  const readsAfterBuild = vaultFileStore.readCount;
+
+  assert.deepEqual(await index.getBacklinks('assets/cover.png'), [
+    {
+      contexts: ['![Cover](../assets/cover.png)'],
+      file: 'notes/source.md',
+    },
+  ]);
+  assert.deepEqual(await index.getBacklinks('assets/image two.webp'), [
+    {
+      contexts: ['![Encoded](../assets/image%20two.webp)'],
+      file: 'notes/source.md',
+    },
+  ]);
+  assert.deepEqual(await index.getBacklinks('assets/root.png'), []);
+  assert.equal(vaultFileStore.readCount, readsAfterBuild);
+});
+
+test('BacklinkIndex reindexes only impacted markdown sources when an image target is created', async () => {
+  const vaultFileStore = new StubVaultStore([
+    ['notes/source.md', '![Cover](../assets/cover.png)'],
+    ['notes/other.md', 'No image references here.'],
+  ]);
+  const index = new BacklinkIndex({ vaultFileStore });
+
+  await index.build();
+  const readsAfterBuild = vaultFileStore.readCount;
+  vaultFileStore.files.set('assets/cover.png', 'png-bytes');
+
+  await index.applyWorkspaceChange({
+    changedPaths: ['assets/cover.png'],
+    deletedPaths: [],
+    renamedPaths: [],
+  }, {
+    previousState: {
+      entries: new Map([
+        ['notes/other.md', { path: 'notes/other.md', type: 'file' }],
+        ['notes/source.md', { path: 'notes/source.md', type: 'file' }],
+      ]),
+    },
+    nextState: {
+      entries: new Map([
+        ['assets/cover.png', { path: 'assets/cover.png', type: 'image' }],
+        ['notes/other.md', { path: 'notes/other.md', type: 'file' }],
+        ['notes/source.md', { path: 'notes/source.md', type: 'file' }],
+      ]),
+    },
+  });
+
+  assert.equal(vaultFileStore.readCount, readsAfterBuild + 1);
+  assert.deepEqual(await index.getBacklinks('assets/cover.png'), [
+    {
+      contexts: ['![Cover](../assets/cover.png)'],
+      file: 'notes/source.md',
+    },
+  ]);
+});
+
+test('BacklinkIndex remaps markdown image backlinks when an image target is renamed', async () => {
+  const vaultFileStore = new StubVaultStore([
+    ['notes/source.md', '![Cover](../assets/cover.png)'],
+    ['assets/cover.png', 'png-bytes'],
+  ]);
+  const index = new BacklinkIndex({ vaultFileStore });
+
+  await index.build();
+  index.onFileRenamed('assets/cover.png', 'assets/hero.png');
+
+  assert.deepEqual(await index.getBacklinks('assets/cover.png'), []);
+  assert.deepEqual(await index.getBacklinks('assets/hero.png'), [
+    {
+      contexts: ['![Cover](../assets/cover.png)'],
+      file: 'notes/source.md',
+    },
+  ]);
+});
+
+test('BacklinkIndex preserves markdown image backlinks during workspace rename refreshes', async () => {
+  const vaultFileStore = new StubVaultStore([
+    ['notes/source.md', '![Cover](../assets/cover.png)'],
+    ['assets/cover.png', 'png-bytes'],
+  ]);
+  const index = new BacklinkIndex({ vaultFileStore });
+
+  await index.build();
+  vaultFileStore.files.delete('assets/cover.png');
+  vaultFileStore.files.set('assets/hero.png', 'png-bytes');
+
+  await index.applyWorkspaceChange({
+    changedPaths: [],
+    deletedPaths: [],
+    renamedPaths: [{ oldPath: 'assets/cover.png', newPath: 'assets/hero.png' }],
+  }, {
+    previousState: {
+      entries: new Map([
+        ['assets/cover.png', { path: 'assets/cover.png', type: 'image' }],
+        ['notes/source.md', { path: 'notes/source.md', type: 'file' }],
+      ]),
+    },
+    nextState: {
+      entries: new Map([
+        ['assets/hero.png', { path: 'assets/hero.png', type: 'image' }],
+        ['notes/source.md', { path: 'notes/source.md', type: 'file' }],
+      ]),
+    },
+  });
+
+  assert.deepEqual(await index.getBacklinks('assets/cover.png'), []);
+  assert.deepEqual(await index.getBacklinks('assets/hero.png'), [
+    {
+      contexts: ['![Cover](../assets/cover.png)'],
+      file: 'notes/source.md',
+    },
+  ]);
+});
+
 test('BacklinkIndex remaps backlinks when a non-markdown target file is renamed', async () => {
   const vaultFileStore = new StubVaultStore([
     ['notes/source.md', '![[diagrams/flow.mmd]]'],

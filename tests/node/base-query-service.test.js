@@ -466,10 +466,13 @@ test('BaseQueryService exposes file embeds and backlinks', async (t) => {
     '',
     '![[assets/cover.png]]',
     '',
+    '![Hero](../assets/hero.webp)',
+    '',
     '![[diagrams/flow.mmd]]',
   ].join('\n'));
   await writeVaultFile('notes/target.md', '# Target\n');
   await writeVaultFile('assets/cover.png', 'png-bytes');
+  await writeVaultFile('assets/hero.webp', 'webp-bytes');
   await writeVaultFile('diagrams/flow.mmd', 'flowchart TD\n  A --> B\n');
   await writeVaultFile('views/references.base', [
     'views:',
@@ -477,7 +480,7 @@ test('BaseQueryService exposes file embeds and backlinks', async (t) => {
     '    name: References',
     '    filters:',
     '      and:',
-    '        - file.name == "source.md" || file.name == "target.md" || file.name == "flow.mmd"',
+    '        - file.name == "source.md" || file.name == "target.md" || file.name == "flow.mmd" || file.name == "hero.webp"',
     '    order:',
     '      - file.name',
       '      - file.embeds',
@@ -491,11 +494,16 @@ test('BaseQueryService exposes file embeds and backlinks', async (t) => {
 
   const sourceRow = result.rows.find((row) => row.path === 'notes/source.md');
   const diagramRow = result.rows.find((row) => row.path === 'diagrams/flow.mmd');
+  const heroRow = result.rows.find((row) => row.path === 'assets/hero.webp');
   const targetRow = result.rows.find((row) => row.path === 'notes/target.md');
 
   assert.deepEqual(
     sourceRow.cells['file.embeds'].items.map((item) => item.path),
-    ['assets/cover.png', 'diagrams/flow.mmd'],
+    ['assets/cover.png', 'assets/hero.webp', 'diagrams/flow.mmd'],
+  );
+  assert.deepEqual(
+    heroRow.cells['file.backlinks'].items.map((item) => item.path),
+    ['notes/source.md'],
   );
   assert.deepEqual(
     diagramRow.cells['file.backlinks'].items.map((item) => item.path),
