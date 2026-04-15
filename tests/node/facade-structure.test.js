@@ -70,4 +70,6 @@ test('CollabMdAppShell remains the composition root', async () => {
   assert.equal(source.includes('Object.assign('), false);
   assert.equal(source.includes('installAppShellFeatures('), false);
   assert.equal(source.includes('handleHashChange(...args)'), true);
+  assert.equal(source.includes('handleDocumentKeydown(...args)'), true);
+  assert.equal(source.includes('handleDocumentPointerDown(...args)'), true);
 });

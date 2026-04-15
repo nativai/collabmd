@@ -24,6 +24,7 @@ import {
 import {
   normalizeDocumentMode,
 } from './domain/excalidraw-document-switch.js';
+import { isPlainQuickSwitcherShortcut } from './domain/keyboard-shortcuts.js';
 import { ensureClientAuthenticated } from './infrastructure/auth-client.js';
 import { ExcalidrawRoomClient } from './infrastructure/excalidraw-room-client.js';
 import { vaultApiClient } from './infrastructure/vault-api-client.js';
@@ -440,6 +441,16 @@ function postToParent(type, payload = {}) {
   window.parent.postMessage({ source: 'excalidraw-editor', type, ...payload }, parentOrigin);
 }
 
+function handleQuickSwitcherKeyDown(event) {
+  if (!isPlainQuickSwitcherShortcut(event)) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  postToParent('request-toggle-quick-switcher');
+}
+
 function getSceneElementsForPreviewFit() {
   return (
     excalidrawAPI?.getSceneElementsIncludingDeleted?.()
@@ -756,6 +767,8 @@ function initializeEditor(api) {
 function handleEditorMount({ excalidrawAPI: api }) {
   excalidrawAPI = api;
 }
+
+window.addEventListener('keydown', handleQuickSwitcherKeyDown, { capture: true });
 
 async function init() {
   const loadingElement = document.getElementById('loadingState');

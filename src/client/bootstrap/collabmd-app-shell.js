@@ -1,4 +1,5 @@
 import { PreviewRenderer } from '../application/preview-renderer.js';
+import { ensureQuickSwitcherInstance, toggleQuickSwitcherInstance } from '../application/quick-switcher-loader.js';
 import { WorkspaceRouteController } from '../application/workspace-route-controller.js';
 import { WikiLinkFileController } from '../application/wiki-link-file-controller.js';
 import { WorkspacePreviewController } from '../application/workspace-preview-controller.js';
@@ -112,6 +113,8 @@ export class CollabMdAppShell {
   closeToolbarOverflowMenu(...args) { return uiFeature.closeToolbarOverflowMenu.apply(this, args); }
   getStoredLineWrapping(...args) { return uiFeature.getStoredLineWrapping.apply(this, args); }
   handleConnectionChange(...args) { return uiFeature.handleConnectionChange.apply(this, args); }
+  handleDocumentKeydown(...args) { return uiFeature.handleDocumentKeydown.apply(this, args); }
+  handleDocumentPointerDown(...args) { return uiFeature.handleDocumentPointerDown.apply(this, args); }
   handlePreviewContentClick(...args) { return uiFeature.handlePreviewContentClick.apply(this, args); }
   handleThemeChange(...args) { return uiFeature.handleThemeChange.apply(this, args); }
   hideEditorLoading(...args) { return uiFeature.hideEditorLoading.apply(this, args); }
@@ -390,6 +393,9 @@ export class CollabMdAppShell {
       getLocalUser: () => this.lobby.getLocalUser(),
       getTheme: () => this.themeController.getTheme(),
       onOpenFile: (filePath) => filePath && this.navigation.navigateToFile(filePath),
+      onToggleQuickSwitcher: () => {
+        void this.toggleQuickSwitcher();
+      },
       previewContainer: this.elements.previewContainer,
       previewElement: this.elements.previewContent,
       toastController: this.toastController,
@@ -399,6 +405,9 @@ export class CollabMdAppShell {
       getTheme: () => this.themeController.getTheme(),
       onOpenFile: (filePath) => filePath && this.navigation.navigateToFile(filePath),
       onOpenTextFile: (filePath) => filePath && this.navigation.navigateToFile(filePath, { drawioMode: 'text' }),
+      onToggleQuickSwitcher: () => {
+        void this.toggleQuickSwitcher();
+      },
       previewContainer: this.elements.previewContainer,
       previewElement: this.elements.previewContent,
       toastController: this.toastController,
@@ -771,29 +780,16 @@ export class CollabMdAppShell {
     this._editorSessionPrewarmHandle = window.setTimeout(runPrewarm, 0);
   }
 
+  loadQuickSwitcherController() {
+    return import('../presentation/quick-switcher-controller.js')
+      .then((module) => module.QuickSwitcherController);
+  }
+
   async ensureQuickSwitcher() {
-    if (this.quickSwitcher) {
-      return this.quickSwitcher;
-    }
-
-    if (!this.quickSwitcherModulePromise) {
-      this.quickSwitcherModulePromise = import('../presentation/quick-switcher-controller.js')
-        .then((module) => module.QuickSwitcherController);
-    }
-
-    const QuickSwitcherController = await this.quickSwitcherModulePromise;
-    if (!this.quickSwitcher) {
-      this.quickSwitcher = new QuickSwitcherController({
-        getFileList: () => this.fileExplorer.flatFiles,
-        onFileSelect: (filePath) => this.handleFileSelection(filePath, { closeSidebarOnMobile: true }),
-      });
-    }
-
-    return this.quickSwitcher;
+    return ensureQuickSwitcherInstance(this);
   }
 
   async toggleQuickSwitcher() {
-    const quickSwitcher = await this.ensureQuickSwitcher();
-    quickSwitcher.toggle();
+    return toggleQuickSwitcherInstance(this);
   }
 }

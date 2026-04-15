@@ -98,6 +98,7 @@ export class DrawioEmbedController {
     getTheme,
     onOpenFile = null,
     onOpenTextFile = null,
+    onToggleQuickSwitcher = null,
     previewContainer,
     previewElement,
     toastController,
@@ -106,6 +107,7 @@ export class DrawioEmbedController {
     this.getTheme = getTheme;
     this.onOpenFile = onOpenFile;
     this.onOpenTextFile = onOpenTextFile;
+    this.onToggleQuickSwitcher = onToggleQuickSwitcher;
     this.previewContainer = previewContainer;
     this.previewElement = previewElement;
     this.toastController = toastController;
@@ -585,7 +587,15 @@ export class DrawioEmbedController {
     return null;
   }
 
+  _isMessageFromEntry(event, entry) {
+    return Boolean(entry?.iframe?.contentWindow && event.source === entry.iframe.contentWindow);
+  }
+
   _onMessage(event) {
+    if (event.origin !== window.location.origin) {
+      return;
+    }
+
     const payload = event.data;
     if (!payload || payload.source !== 'drawio-editor') {
       return;
@@ -593,6 +603,9 @@ export class DrawioEmbedController {
 
     const entry = this._findEntryByInstanceId(payload.instanceId);
     if (!entry) {
+      return;
+    }
+    if (!this._isMessageFromEntry(event, entry)) {
       return;
     }
 
@@ -616,6 +629,11 @@ export class DrawioEmbedController {
 
     if (payload.type === 'request-open-file') {
       this.onOpenFile?.(entry.filePath);
+      return;
+    }
+
+    if (payload.type === 'request-toggle-quick-switcher') {
+      this.onToggleQuickSwitcher?.();
     }
   }
 

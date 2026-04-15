@@ -1,4 +1,5 @@
 import { supportsBacklinksForFilePath } from '../../../domain/file-kind.js';
+import { isPlainQuickSwitcherShortcut } from '../../domain/keyboard-shortcuts.js';
 
 const VERSION_RELOAD_TOAST_DURATION_MS = 0;
 
@@ -313,7 +314,7 @@ function bindEvents() {
 
   document.addEventListener('keydown', (event) => {
     this.handleDocumentKeydown(event);
-  });
+  }, { capture: true });
 }
 
 /** @this {UiShellContext} */
@@ -351,8 +352,9 @@ function handleDocumentKeydown(event) {
     return;
   }
 
-  if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+  if (isPlainQuickSwitcherShortcut(event)) {
     event.preventDefault();
+    event.stopPropagation();
     void this.toggleQuickSwitcher();
   }
 }
@@ -548,6 +550,7 @@ export const uiFeatureShellMethods = {
   initialize,
   initializeVisualViewportBinding,
   initializeVersionMonitoring,
+  isPlainQuickSwitcherShortcut,
   promptForVersionReload,
   scheduleBacklinkRefresh,
   setToolbarOverflowOpen,

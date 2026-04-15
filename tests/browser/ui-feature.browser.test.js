@@ -4,6 +4,7 @@ import { uiFeatureIdentityMethods } from '../../src/client/application/app-shell
 import { uiFeatureShellMethods } from '../../src/client/application/app-shell/ui-feature-shell.js';
 import { uiFeatureSidebarMethods } from '../../src/client/application/app-shell/ui-feature-sidebar.js';
 import { uiFeatureToolbarMethods } from '../../src/client/application/app-shell/ui-feature-toolbar.js';
+import { ensureQuickSwitcherInstance } from '../../src/client/application/quick-switcher-loader.js';
 
 function createSidebarContext({ gitRepoAvailable = true, mobile = false } = {}) {
   document.body.innerHTML = `
@@ -400,6 +401,68 @@ describe('uiFeature browser helpers', () => {
 
     document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ctrlKey: true, key: 'k' }));
     expect(context.toggleQuickSwitcher).toHaveBeenCalledTimes(1);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ctrlKey: true, key: 'K' }));
+    expect(context.toggleQuickSwitcher).toHaveBeenCalledTimes(2);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      bubbles: true,
+      code: 'KeyK',
+      key: 'Unidentified',
+      metaKey: true,
+    }));
+    expect(context.toggleQuickSwitcher).toHaveBeenCalledTimes(3);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      bubbles: true,
+      key: 'K',
+      metaKey: true,
+      shiftKey: true,
+    }));
+    expect(context.toggleQuickSwitcher).toHaveBeenCalledTimes(3);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      bubbles: true,
+      ctrlKey: true,
+      key: 'k',
+      repeat: true,
+    }));
+    expect(context.toggleQuickSwitcher).toHaveBeenCalledTimes(3);
+  });
+
+  it('resets the quick switcher loader after a lazy import failure', async () => {
+    const loadError = new Error('chunk failed');
+    class TestQuickSwitcher {
+      constructor(options) {
+        this.options = options;
+      }
+    }
+
+    const context = {
+      fileExplorer: { flatFiles: ['README.md'] },
+      handleFileSelection: vi.fn(),
+      loadQuickSwitcherController: vi.fn()
+        .mockRejectedValueOnce(loadError)
+        .mockResolvedValueOnce(TestQuickSwitcher),
+      quickSwitcher: null,
+      quickSwitcherModulePromise: null,
+      toastController: { show: vi.fn() },
+    };
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(ensureQuickSwitcherInstance(context)).rejects.toThrow('chunk failed');
+
+    expect(context.quickSwitcherModulePromise).toBeNull();
+    expect(context.toastController.show).toHaveBeenCalledWith('Failed to load file search. Try again.', {
+      dismissible: true,
+    });
+    expect(consoleError).toHaveBeenCalled();
+
+    const quickSwitcher = await ensureQuickSwitcherInstance(context);
+
+    expect(context.loadQuickSwitcherController).toHaveBeenCalledTimes(2);
+    expect(quickSwitcher).toBeInstanceOf(TestQuickSwitcher);
+    expect(quickSwitcher.options.getFileList()).toEqual(['README.md']);
   });
 
   it('toggles preview task items from preview clicks without hijacking wiki links', () => {
