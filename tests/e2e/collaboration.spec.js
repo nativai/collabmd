@@ -266,6 +266,63 @@ function createSeededMultiplayerScene() {
   };
 }
 
+function createImageScene() {
+  const timestamp = 1_710_000_100_000;
+  const fileId = 'remote-image-file';
+
+  return {
+    type: 'excalidraw',
+    version: 2,
+    source: 'collabmd',
+    appState: {
+      gridSize: 20,
+      viewBackgroundColor: '#ffffff',
+    },
+    files: {
+      [fileId]: {
+        id: fileId,
+        mimeType: 'image/png',
+        dataURL: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Zt9kAAAAASUVORK5CYII=',
+        created: timestamp,
+        lastRetrieved: timestamp,
+        version: 1,
+      },
+    },
+    elements: [{
+      id: 'remote-image-element',
+      type: 'image',
+      x: 120,
+      y: 80,
+      width: 96,
+      height: 96,
+      angle: 0,
+      strokeColor: 'transparent',
+      backgroundColor: 'transparent',
+      fillStyle: 'solid',
+      strokeWidth: 1,
+      strokeStyle: 'solid',
+      roundness: null,
+      roughness: 0,
+      opacity: 100,
+      seed: 2001,
+      version: 2,
+      versionNonce: 2002,
+      index: 'a0',
+      isDeleted: false,
+      groupIds: [],
+      frameId: null,
+      boundElements: null,
+      updated: timestamp,
+      link: null,
+      locked: false,
+      fileId,
+      status: 'saved',
+      scale: [1, 1],
+      crop: null,
+    }],
+  };
+}
+
 async function hoverPreviewQuotedText(page, quote) {
   const rect = await page.evaluate((targetQuote) => {
     const root = document.getElementById('previewContent');
@@ -404,6 +461,35 @@ test('direct Excalidraw fallback does not wipe live room state from another page
   await expect.poll(async () => (
     pageA.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
   )).toBe('#123456');
+
+  await context.close();
+});
+
+test('direct Excalidraw collaboration registers binary files before applying remote image elements', async ({ browser }) => {
+  const context = await browser.newContext();
+  const pageA = await context.newPage();
+  const pageB = await context.newPage();
+
+  await pageA.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
+  await pageB.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
+  await waitForExcalidrawTestHarness(pageA);
+  await waitForExcalidrawTestHarness(pageB);
+
+  const imageScene = createImageScene();
+
+  await pageA.evaluate((scene) => {
+    window.__COLLABMD_EXCALIDRAW_TEST__.setScene(scene);
+  }, imageScene);
+
+  await expect.poll(async () => (
+    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
+  )).toContain('remote-image-element');
+  await expect.poll(async () => (
+    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getFileIds())
+  )).toContain('remote-image-file');
+  await expect.poll(async () => (
+    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementStatus('remote-image-element'))
+  )).toBe('saved');
 
   await context.close();
 });
