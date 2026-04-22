@@ -1,5 +1,24 @@
 import { defineConfig } from '@playwright/test';
 
+const crossBrowserDiagramPreviewProjects = process.env.PLAYWRIGHT_DIAGRAM_PREVIEW_CROSS_BROWSER === '1'
+  ? [
+    {
+      name: 'firefox-diagram-preview',
+      testMatch: /diagram-preview\.spec\.js/,
+      use: {
+        browserName: 'firefox',
+      },
+    },
+    {
+      name: 'webkit-diagram-preview',
+      testMatch: /diagram-preview\.spec\.js/,
+      use: {
+        browserName: 'webkit',
+      },
+    },
+  ]
+  : [];
+
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 45000,
@@ -26,4 +45,13 @@ export default defineConfig({
     url: 'http://127.0.0.1:4173/health',
   },
   workers: 1,
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        browserName: 'chromium',
+      },
+    },
+    ...crossBrowserDiagramPreviewProjects,
+  ],
 });

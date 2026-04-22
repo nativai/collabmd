@@ -568,6 +568,61 @@ test.describe('mobile PlantUML preview', () => {
   });
 });
 
+test.describe('narrow mobile PlantUML preview', () => {
+  test.use({
+    viewport: { width: 320, height: 844 },
+  });
+
+  test('keeps all toolbar actions reachable through horizontal scrolling on narrow screens', async ({ page }) => {
+    await page.route('**/api/plantuml/render', async (route) => {
+      await route.fulfill({
+        body: JSON.stringify({
+          ok: true,
+          svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 1400"><text x="40" y="120">narrow-mobile-plantuml</text></svg>',
+        }),
+        contentType: 'application/json',
+        status: 200,
+      });
+    });
+
+    await openFile(page, 'sample-plantuml.puml', { waitFor: 'preview' });
+    await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'preview');
+    await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+
+    const toolbar = page.locator('#previewContent .plantuml-toolbar');
+    const initialMetrics = await toolbar.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      clientWidth: element.clientWidth,
+      scrollLeft: element.scrollLeft,
+      scrollWidth: element.scrollWidth,
+    }));
+
+    expect(initialMetrics.clientHeight).toBeGreaterThan(0);
+    expect(initialMetrics.scrollWidth).toBeGreaterThanOrEqual(initialMetrics.clientWidth);
+
+    await toolbar.evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+    });
+
+    const scrolledMetrics = await toolbar.evaluate((element) => {
+      const toolbarRect = element.getBoundingClientRect();
+      const lastButton = element.querySelector('.plantuml-tool-btn[aria-label="Maximize diagram"]');
+      const lastRect = lastButton?.getBoundingClientRect();
+      return {
+        overflow: element.scrollWidth - element.clientWidth,
+        scrollLeft: element.scrollLeft,
+        lastRightOverflow: lastRect ? Math.max(0, Math.ceil(lastRect.right - toolbarRect.right)) : null,
+      };
+    });
+
+    if (scrolledMetrics.overflow > 1) {
+      expect(scrolledMetrics.scrollLeft).toBeGreaterThan(0);
+    }
+    expect(scrolledMetrics.lastRightOverflow).toBeLessThanOrEqual(1);
+    await expect(page.locator('#previewContent .plantuml-tool-btn[aria-label="Maximize diagram"]')).toBeVisible();
+  });
+});
+
 test.describe('mobile video embeds', () => {
   test.use({
     viewport: { width: 390, height: 844 },

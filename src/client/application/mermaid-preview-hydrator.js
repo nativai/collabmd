@@ -1,5 +1,12 @@
 import { clamp } from '../domain/vault-utils.js';
 import { setDiagramActionButtonIcon } from '../domain/diagram-action-icons.js';
+import {
+  createDiagramExportFileNames,
+  downloadBlob,
+  exportSvgMarkupFromElement,
+  rasterizeSvgMarkupToPngBlob,
+  writeBlobToClipboard,
+} from './diagram-preview-export.js';
 import { DiagramPreviewHydrator } from './diagram-preview-hydrator.js';
 import {
   createMermaidPlaceholderCard,
@@ -37,6 +44,8 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     this.loader = null;
     this.runtime = null;
     this.shellRefits = new WeakMap();
+    this.shellResizeObservers = new WeakMap();
+    this.resizeObservers = new Set();
     this.activeMaximizedShell = null;
     this.maximizedRoot = null;
   }
@@ -45,6 +54,7 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     this.cancelHydration();
     this.preservedShells.clear();
     this.clearActiveShell();
+    this.disconnectResizeObservers();
     this.maximizedRoot?.remove();
     this.maximizedRoot = null;
   }
@@ -68,6 +78,36 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     if (this.maximizedRoot && this.maximizedRoot.childElementCount === 0) {
       this.maximizedRoot.hidden = true;
     }
+  }
+
+  disconnectResizeObservers() {
+    this.resizeObservers.forEach((observer) => observer.disconnect());
+    this.resizeObservers.clear();
+    this.shellResizeObservers = new WeakMap();
+  }
+
+  disconnectShellResizeObserver(shell) {
+    const observer = this.shellResizeObservers.get(shell);
+    if (!observer) {
+      return;
+    }
+
+    observer.disconnect();
+    this.resizeObservers.delete(observer);
+    this.shellResizeObservers.delete(shell);
+  }
+
+  attachShellResizeObserver(shell, frame, onResize) {
+    this.disconnectShellResizeObserver(shell);
+    if (typeof ResizeObserver !== 'function' || !shell?.isConnected || !(frame instanceof HTMLElement)) {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => onResize());
+    observer.observe(frame);
+    observer.observe(shell);
+    this.shellResizeObservers.set(shell, observer);
+    this.resizeObservers.add(observer);
   }
 
   syncActiveShell() {
@@ -347,6 +387,7 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     }
 
     hydratedShells.forEach((shell) => {
+      this.disconnectShellResizeObserver(shell);
       this.shellRefits.delete(shell);
       shell.removeAttribute('data-mermaid-hydrated');
       shell.querySelector(':scope > .mermaid-toolbar')?.remove();
@@ -368,18 +409,25 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
 
     const toolbar = document.createElement('div');
     toolbar.className = 'mermaid-toolbar diagram-preview-toolbar';
+    const leftGroup = document.createElement('div');
+    leftGroup.className = 'diagram-preview-toolbar-group diagram-preview-toolbar-group--zoom';
+    const rightGroup = document.createElement('div');
+    rightGroup.className = 'diagram-preview-toolbar-group diagram-preview-toolbar-group--actions';
 
     const decreaseButton = this.createZoomButton('−', 'Zoom out');
     const increaseButton = this.createZoomButton('+', 'Zoom in');
-    const resetButton = this.createZoomButton('Reset', 'Reset zoom');
-    const maximizeButton = this.createZoomButton('Max', 'Maximize diagram');
+    const resetButton = this.createZoomButton('', 'Reset zoom', { icon: 'fit' });
+    const copyButton = this.createZoomButton('', 'Copy image', { icon: 'copy' });
+    const downloadButton = this.createZoomButton('', 'Download SVG', { icon: 'download' });
+    const maximizeButton = this.createZoomButton('', 'Maximize diagram', { icon: 'maximize' });
     maximizeButton.classList.add('mermaid-maximize-btn');
-    setDiagramActionButtonIcon(maximizeButton, 'maximize');
     const zoomLabel = document.createElement('span');
     zoomLabel.className = 'mermaid-zoom-label diagram-preview-zoom-label';
     zoomLabel.setAttribute('aria-live', 'polite');
 
-    toolbar.append(decreaseButton, zoomLabel, resetButton, increaseButton, maximizeButton);
+    leftGroup.append(decreaseButton, zoomLabel, resetButton, increaseButton);
+    rightGroup.append(copyButton, downloadButton, maximizeButton);
+    toolbar.append(leftGroup, rightGroup);
 
     const frame = document.createElement('div');
     frame.className = 'mermaid-frame diagram-preview-frame';
@@ -389,6 +437,7 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     let defaultZoom = 1;
     let zoomAnimationFrameId = null;
     let resetZoomFrameId = null;
+    let layoutFrameId = null;
     let hasManualZoom = false;
     let lastAutoFitViewportWidth = 0;
     let isPanning = false;
@@ -401,6 +450,15 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     svg.style.display = 'block';
     svg.style.margin = '0 auto';
     svg.style.maxWidth = 'none';
+
+    const exportSvgMarkup = () => exportSvgMarkupFromElement(svg);
+
+    const exportFileNames = () => createDiagramExportFileNames({
+      currentFilePath: this.renderer.getSourceFilePath?.() ?? '',
+      diagramKind: 'mermaid',
+      sourceLine: shell.getAttribute('data-source-line') || '',
+      targetPath: shell.dataset.mermaidTarget || '',
+    });
 
     const calculateDefaultZoom = () => {
       const viewport = getFrameViewportSize(frame);
@@ -512,32 +570,66 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
       if (resetZoomFrameId) {
         cancelAnimationFrame(resetZoomFrameId);
       }
+      if (layoutFrameId) {
+        cancelAnimationFrame(layoutFrameId);
+      }
 
       resetZoomFrameId = requestAnimationFrame(() => {
-        resetZoomFrameId = null;
-        if (!shell.isConnected) {
-          return;
-        }
+        layoutFrameId = requestAnimationFrame(() => {
+          layoutFrameId = requestAnimationFrame(() => {
+            layoutFrameId = null;
+            resetZoomFrameId = null;
+            if (!shell.isConnected) {
+              return;
+            }
 
-        const viewportWidth = getFrameViewportSize(frame).width;
-        const viewportChanged = Math.abs(viewportWidth - lastAutoFitViewportWidth) > 1;
-        if (!force && hasManualZoom) {
-          return;
-        }
-        if (!force && lastAutoFitViewportWidth > 0 && !viewportChanged) {
-          return;
-        }
+            const viewportWidth = getFrameViewportSize(frame).width;
+            const viewportChanged = Math.abs(viewportWidth - lastAutoFitViewportWidth) > 1;
+            if (!force && hasManualZoom) {
+              return;
+            }
+            if (!force && viewportWidth > 0 && lastAutoFitViewportWidth > 0 && !viewportChanged) {
+              return;
+            }
 
-        resetZoomToFit();
+            resetZoomToFit();
+          });
+        });
       });
     };
 
     this.shellRefits.set(shell, scheduleResetZoomToFit);
+    this.attachShellResizeObserver(shell, frame, () => scheduleResetZoomToFit());
 
     decreaseButton.addEventListener('click', () => zoomBy(-MERMAID_ZOOM.step));
     increaseButton.addEventListener('click', () => zoomBy(MERMAID_ZOOM.step));
     resetButton.addEventListener('click', () => {
-      resetZoomToFit({ animate: true });
+      scheduleResetZoomToFit({ force: true });
+    });
+    copyButton.addEventListener('click', async () => {
+      try {
+        const { pngFileName } = exportFileNames();
+        const pngBlob = await rasterizeSvgMarkupToPngBlob(exportSvgMarkup());
+        try {
+          await writeBlobToClipboard(pngBlob);
+          this.renderer.toastController?.show?.('Diagram copied');
+        } catch {
+          downloadBlob(pngBlob, pngFileName);
+          this.renderer.toastController?.show?.('Clipboard image copy is unavailable here. Downloaded PNG instead.');
+        }
+      } catch {
+        this.renderer.toastController?.show?.('Failed to copy diagram');
+      }
+    });
+    downloadButton.addEventListener('click', () => {
+      try {
+        const { svgFileName } = exportFileNames();
+        const svgBlob = new Blob([exportSvgMarkup()], { type: 'image/svg+xml;charset=utf-8' });
+        downloadBlob(svgBlob, svgFileName);
+        this.renderer.toastController?.show?.('Diagram download started');
+      } catch {
+        this.renderer.toastController?.show?.('Failed to download diagram');
+      }
     });
 
     const syncMaximizeButtonState = () => {
@@ -598,6 +690,12 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
 
       isPanning = false;
       frame.classList.remove('is-dragging');
+      window.removeEventListener('pointerup', stopPanning, true);
+      window.removeEventListener('pointercancel', stopPanning, true);
+      window.removeEventListener('mouseup', stopPanning, true);
+      window.removeEventListener('touchend', stopPanning, true);
+      window.removeEventListener('touchcancel', stopPanning, true);
+      window.removeEventListener('blur', stopPanning, true);
 
       if (activePointerId !== null && typeof frame.releasePointerCapture === 'function') {
         try {
@@ -628,7 +726,19 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
       panStartScrollTop = frame.scrollTop;
 
       frame.classList.add('is-dragging');
-      frame.setPointerCapture?.(event.pointerId);
+      window.addEventListener('pointerup', stopPanning, true);
+      window.addEventListener('pointercancel', stopPanning, true);
+      window.addEventListener('mouseup', stopPanning, true);
+      window.addEventListener('touchend', stopPanning, true);
+      window.addEventListener('touchcancel', stopPanning, true);
+      window.addEventListener('blur', stopPanning, true);
+      if (typeof frame.setPointerCapture === 'function') {
+        try {
+          frame.setPointerCapture(event.pointerId);
+        } catch {
+          // Safari can reject pointer capture during rapid layout transitions.
+        }
+      }
       event.preventDefault();
     });
 
@@ -644,6 +754,10 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     frame.addEventListener('pointerup', stopPanning);
     frame.addEventListener('pointercancel', stopPanning);
     frame.addEventListener('lostpointercapture', stopPanning);
+    frame.addEventListener('mouseleave', stopPanning);
+    frame.addEventListener('mouseup', stopPanning);
+    frame.addEventListener('touchend', stopPanning);
+    frame.addEventListener('touchcancel', stopPanning);
 
     frame.appendChild(svg);
     const sourceNode = shell.querySelector('.mermaid-source');
@@ -675,13 +789,17 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     });
   }
 
-  createZoomButton(label, ariaLabel) {
+  createZoomButton(label, ariaLabel, { icon = '' } = {}) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'mermaid-zoom-btn ui-preview-action';
     button.setAttribute('aria-label', ariaLabel);
     button.title = ariaLabel;
-    button.textContent = label;
+    if (icon) {
+      setDiagramActionButtonIcon(button, icon);
+    } else {
+      button.textContent = label;
+    }
     return button;
   }
 }

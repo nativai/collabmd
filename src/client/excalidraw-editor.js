@@ -342,7 +342,9 @@ function applySceneFromJson(rawJson) {
     return;
   }
 
-  updateApiScene(scene);
+  updateApiScene(scene, {
+    replaceElements: true,
+  });
 }
 
 function releaseOnChangeSuppressionAfterPaint({ trackedSharedSnapshot = false } = {}) {

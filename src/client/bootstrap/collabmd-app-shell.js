@@ -368,6 +368,7 @@ export class CollabMdAppShell {
       plantUmlRenderClient: this.plantUmlApiClient,
       previewContainer: this.elements.previewContainer,
       previewElement: this.elements.previewContent,
+      toastController: this.toastController,
     });
     this.themeController = new ThemeController({ onChange: (theme) => this.handleThemeChange(theme) });
     this.layoutController = new LayoutController({
