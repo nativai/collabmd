@@ -511,6 +511,53 @@ test('opens a file by clicking the sidebar', async ({ page }) => {
   await expect(page.locator('#activeFileName')).toContainText('collabmd');
 });
 
+test('quick switcher reveals and scrolls the file tree to the opened file', async ({ page }) => {
+  await openHome(page);
+
+  for (let index = 0; index < 40; index += 1) {
+    const padded = String(index).padStart(2, '0');
+    const response = await page.request.put('http://127.0.0.1:4173/api/file', {
+      data: {
+        content: `# note-${padded}\n`,
+        path: `zz-folder-${padded}/note-${padded}.md`,
+      },
+    });
+    expect(response.ok()).toBe(true);
+  }
+
+  await page.locator('#refreshFilesBtn').click();
+  await expect(page.locator('#fileTree')).toContainText('zz-folder-39');
+
+  const beforeScrollTop = await page.locator('#fileTree').evaluate((element) => element.scrollTop);
+
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
+  await expect(page.locator('#quickSwitcher')).toHaveClass(/visible/);
+  await page.locator('#quickSwitcherInput').fill('note-39');
+  await page.locator('#quickSwitcherResults .qs-result-item').first().click();
+
+  await waitForEditor(page);
+
+  const afterState = await page.locator('#fileTree').evaluate((element) => {
+    const active = element.querySelector('.file-tree-file.active');
+    const activeRect = active?.getBoundingClientRect();
+    const treeRect = element.getBoundingClientRect();
+
+    return {
+      activePath: active?.getAttribute('data-path') ?? null,
+      activeTop: activeRect?.top ?? null,
+      activeBottom: activeRect?.bottom ?? null,
+      scrollTop: element.scrollTop,
+      treeBottom: treeRect.bottom,
+      treeTop: treeRect.top,
+    };
+  });
+
+  expect(afterState.activePath).toBe('zz-folder-39/note-39.md');
+  expect(afterState.scrollTop).toBeGreaterThan(beforeScrollTop);
+  expect(afterState.activeTop).toBeGreaterThanOrEqual(afterState.treeTop);
+  expect(afterState.activeBottom).toBeLessThanOrEqual(afterState.treeBottom + 1);
+});
+
 test('creates files from the sidebar with the custom dialog', async ({ page }) => {
   await openHome(page);
 

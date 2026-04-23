@@ -650,6 +650,7 @@ export class CollabMdAppShell {
         this.sessionLoadToken = value;
       },
       setSidebarTab: (value) => this.setSidebarTab(value),
+      setSidebarVisibility: (showSidebar) => this.setSidebarVisibility(showSidebar),
       showGitCommit: (route) => this.showGitCommit(route),
       showGitDiff: (route) => this.showGitDiff(route),
       showGitFileHistory: (route) => this.showGitFileHistory(route),

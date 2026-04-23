@@ -22,7 +22,10 @@ export async function ensureQuickSwitcherInstance(host) {
   if (!host.quickSwitcher) {
     host.quickSwitcher = new QuickSwitcherController({
       getFileList: () => host.fileExplorer.flatFiles,
-      onFileSelect: (filePath) => host.handleFileSelection(filePath, { closeSidebarOnMobile: true }),
+      onFileSelect: (filePath) => host.handleFileSelection(filePath, {
+        closeSidebarOnMobile: true,
+        revealInTree: true,
+      }),
     });
   }
 

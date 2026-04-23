@@ -131,6 +131,12 @@ export class FileExplorerView {
     });
   }
 
+  revealFile(filePath) {
+    const fileItem = Array.from(this.treeContainer?.querySelectorAll('.file-tree-file') ?? [])
+      .find((element) => element.dataset.path === filePath);
+    fileItem?.scrollIntoView({ block: 'nearest' });
+  }
+
   render({ activeFilePath, changedPaths = null, expandedDirs, reset = false, searchMatches, searchQuery, tree }) {
     if (!this.treeContainer) {
       return;

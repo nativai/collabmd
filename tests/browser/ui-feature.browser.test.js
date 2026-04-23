@@ -463,6 +463,11 @@ describe('uiFeature browser helpers', () => {
     expect(context.loadQuickSwitcherController).toHaveBeenCalledTimes(2);
     expect(quickSwitcher).toBeInstanceOf(TestQuickSwitcher);
     expect(quickSwitcher.options.getFileList()).toEqual(['README.md']);
+    quickSwitcher.options.onFileSelect('docs/guide.md');
+    expect(context.handleFileSelection).toHaveBeenCalledWith('docs/guide.md', {
+      closeSidebarOnMobile: true,
+      revealInTree: true,
+    });
   });
 
   it('toggles preview task items from preview clicks without hijacking wiki links', () => {
