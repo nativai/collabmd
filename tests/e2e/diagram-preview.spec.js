@@ -356,7 +356,7 @@ test('embedded drawio uses the shared diagram preview header chrome', async ({ p
 test('markdown excalidraw embeds use preview mode with an edit button', async ({ page }) => {
   test.slow();
 
-  await openSampleFull(page);
+  await openSampleFull(page, { waitFor: 'preview' });
   await expect.poll(async () => (
     page.locator('#previewContent .excalidraw-embed iframe').count()
   ), { timeout: 60000 }).toBeGreaterThan(0);
@@ -369,7 +369,7 @@ test('markdown excalidraw embeds use preview mode with an edit button', async ({
 test('embedded excalidraw edit button navigates to the diagram file', async ({ page }) => {
   test.slow();
 
-  await openSampleFull(page);
+  await openSampleFull(page, { waitFor: 'preview' });
   await expect.poll(async () => (
     page.locator('#previewContent .excalidraw-embed-btn[aria-label="Edit in Excalidraw"]').count()
   ), { timeout: 60000 }).toBeGreaterThan(0);
@@ -752,7 +752,7 @@ test('embedded excalidraw maximize preserves layout and modal sizing', async ({ 
 test('embedded excalidraw matches mermaid width in preview-only view', async ({ page }) => {
   test.slow();
 
-  await openSampleFull(page);
+  await openSampleFull(page, { waitFor: 'preview' });
   await page.locator('.view-btn[data-view="preview"]').click();
   await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'preview');
 

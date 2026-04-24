@@ -217,9 +217,9 @@ export async function stubPlantUmlRender(page, label = 'plantuml-stub') {
   });
 }
 
-export async function openSampleFull(page, { plantUmlLabel = 'sample-full-plantuml' } = {}) {
+export async function openSampleFull(page, { plantUmlLabel = 'sample-full-plantuml', waitFor = 'editor' } = {}) {
   await stubPlantUmlRender(page, plantUmlLabel);
-  await openFile(page, 'sample-full.md');
+  await openFile(page, 'sample-full.md', { waitFor });
 }
 
 export async function duplicateVaultFile(page, sourcePath, targetPath) {
