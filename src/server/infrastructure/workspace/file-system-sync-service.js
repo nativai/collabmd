@@ -516,17 +516,15 @@ export class FileSystemSyncService {
         return { fallbackReason: 'snapshot-unavailable', incrementalResult: null };
       }
 
-      if (snapshot.entries.size > 0) {
-        if (!(await this.ensureAncestorDirectories(nextEntries, nextMetadata, pathValue))) {
-          return { fallbackReason: 'ancestor-missing', incrementalResult: null };
-        }
-
-        collectAncestorPaths(pathValue).forEach((ancestorPath) => {
-          if (nextEntries.has(ancestorPath)) {
-            nextTouchedPaths.add(ancestorPath);
-          }
-        });
+      if (!(await this.ensureAncestorDirectories(nextEntries, nextMetadata, pathValue))) {
+        return { fallbackReason: 'ancestor-missing', incrementalResult: null };
       }
+
+      collectAncestorPaths(pathValue).forEach((ancestorPath) => {
+        if (nextEntries.has(ancestorPath)) {
+          nextTouchedPaths.add(ancestorPath);
+        }
+      });
 
       snapshot.entries.forEach((entry, entryPath) => {
         nextEntries.set(entryPath, entry);

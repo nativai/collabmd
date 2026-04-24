@@ -228,6 +228,54 @@ test('FileSystemSyncService collapses overlapping pending paths during increment
   assert.deepEqual(applied?.workspaceChange?.changedPaths, ['docs/guide.md']);
 });
 
+test('FileSystemSyncService preserves asset directory entries when deleting one image incrementally', async (t) => {
+  const { cleanup, store, vaultDir } = await createVault();
+  t.after(cleanup);
+
+  await mkdir(join(vaultDir, 'assets'), { recursive: true });
+  await writeFile(join(vaultDir, 'assets', 'keep.webp'), 'keep-image');
+  await writeFile(join(vaultDir, 'assets', 'delete.webp'), 'delete-image');
+
+  const baselineState = await store.scanWorkspaceState();
+  let scanCount = 0;
+  const originalScanWorkspaceState = store.scanWorkspaceState.bind(store);
+  store.scanWorkspaceState = async (...args) => {
+    scanCount += 1;
+    return originalScanWorkspaceState(...args);
+  };
+
+  let applied = null;
+  const mutationCoordinator = {
+    filterManagedWorkspaceChange(workspaceChange) {
+      return workspaceChange;
+    },
+    async apply(payload) {
+      applied = payload;
+      return payload;
+    },
+    getWorkspaceRoom() {
+      return null;
+    },
+    workspaceState: baselineState,
+  };
+
+  const service = new FileSystemSyncService({
+    mutationCoordinator,
+    vaultFileStore: store,
+  });
+  service.lastState = baselineState;
+  service.pendingEventTypesByPath.set('assets/delete.webp', new Set(['rename']));
+
+  await rm(join(vaultDir, 'assets', 'delete.webp'));
+  await service.flush();
+
+  assert.equal(scanCount, 0);
+  assert.deepEqual(applied?.workspaceChange?.deletedPaths, ['assets/delete.webp']);
+  assert.equal(applied?.nextState?.entries?.has('assets'), true);
+  assert.equal(applied?.nextState?.entries?.has('assets/keep.webp'), true);
+  assert.equal(applied?.nextState?.entries?.has('assets/delete.webp'), false);
+});
+
 test('FileSystemSyncService does not reintroduce a deleted file from a stale parent snapshot', async () => {
   const staleState = createWorkspaceState([
     ['docs', 'directory'],
