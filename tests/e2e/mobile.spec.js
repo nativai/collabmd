@@ -320,7 +320,8 @@ test.describe('mobile bases preview', () => {
       return {
         borderTopLeftRadius: style.borderTopLeftRadius,
         borderTopRightRadius: style.borderTopRightRadius,
-        overflow: style.overflow,
+        overflowX: style.overflowX,
+        overflowY: style.overflowY,
       };
     });
     const toolbarMetrics = await page.locator('.bases-toolbar').evaluate((element) => {
@@ -331,7 +332,8 @@ test.describe('mobile bases preview', () => {
       };
     });
 
-    expect(shellMetrics.overflow).toBe('hidden');
+    expect(shellMetrics.overflowX).toBe('hidden');
+    expect(shellMetrics.overflowY).toBe('hidden');
     expect(shellMetrics.borderTopLeftRadius).not.toBe('0px');
     expect(shellMetrics.borderTopRightRadius).not.toBe('0px');
     expect(toolbarMetrics.borderTopLeftRadius).not.toBe('0px');
