@@ -589,7 +589,7 @@ export class FileSystemSyncService {
     }
 
     if (!filteredChange) {
-      if (this.mutationCoordinator.isGloballySuppressed?.()) {
+      if (this.mutationCoordinator.isGloballySuppressed?.() || hasWorkspacePaths(workspaceChange)) {
         this.mutationCoordinator.syncWorkspaceEntries(nextState, {
           previousState: previousWorkspaceState,
         });

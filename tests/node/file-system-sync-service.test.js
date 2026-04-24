@@ -395,3 +395,64 @@ test('FileSystemSyncService silently rebases workspace state during global suppr
   assert.equal(mutationCoordinator.workspaceState.entries.has('docs/external.md'), true);
   assert.equal(service.lastState.entries.has('docs/external.md'), true);
 });
+
+test('FileSystemSyncService silently rebases workspace state for managed writes', async () => {
+  const baselineState = createWorkspaceState([
+    ['diagram.excalidraw', 'file'],
+  ]);
+  const managedWriteState = createWorkspaceState([
+    ['diagram.excalidraw', 'file'],
+  ]);
+  managedWriteState.metadata.set('diagram.excalidraw', {
+    ...managedWriteState.metadata.get('diagram.excalidraw'),
+    mtimeMs: 2,
+    size: 2,
+  });
+  let scanCount = 0;
+  let applyCount = 0;
+  let syncCount = 0;
+  let replaceCount = 0;
+
+  const mutationCoordinator = {
+    filterManagedWorkspaceChange() {
+      return null;
+    },
+    isGloballySuppressed() {
+      return false;
+    },
+    async apply() {
+      applyCount += 1;
+    },
+    replaceWorkspaceState(nextState) {
+      replaceCount += 1;
+      this.workspaceState = nextState;
+    },
+    syncWorkspaceEntries() {
+      syncCount += 1;
+    },
+    workspaceState: baselineState,
+  };
+
+  const service = new FileSystemSyncService({
+    mutationCoordinator,
+    vaultFileStore: {
+      async scanWorkspaceState() {
+        scanCount += 1;
+        return managedWriteState;
+      },
+      vaultDir: process.cwd(),
+    },
+  });
+  service.lastState = baselineState;
+  service.pendingEventTypesByPath.set('diagram.excalidraw', new Set(['change']));
+  service.readWorkspacePathSnapshot = async () => managedWriteState;
+
+  await service.flush();
+
+  assert.equal(scanCount, 1);
+  assert.equal(applyCount, 0);
+  assert.equal(syncCount, 1);
+  assert.equal(replaceCount, 1);
+  assert.equal(mutationCoordinator.workspaceState.metadata.get('diagram.excalidraw').mtimeMs, 2);
+  assert.equal(service.lastState.metadata.get('diagram.excalidraw').mtimeMs, 2);
+});
