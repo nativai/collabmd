@@ -19,6 +19,7 @@ export class WorkspaceRouteController {
     previewRenderer,
     renderAvatars,
     renderPresence,
+    requestPreviewRouteAnchor = null,
     resetPreviewMode,
     scrollSyncController,
     setSession,
@@ -55,6 +56,7 @@ export class WorkspaceRouteController {
     this.previewRenderer = previewRenderer;
     this.renderAvatars = renderAvatars;
     this.renderPresence = renderPresence;
+    this.requestPreviewRouteAnchor = requestPreviewRouteAnchor;
     this.resetPreviewMode = resetPreviewMode;
     this.scrollSyncController = scrollSyncController;
     this.setSession = setSession;
@@ -81,6 +83,7 @@ export class WorkspaceRouteController {
 
     const route = this.navigation.getHashRoute();
     if (route.type === 'empty') {
+      this.requestPreviewRouteAnchor?.(null);
       this.gitPanel.setSelection();
       this.showEmptyState();
       this.syncMainChrome({ mode: 'empty', title: 'CollabMD' });
@@ -88,30 +91,35 @@ export class WorkspaceRouteController {
     }
 
     if (route.type === 'git-diff') {
+      this.requestPreviewRouteAnchor?.(null);
       this.setSidebarTab('git');
       await this.showGitDiff(route);
       return;
     }
 
     if (route.type === 'git-file-history') {
+      this.requestPreviewRouteAnchor?.(null);
       this.setSidebarTab('files');
       await this.showGitFileHistory(route);
       return;
     }
 
     if (route.type === 'git-file-preview') {
+      this.requestPreviewRouteAnchor?.(null);
       this.setSidebarTab('files');
       await this.showGitFilePreview(route);
       return;
     }
 
     if (route.type === 'git-history') {
+      this.requestPreviewRouteAnchor?.(null);
       this.setSidebarTab('git');
       await this.showGitHistory();
       return;
     }
 
     if (route.type === 'git-commit') {
+      this.requestPreviewRouteAnchor?.(null);
       this.setSidebarTab('git');
       await this.showGitCommit(route);
       return;
@@ -119,6 +127,7 @@ export class WorkspaceRouteController {
 
     this.setSidebarTab('files');
     await this.openFile(route.filePath, { drawioMode: route.drawioMode || null });
+    this.requestPreviewRouteAnchor?.(route.anchor ?? null, route.filePath);
   }
 
   showEmptyState() {

@@ -9,6 +9,7 @@ import {
   replaceEditorContent,
   test,
   waitForHeavyPreviewContent,
+  writeVaultFileAndResetCollab,
 } from './helpers/app-fixture.js';
 
 const OUTLINE_TEST_DOCUMENT = `# My Vault
@@ -37,6 +38,31 @@ Welcome to the test vault.
 
 - [[daily/2026-03-05]]
 - [[projects/collabmd]]
+`;
+
+const FRAGMENT_LINK_DOCUMENT = `# My Vault
+
+- [Jump to section](#section-a)
+- [Back to top](#top)
+
+## Section A
+
+Target content
+`;
+
+const DUPLICATE_SUBHEADING_DOCUMENT = `# My Vault
+
+## Approach A
+
+#### Pros
+
+- Alpha
+
+## Approach B
+
+#### Pros
+
+- Beta
 `;
 
 async function createLinkedMentionFiles(page, {
@@ -282,6 +308,117 @@ test('renders frontmatter as metadata while keeping outline navigation aligned',
 
   await expect(page.locator('#previewContent h2[data-source-line="13"]')).toBeVisible();
   await expect(page.locator('#outlineNav .outline-item.active').first()).toHaveText('Links');
+});
+
+test('keeps in-document anchor clicks inside the current preview without changing the file route', async ({ page }) => {
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, FRAGMENT_LINK_DOCUMENT);
+  await expect(page.locator('#previewContent a[href="#section-a"]')).toBeVisible();
+
+  await expect(page).toHaveURL(/#file=README\.md$/);
+  await page.locator('#previewContent a[href="#section-a"]').click();
+
+  await expect(page).toHaveURL(/#file=README\.md$/);
+  expect(page.context().pages()).toHaveLength(1);
+  await expect(page.locator('#tabLockOverlay')).toBeHidden();
+
+  await expect.poll(async () => {
+    const heading = page.locator('#previewContent h2#section-a');
+    return heading.evaluate((element) => {
+      const container = document.getElementById('previewContainer');
+      const containerRect = container.getBoundingClientRect();
+      const headingRect = element.getBoundingClientRect();
+      return Math.abs(headingRect.top - containerRect.top);
+    });
+  }).toBeLessThan(220);
+});
+
+test('copies and restores file-plus-anchor deep links from preview headings', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, FRAGMENT_LINK_DOCUMENT);
+
+  const headingLinkButton = page.locator('#previewContent h2#section-a .preview-heading-link-button');
+  await expect(headingLinkButton).toBeVisible();
+  await headingLinkButton.click();
+
+  await expect.poll(async () => (
+    page.evaluate(() => navigator.clipboard.readText())
+  )).toBe(`${new URL(page.url()).origin}/#file=README.md&anchor=section-a`);
+
+  await page.goto('/#file=README.md&anchor=section-a');
+  await expect(page).toHaveURL(/#file=README\.md&anchor=section-a$/);
+  await expect(page.locator('#tabLockOverlay')).toBeHidden();
+  await expect(page.locator('#previewContent h2#section-a')).toBeVisible();
+
+  await expect.poll(async () => {
+    const heading = page.locator('#previewContent h2#section-a');
+    return heading.evaluate((element) => {
+      const container = document.getElementById('previewContainer');
+      const containerRect = container.getBoundingClientRect();
+      const headingRect = element.getBoundingClientRect();
+      return Math.abs(headingRect.top - containerRect.top);
+    });
+  }).toBeLessThan(220);
+});
+
+test('restores a file-plus-anchor route on the first page load', async ({ page }) => {
+  await writeVaultFileAndResetCollab(page, {
+    content: FRAGMENT_LINK_DOCUMENT,
+    path: 'README.md',
+  });
+
+  await page.goto('/#file=README.md&anchor=section-a');
+  await expect(page).toHaveURL(/#file=README\.md&anchor=section-a$/);
+  await expect(page.locator('#tabLockOverlay')).toBeHidden();
+  await expect(page.locator('#previewContent h2#section-a')).toBeVisible();
+
+  await expect.poll(async () => {
+    const heading = page.locator('#previewContent h2#section-a');
+    return heading.evaluate((element) => {
+      const container = document.getElementById('previewContainer');
+      const containerRect = container.getBoundingClientRect();
+      const headingRect = element.getBoundingClientRect();
+      return Math.abs(headingRect.top - containerRect.top);
+    });
+  }).toBeLessThan(220);
+
+  const editorHeadingOffset = await page.locator('.cm-line', { hasText: '## Section A' }).first().evaluate((line) => {
+    const scroller = document.querySelector('.cm-scroller');
+    const scrollerRect = scroller.getBoundingClientRect();
+    const lineRect = line.getBoundingClientRect();
+    return Math.abs(lineRect.top - scrollerRect.top);
+  });
+
+  expect(editorHeadingOffset).toBeLessThan(220);
+});
+
+test('copies and restores duplicate nested heading links using contextual anchors', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, DUPLICATE_SUBHEADING_DOCUMENT);
+
+  const headingLinkButton = page.locator('#previewContent h4#approach-b-pros .preview-heading-link-button');
+  await expect(headingLinkButton).toBeVisible();
+  await headingLinkButton.click();
+
+  await expect.poll(async () => (
+    page.evaluate(() => navigator.clipboard.readText())
+  )).toBe(`${new URL(page.url()).origin}/#file=README.md&anchor=approach-b-pros`);
+
+  await page.goto('/#file=README.md&anchor=approach-b-pros');
+  await expect(page).toHaveURL(/#file=README\.md&anchor=approach-b-pros$/);
+  await expect(page.locator('#previewContent h4#approach-b-pros')).toBeVisible();
+
+  await expect.poll(async () => {
+    const heading = page.locator('#previewContent h4#approach-b-pros');
+    return heading.evaluate((element) => {
+      const container = document.getElementById('previewContainer');
+      const containerRect = container.getBoundingClientRect();
+      const headingRect = element.getBoundingClientRect();
+      return Math.abs(headingRect.top - containerRect.top);
+    });
+  }).toBeLessThan(320);
 });
 
 test('keeps the preview container width stable when the outline opens in preview mode', async ({ page }) => {

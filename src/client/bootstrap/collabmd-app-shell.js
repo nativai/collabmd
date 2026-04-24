@@ -116,6 +116,9 @@ export class CollabMdAppShell {
   bindEvents(...args) { return uiFeature.bindEvents.apply(this, args); }
   clearInitialFileBootstrap(...args) { return uiFeature.clearInitialFileBootstrap.apply(this, args); }
   closeToolbarOverflowMenu(...args) { return uiFeature.closeToolbarOverflowMenu.apply(this, args); }
+  applyPendingPreviewRouteAnchor(...args) { return uiFeature.applyPendingPreviewRouteAnchor.apply(this, args); }
+  copyPreviewHeadingLink(...args) { return uiFeature.copyPreviewHeadingLink.apply(this, args); }
+  createPreviewHeadingLinkUrl(...args) { return uiFeature.createPreviewHeadingLinkUrl.apply(this, args); }
   getStoredLineWrapping(...args) { return uiFeature.getStoredLineWrapping.apply(this, args); }
   handleConnectionChange(...args) { return uiFeature.handleConnectionChange.apply(this, args); }
   handleDocumentKeydown(...args) { return uiFeature.handleDocumentKeydown.apply(this, args); }
@@ -126,11 +129,14 @@ export class CollabMdAppShell {
   initialize(...args) { return uiFeature.initialize.apply(this, args); }
   initializeVisualViewportBinding(...args) { return uiFeature.initializeVisualViewportBinding.apply(this, args); }
   initializeVersionMonitoring(...args) { return uiFeature.initializeVersionMonitoring.apply(this, args); }
+  navigatePreviewHeading(...args) { return uiFeature.navigatePreviewHeading.apply(this, args); }
   promptForVersionReload(...args) { return uiFeature.promptForVersionReload.apply(this, args); }
+  requestPreviewRouteAnchor(...args) { return uiFeature.requestPreviewRouteAnchor.apply(this, args); }
   scheduleBacklinkRefresh(...args) { return uiFeature.scheduleBacklinkRefresh.apply(this, args); }
   setToolbarOverflowOpen(...args) { return uiFeature.setToolbarOverflowOpen.apply(this, args); }
   showEditorLoadError(...args) { return uiFeature.showEditorLoadError.apply(this, args); }
   showEditorLoading(...args) { return uiFeature.showEditorLoading.apply(this, args); }
+  syncPreviewHeadingLinkButtons(...args) { return uiFeature.syncPreviewHeadingLinkButtons.apply(this, args); }
   syncVisualViewportBounds(...args) { return uiFeature.syncVisualViewportBounds.apply(this, args); }
   syncToolbarOverflowVisibility(...args) { return uiFeature.syncToolbarOverflowVisibility.apply(this, args); }
   syncWrapToggle(...args) { return uiFeature.syncWrapToggle.apply(this, args); }
@@ -349,6 +355,8 @@ export class CollabMdAppShell {
         this.excalidrawEmbed.reconcileEmbeds(this.elements.previewContent, { isLargeDocument: stats.isLargeDocument });
         this.excalidrawEmbed.syncLayout();
         this.scrollSyncController.setLargeDocumentMode(stats.isLargeDocument);
+        this.syncPreviewHeadingLinkButtons();
+        this.applyPendingPreviewRouteAnchor({ behavior: 'auto', clearMissing: true });
         this.schedulePreviewLayoutSync({ delayMs: 0 });
         this.refreshCommentUiLayout();
       },
@@ -366,6 +374,7 @@ export class CollabMdAppShell {
         this.videoEmbed.syncLayout();
         this.drawioEmbed.syncLayout();
         this.excalidrawEmbed.syncLayout();
+        this.applyPendingPreviewRouteAnchor({ behavior: 'auto', clearMissing: true });
         this.schedulePreviewLayoutSync({ delayMs: 0 });
         this.refreshCommentUiLayout();
       },
@@ -635,6 +644,7 @@ export class CollabMdAppShell {
       lobby: this.lobby,
       navigation: this.navigation,
       previewRenderer: this.previewRenderer,
+      requestPreviewRouteAnchor: (anchorId, filePath) => this.requestPreviewRouteAnchor(anchorId, filePath),
       renderAvatars: () => this.renderAvatars(),
       renderPresence: () => this.renderPresence(),
       resetPreviewMode: () => this.resetPreviewMode(),

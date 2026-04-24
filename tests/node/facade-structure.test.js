@@ -72,4 +72,5 @@ test('CollabMdAppShell remains the composition root', async () => {
   assert.equal(source.includes('handleHashChange(...args)'), true);
   assert.equal(source.includes('handleDocumentKeydown(...args)'), true);
   assert.equal(source.includes('handleDocumentPointerDown(...args)'), true);
+  assert.equal(source.includes('navigatePreviewHeading(...args)'), true);
 });

@@ -1,7 +1,15 @@
 import { supportsBacklinksForFilePath } from '../../../domain/file-kind.js';
 import { isPlainQuickSwitcherShortcut } from '../../domain/keyboard-shortcuts.js';
+import { createFileRouteHash, isCollabMdHashRoute } from '../../domain/hash-routes.js';
 
 const VERSION_RELOAD_TOAST_DURATION_MS = 0;
+const PREVIEW_HEADING_LINK_ICON = `
+  <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+    <path d="M10 13.5 14 9.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <path d="M9.35 7.55 10.6 6.3a4.2 4.2 0 0 1 5.95 5.95l-1.25 1.25" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <path d="m14.65 16.45-1.25 1.25a4.2 4.2 0 0 1-5.95-5.95L8.7 10.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+`;
 
 /**
  * @typedef {object} UiShellContext
@@ -396,9 +404,187 @@ function isInteractiveTaskListDescendant(target) {
   return Boolean(target.closest('a, button, input, select, textarea, summary, [contenteditable="true"], [role="button"], [role="link"]'));
 }
 
+function normalizeFragmentTargetId(rawTarget = '') {
+  const normalizedTarget = String(rawTarget ?? '').trim();
+  if (!normalizedTarget) {
+    return '';
+  }
+
+  try {
+    return decodeURIComponent(normalizedTarget);
+  } catch {
+    return normalizedTarget;
+  }
+}
+
+function scrollPreviewToTarget(previewContainer, target, { behavior = 'smooth' } = {}) {
+  if (!previewContainer || !target) {
+    return;
+  }
+
+  const previewRect = previewContainer.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const nextScrollTop = previewContainer.scrollTop + (targetRect.top - previewRect.top);
+  previewContainer.scrollTo({
+    behavior,
+    top: Math.max(nextScrollTop, 0),
+  });
+}
+
+async function copyTextToClipboard(text) {
+  await navigator.clipboard.writeText(text);
+}
+
+function getHeadingLinkLabel(heading) {
+  if (!(heading instanceof HTMLElement)) {
+    return '';
+  }
+
+  const headingClone = heading.cloneNode(true);
+  if (!(headingClone instanceof HTMLElement)) {
+    return heading.textContent.trim();
+  }
+
+  headingClone.querySelectorAll('.preview-heading-link-button').forEach((button) => button.remove());
+  return headingClone.textContent.replace(/\s+/g, ' ').trim();
+}
+
+/** @this {UiShellContext} */
+function navigatePreviewHeading(target, headingId, { behavior = 'auto' } = {}) {
+  if (!(target instanceof HTMLElement) || !headingId) {
+    return false;
+  }
+
+  const handledByOutlineNavigation = this.outlineController?.navigateToHeading?.(target, headingId, { behavior });
+  if (handledByOutlineNavigation) {
+    return true;
+  }
+
+  const previewContainer = this.elements.previewContainer ?? document.getElementById('previewContainer');
+  if (!previewContainer) {
+    return false;
+  }
+
+  this.scrollSyncController?.suspendSync?.(250);
+  scrollPreviewToTarget(previewContainer, target, { behavior });
+
+  const sourceLine = Number.parseInt(target.getAttribute('data-source-line') || '', 10);
+  if (Number.isFinite(sourceLine)) {
+    this.session?.scrollToLine?.(sourceLine, 0);
+  }
+
+  return true;
+}
+
+/** @this {UiShellContext} */
+function createPreviewHeadingLinkUrl(anchorId) {
+  if (!this.currentFilePath || !anchorId) {
+    return '';
+  }
+
+  const url = new URL(window.location.href);
+  url.hash = createFileRouteHash(this.currentFilePath, {
+    anchor: anchorId,
+    drawioMode: this.currentDrawioMode ?? null,
+  });
+  return url.toString();
+}
+
+/** @this {UiShellContext} */
+async function copyPreviewHeadingLink(anchorId) {
+  const url = this.createPreviewHeadingLinkUrl(anchorId);
+  if (!url) {
+    this.toastController.show('Failed to copy section link');
+    return;
+  }
+
+  try {
+    await copyTextToClipboard(url);
+    this.toastController.show('Section link copied');
+  } catch {
+    this.toastController.show('Failed to copy section link');
+  }
+}
+
+/** @this {UiShellContext} */
+function syncPreviewHeadingLinkButtons() {
+  const headings = this.elements.previewContent?.querySelectorAll?.('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]') ?? [];
+
+  Array.from(headings).forEach((heading) => {
+    if (!(heading instanceof HTMLElement) || !heading.id) {
+      return;
+    }
+
+    const headingLabel = getHeadingLinkLabel(heading);
+    let button = heading.querySelector(':scope > .preview-heading-link-button');
+    if (!(button instanceof HTMLButtonElement)) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'ui-icon-button preview-heading-link-button';
+      button.innerHTML = PREVIEW_HEADING_LINK_ICON;
+      heading.appendChild(button);
+    }
+
+    button.dataset.previewHeadingAnchor = heading.id;
+    button.setAttribute('aria-label', `Copy link to ${headingLabel}`);
+    button.setAttribute('title', 'Copy link to this section');
+  });
+}
+
+/** @this {UiShellContext} */
+function requestPreviewRouteAnchor(anchorId, filePath = this.currentFilePath) {
+  const normalizedAnchor = String(anchorId ?? '').trim();
+  this._pendingPreviewRouteAnchor = normalizedAnchor
+    ? {
+      anchorId: normalizedAnchor,
+      filePath: filePath ?? this.currentFilePath ?? null,
+    }
+    : null;
+
+  if (!this._pendingPreviewRouteAnchor) {
+    return false;
+  }
+
+  return this.applyPendingPreviewRouteAnchor({ behavior: 'auto', clearMissing: false });
+}
+
+/** @this {UiShellContext} */
+function applyPendingPreviewRouteAnchor({ behavior = 'auto', clearMissing = false } = {}) {
+  const pendingAnchor = this._pendingPreviewRouteAnchor;
+  if (!pendingAnchor) {
+    return false;
+  }
+
+  if (pendingAnchor.filePath && this.currentFilePath && pendingAnchor.filePath !== this.currentFilePath) {
+    return false;
+  }
+
+  const target = document.getElementById(pendingAnchor.anchorId);
+  if (!(target instanceof HTMLElement) || !this.elements.previewContent?.contains(target)) {
+    if (clearMissing && pendingAnchor.filePath && pendingAnchor.filePath === this.currentFilePath) {
+      this._pendingPreviewRouteAnchor = null;
+    }
+    return false;
+  }
+
+  if (!this.navigatePreviewHeading(target, pendingAnchor.anchorId, { behavior })) {
+    return false;
+  }
+
+  this._pendingPreviewRouteAnchor = null;
+  return true;
+}
+
 /** @this {UiShellContext} */
 function handlePreviewContentClick(event) {
   if (!(event.target instanceof Element)) {
+    return;
+  }
+
+  const headingLinkButton = event.target.closest('button.preview-heading-link-button[data-preview-heading-anchor]');
+  if (headingLinkButton instanceof HTMLButtonElement) {
+    event.preventDefault();
+    void this.copyPreviewHeadingLink(headingLinkButton.dataset.previewHeadingAnchor || '');
     return;
   }
 
@@ -406,6 +592,32 @@ function handlePreviewContentClick(event) {
   if (wikiLink) {
     event.preventDefault();
     this.handleWikiLinkClick(wikiLink.dataset.wikiTarget);
+    return;
+  }
+
+  const anchorLink = event.target.closest('a[href]');
+  const href = anchorLink?.getAttribute('href')?.trim() || '';
+  if (anchorLink && href.startsWith('#') && !isCollabMdHashRoute(href)) {
+    event.preventDefault();
+
+    if (href === '#' || href.toLowerCase() === '#top') {
+      this.scrollSyncController?.suspendSync?.(250);
+      const previewContainer = this.elements.previewContainer ?? document.getElementById('previewContainer');
+      previewContainer?.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    const targetId = normalizeFragmentTargetId(href.slice(1));
+    if (!targetId) {
+      return;
+    }
+
+    const target = document.getElementById(targetId);
+    if (!target || !this.elements.previewContent?.contains(target)) {
+      return;
+    }
+
+    this.navigatePreviewHeading(target, targetId, { behavior: 'smooth' });
     return;
   }
 
@@ -560,9 +772,12 @@ function clearInitialFileBootstrap() {
 }
 
 export const uiFeatureShellMethods = {
+  applyPendingPreviewRouteAnchor,
   bindEvents,
   clearInitialFileBootstrap,
   closeToolbarOverflowMenu,
+  copyPreviewHeadingLink,
+  createPreviewHeadingLinkUrl,
   getStoredLineWrapping,
   handleConnectionChange,
   handleDocumentKeydown,
@@ -574,11 +789,14 @@ export const uiFeatureShellMethods = {
   initializeVisualViewportBinding,
   initializeVersionMonitoring,
   isPlainQuickSwitcherShortcut,
+  navigatePreviewHeading,
   promptForVersionReload,
+  requestPreviewRouteAnchor,
   scheduleBacklinkRefresh,
   setToolbarOverflowOpen,
   showEditorLoadError,
   showEditorLoading,
+  syncPreviewHeadingLinkButtons,
   syncVisualViewportBounds,
   syncToolbarOverflowVisibility,
   syncWrapToggle,

@@ -5,18 +5,22 @@ import {
   resolveAppUrl,
   resolveWsBaseUrl,
 } from '../domain/runtime-paths.js';
+import {
+  createFileRouteHash,
+  getHashParamsFromRaw,
+  HASH_ROUTE_KEYS,
+  isCollabMdHashRoute,
+} from '../domain/hash-routes.js';
 
 export function getRuntimeConfig() {
   return getClientRuntimeConfig();
 }
 
 export { resolveApiUrl, resolveAppPath, resolveAppUrl, resolveWsBaseUrl };
+export { createFileRouteHash, isCollabMdHashRoute };
 
 function getHashParams() {
-  const rawHash = window.location.hash.startsWith('#')
-    ? window.location.hash.slice(1)
-    : window.location.hash;
-  return new URLSearchParams(rawHash);
+  return getHashParamsFromRaw(window.location.hash);
 }
 
 function normalizeDiffScope(scope) {
@@ -30,8 +34,8 @@ function normalizeDiffScope(scope) {
 export function getHashRoute() {
   const params = getHashParams();
 
-  if (params.has('git-file-preview')) {
-    const historicalFilePath = params.get('git-file-preview') || null;
+  if (params.has(HASH_ROUTE_KEYS.gitFilePreview)) {
+    const historicalFilePath = params.get(HASH_ROUTE_KEYS.gitFilePreview) || null;
     return {
       currentFilePath: params.get('current') || historicalFilePath,
       filePath: historicalFilePath,
@@ -40,28 +44,28 @@ export function getHashRoute() {
     };
   }
 
-  if (params.has('git-file-history')) {
+  if (params.has(HASH_ROUTE_KEYS.gitFileHistory)) {
     return {
-      filePath: params.get('git-file-history') || null,
+      filePath: params.get(HASH_ROUTE_KEYS.gitFileHistory) || null,
       type: 'git-file-history',
     };
   }
 
-  if (params.has('git-history')) {
+  if (params.has(HASH_ROUTE_KEYS.gitHistory)) {
     return { type: 'git-history' };
   }
 
-  if (params.has('git-commit')) {
+  if (params.has(HASH_ROUTE_KEYS.gitCommit)) {
     return {
-      hash: params.get('git-commit') || null,
+      hash: params.get(HASH_ROUTE_KEYS.gitCommit) || null,
       historyFilePath: params.get('history') || null,
       path: params.get('path') || null,
       type: 'git-commit',
     };
   }
 
-  if (params.has('git-diff')) {
-    const filePath = params.get('git-diff') || null;
+  if (params.has(HASH_ROUTE_KEYS.gitDiff)) {
+    const filePath = params.get(HASH_ROUTE_KEYS.gitDiff) || null;
     return {
       filePath,
       scope: normalizeDiffScope(params.get('scope') || (filePath ? 'working-tree' : 'all')),
@@ -69,10 +73,11 @@ export function getHashRoute() {
     };
   }
 
-  if (params.has('file')) {
+  if (params.has(HASH_ROUTE_KEYS.file)) {
     return {
+      anchor: params.get('anchor') || null,
       drawioMode: params.get('drawio') || null,
-      filePath: params.get('file'),
+      filePath: params.get(HASH_ROUTE_KEYS.file),
       type: 'file',
     };
   }
@@ -80,15 +85,8 @@ export function getHashRoute() {
   return { type: 'empty' };
 }
 
-export function navigateToFile(filePath, { drawioMode = null } = {}) {
-  const params = new URLSearchParams();
-  if (filePath) {
-    params.set('file', filePath);
-  }
-  if (drawioMode) {
-    params.set('drawio', drawioMode);
-  }
-  window.location.hash = params.toString();
+export function navigateToFile(filePath, { drawioMode = null, anchor = null } = {}) {
+  window.location.hash = createFileRouteHash(filePath, { drawioMode, anchor });
 }
 
 export function navigateToGitDiff({ filePath = null, scope = 'all' } = {}) {

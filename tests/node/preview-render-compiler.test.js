@@ -47,6 +47,48 @@ test('compilePreviewDocument emits stable excalidraw placeholder keys and wiki-l
   assert.equal(stats.plantumlBlocks, 1);
 });
 
+test('compilePreviewDocument emits heading ids and keeps fragment links in-tab', () => {
+  const markdown = [
+    '# Title',
+    '',
+    '[Jump to section](#section-a)',
+    '[Open file route](#file=docs/guide.md)',
+    '',
+    '## Section A',
+    '',
+    '## Section A',
+  ].join('\n');
+
+  const { html } = compilePreviewDocument({ markdownText: markdown });
+
+  assert.match(html, /<h1 [^>]*id="title"[^>]*>Title<\/h1>/);
+  assert.match(html, /<h2 [^>]*id="section-a"[^>]*>Section A<\/h2>/);
+  assert.match(html, /<h2 [^>]*id="section-a-1"[^>]*>Section A<\/h2>/);
+  assert.match(html, /<a href="#section-a">Jump to section<\/a>/);
+  assert.match(html, /<a href="#file=docs\/guide.md">Open file route<\/a>/);
+  assert.doesNotMatch(html, /<a href="#section-a"[^>]*target="_blank"/);
+  assert.doesNotMatch(html, /<a href="#file=docs\/guide.md"[^>]*target="_blank"/);
+});
+
+test('compilePreviewDocument uses parent context to disambiguate repeated nested headings', () => {
+  const markdown = [
+    '# Title',
+    '',
+    '## Approach A',
+    '',
+    '#### Pros',
+    '',
+    '## Approach B',
+    '',
+    '#### Pros',
+  ].join('\n');
+
+  const { html } = compilePreviewDocument({ markdownText: markdown });
+
+  assert.match(html, /<h4 [^>]*id="approach-a-pros"[^>]*>Pros<\/h4>/);
+  assert.match(html, /<h4 [^>]*id="approach-b-pros"[^>]*>Pros<\/h4>/);
+});
+
 test('compilePreviewDocument emits base placeholders for fenced bases and base embeds', () => {
   const markdown = [
     '```base',
@@ -188,7 +230,7 @@ test('compilePreviewDocument renders YAML frontmatter as a metadata block and pr
   assert.match(html, /<span class="frontmatter-value-pill">alpha<\/span>/);
   assert.match(html, /<span class="frontmatter-value-pill">beta<\/span>/);
   assert.doesNotMatch(html, /<hr>\s*<p[^>]*>title: Demo note/);
-  assert.match(html, /<h1 data-source-line="8" data-source-line-end="8">Heading<\/h1>/);
+  assert.match(html, /<h1[^>]*data-source-line="8"[^>]*data-source-line-end="8"[^>]*id="heading"[^>]*>Heading<\/h1>/);
   assert.match(html, /<p data-source-line="10" data-source-line-end="10">Body copy<\/p>/);
 });
 
@@ -228,7 +270,7 @@ test('compilePreviewDocument renders an empty frontmatter shell for empty YAML o
 
   assert.match(html, /<section class="frontmatter-block" data-source-line="1" data-source-line-end="2">/);
   assert.match(html, /<dl class="frontmatter-properties"><\/dl><div class="frontmatter-empty">No properties<\/div>/);
-  assert.match(html, /<h1 data-source-line="4" data-source-line-end="4">Heading<\/h1>/);
+  assert.match(html, /<h1[^>]*data-source-line="4"[^>]*data-source-line-end="4"[^>]*id="heading"[^>]*>Heading<\/h1>/);
 });
 
 test('compilePreviewDocument renders interactive frontmatter controls for preview mode', () => {
@@ -306,7 +348,7 @@ test('compilePreviewDocument falls back to raw markdown rendering for invalid YA
   assert.doesNotMatch(html, /frontmatter-block/);
   assert.match(html, /<hr>/);
   assert.match(html, /title: \[oops/);
-  assert.match(html, /<h1 data-source-line="5" data-source-line-end="5">Heading<\/h1>/);
+  assert.match(html, /<h1[^>]*data-source-line="5"[^>]*data-source-line-end="5"[^>]*id="heading"[^>]*>Heading<\/h1>/);
 });
 
 test('compilePreviewDocument falls back to raw markdown rendering when frontmatter is missing a closing delimiter', () => {
@@ -322,7 +364,7 @@ test('compilePreviewDocument falls back to raw markdown rendering when frontmatt
   assert.doesNotMatch(html, /frontmatter-block/);
   assert.match(html, /<hr>/);
   assert.match(html, /<p data-source-line="2" data-source-line-end="2">title: Missing closer<\/p>/);
-  assert.match(html, /<h1 data-source-line="4" data-source-line-end="4">Heading<\/h1>/);
+  assert.match(html, /<h1[^>]*data-source-line="4"[^>]*data-source-line-end="4"[^>]*id="heading"[^>]*>Heading<\/h1>/);
 });
 
 test('compilePreviewDocument preserves nested task list structure', () => {
