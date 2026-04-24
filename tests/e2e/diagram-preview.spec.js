@@ -973,6 +973,36 @@ test('opens .puml files with side-by-side PlantUML preview', async ({ page }) =>
   await expect(page.locator('#backlinksPanel .backlinks-count')).toHaveText('1');
 });
 
+test('preserves manual standalone PlantUML zoom after preview layout sync runs', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.route('**/api/plantuml/render', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        ok: true,
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 400"><text x="40" y="220">manual-standalone-puml</text></svg>',
+      }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
+  await openFile(page, 'sample-plantuml.puml');
+
+  await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+  await expect.poll(async () => {
+    const metrics = await getPlantUmlZoomMetrics(page);
+    return metrics ? metrics.currentLabel === metrics.expectedLabel : false;
+  }).toBeTruthy();
+
+  const initialLabel = await page.locator('#previewContent .plantuml-zoom-label').textContent();
+  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
+  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
+  await expect(page.locator('#previewContent .plantuml-zoom-label')).not.toHaveText(initialLabel || '');
+
+  await page.waitForTimeout(1000);
+  await expect(page.locator('#previewContent .plantuml-zoom-label')).not.toHaveText(initialLabel || '');
+});
+
 test('refits standalone PlantUML diagrams on maximize, resize, and restore', async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.route('**/api/plantuml/render', async (route) => {
@@ -1143,6 +1173,41 @@ test('renders embedded PlantUML previews with copy and download actions', async 
   await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
   await expect(page.locator('#previewContent .plantuml-shell[data-plantuml-target="sample-plantuml.puml"] .plantuml-tool-btn[aria-label="Copy image"]')).toBeVisible();
   await expect(page.locator('#previewContent .plantuml-shell[data-plantuml-target="sample-plantuml.puml"] .plantuml-tool-btn[aria-label="Download SVG"]')).toBeVisible();
+});
+
+test('preserves manual embedded PlantUML zoom after preview layout sync runs', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.route('**/api/plantuml/render', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        ok: true,
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 400"><text x="40" y="220">manual-embedded-puml</text></svg>',
+      }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, [
+    '# PlantUML Embed',
+    '',
+    '![[sample-plantuml.puml|Embedded sequence]]',
+  ].join('\n'));
+
+  await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+  await expect.poll(async () => {
+    const metrics = await getPlantUmlZoomMetrics(page);
+    return metrics ? metrics.currentLabel === metrics.expectedLabel : false;
+  }).toBeTruthy();
+
+  const initialLabel = await page.locator('#previewContent .plantuml-zoom-label').textContent();
+  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
+  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
+  await expect(page.locator('#previewContent .plantuml-zoom-label')).not.toHaveText(initialLabel || '');
+
+  await page.waitForTimeout(1000);
+  await expect(page.locator('#previewContent .plantuml-zoom-label')).not.toHaveText(initialLabel || '');
 });
 
 test('downloads standalone Mermaid previews as SVG with the diagram file name', async ({ page }) => {

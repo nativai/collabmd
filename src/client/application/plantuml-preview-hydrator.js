@@ -329,7 +329,11 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
     let currentZoom = PLANTUML_ZOOM.default;
     let defaultZoom = 1;
     let zoomAnimationFrameId = null;
+    let resetZoomFrameId = null;
     let layoutFrameId = null;
+    let hasManualZoom = false;
+    let lastAutoFitViewportWidth = 0;
+    let shouldForceScheduledReset = false;
     let isPanning = false;
     let activePointerId = null;
     let panStartX = 0;
@@ -426,11 +430,14 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
     };
 
     const zoomBy = (delta) => {
+      hasManualZoom = true;
       animateZoomTo(currentZoom + delta);
     };
 
     const resetZoomToFit = ({ animate = false } = {}) => {
       defaultZoom = calculateDefaultZoom();
+      hasManualZoom = false;
+      lastAutoFitViewportWidth = getFrameViewportSize(frame).width;
 
       if (animate && Math.abs(defaultZoom - currentZoom) > 0.001) {
         animateZoomTo(defaultZoom);
@@ -447,8 +454,8 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
       frame.scrollTop = 0;
     };
 
-    let resetZoomFrameId = null;
-    const scheduleResetZoomToFit = () => {
+    const scheduleResetZoomToFit = ({ force = false } = {}) => {
+      shouldForceScheduledReset = shouldForceScheduledReset || force;
       if (resetZoomFrameId) {
         cancelAnimationFrame(resetZoomFrameId);
       }
@@ -465,6 +472,17 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
               return;
             }
 
+            const shouldForce = shouldForceScheduledReset;
+            shouldForceScheduledReset = false;
+            const viewportWidth = getFrameViewportSize(frame).width;
+            const viewportChanged = Math.abs(viewportWidth - lastAutoFitViewportWidth) > 1;
+            if (!shouldForce && hasManualZoom) {
+              return;
+            }
+            if (!shouldForce && viewportWidth > 0 && lastAutoFitViewportWidth > 0 && !viewportChanged) {
+              return;
+            }
+
             resetZoomToFit();
           });
         });
@@ -472,12 +490,12 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
     };
 
     this.shellRefits.set(shell, scheduleResetZoomToFit);
-    this.attachShellResizeObserver(shell, frame, scheduleResetZoomToFit);
+    this.attachShellResizeObserver(shell, frame, () => scheduleResetZoomToFit());
 
     decreaseButton.addEventListener('click', () => zoomBy(-PLANTUML_ZOOM.step));
     increaseButton.addEventListener('click', () => zoomBy(PLANTUML_ZOOM.step));
     resetButton.addEventListener('click', () => {
-      scheduleResetZoomToFit();
+      scheduleResetZoomToFit({ force: true });
     });
     copyButton.addEventListener('click', async () => {
       try {
@@ -536,7 +554,7 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
         this.activeMaximizedShell = shell;
         document.body.classList.add('plantuml-maximized-open');
         syncMaximizeButtonState();
-        scheduleResetZoomToFit();
+        scheduleResetZoomToFit({ force: true });
         return;
       }
 
@@ -549,7 +567,7 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
         document.body.classList.remove('plantuml-maximized-open');
       }
       syncMaximizeButtonState();
-      scheduleResetZoomToFit();
+      scheduleResetZoomToFit({ force: true });
     };
 
     reloadButton.addEventListener('click', () => {
