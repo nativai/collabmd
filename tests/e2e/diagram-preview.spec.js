@@ -613,7 +613,7 @@ test('switching directly between excalidraw files updates the reused iframe scen
     }),
   });
 
-  const writtenDiagram = await page.request.get('http://127.0.0.1:4173/api/file?path=new-diagram.excalidraw');
+  const writtenDiagram = await page.request.get('/api/file?path=new-diagram.excalidraw');
   expect(writtenDiagram.ok()).toBe(true);
   expect(await writtenDiagram.text()).toContain('shape-new');
 
@@ -999,7 +999,6 @@ test('preserves manual standalone PlantUML zoom after preview layout sync runs',
   await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
   await expect(page.locator('#previewContent .plantuml-zoom-label')).not.toHaveText(initialLabel || '');
 
-  await page.waitForTimeout(1000);
   await expect(page.locator('#previewContent .plantuml-zoom-label')).not.toHaveText(initialLabel || '');
 });
 
@@ -1132,7 +1131,6 @@ test('preserves manual Mermaid zoom after preview layout sync runs', async ({ pa
   await page.locator('#previewContent .mermaid-zoom-btn[aria-label="Zoom in"]').click();
   await expect(page.locator('#previewContent .mermaid-zoom-label')).not.toHaveText(initialLabel || '');
 
-  await page.waitForTimeout(1000);
   await expect(page.locator('#previewContent .mermaid-zoom-label')).not.toHaveText(initialLabel || '');
 });
 
@@ -1206,7 +1204,6 @@ test('preserves manual embedded PlantUML zoom after preview layout sync runs', a
   await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
   await expect(page.locator('#previewContent .plantuml-zoom-label')).not.toHaveText(initialLabel || '');
 
-  await page.waitForTimeout(1000);
   await expect(page.locator('#previewContent .plantuml-zoom-label')).not.toHaveText(initialLabel || '');
 });
 

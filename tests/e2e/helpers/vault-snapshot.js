@@ -5,9 +5,12 @@ import { fileURLToPath } from 'node:url';
 const helperDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(helperDir, '../../..');
 export const templateVaultDir = resolve(projectRoot, 'test-vault');
-export const runtimeVaultDir = resolve(projectRoot, '.tmp/e2e-vault');
 
-export async function resetE2EVaultSnapshot() {
-  await rm(runtimeVaultDir, { force: true, recursive: true });
-  await cp(templateVaultDir, runtimeVaultDir, { recursive: true });
+export function getRuntimeVaultDir(workerId = process.env.COLLABMD_E2E_WORKER_ID || 'local') {
+  return resolve(projectRoot, `.tmp/e2e-vault-${workerId}`);
+}
+
+export async function resetE2EVaultSnapshot(vaultDir = getRuntimeVaultDir()) {
+  await rm(vaultDir, { force: true, recursive: true });
+  await cp(templateVaultDir, vaultDir, { recursive: true });
 }

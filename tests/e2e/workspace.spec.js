@@ -516,7 +516,7 @@ test('quick switcher reveals and scrolls the file tree to the opened file', asyn
 
   for (let index = 0; index < 40; index += 1) {
     const padded = String(index).padStart(2, '0');
-    const response = await page.request.put('http://127.0.0.1:4173/api/file', {
+    const response = await page.request.put('/api/file', {
       data: {
         content: `# note-${padded}\n`,
         path: `zz-folder-${padded}/note-${padded}.md`,
@@ -725,7 +725,16 @@ test('moves files between folders by drag and drop in the sidebar', async ({ pag
       break;
     }
 
-    await page.waitForTimeout(250);
+    try {
+      await expect.poll(async () => page.evaluate(async (pathValue) => {
+        const response = await fetch(`/api/file?path=${encodeURIComponent(pathValue)}`);
+        return response.ok;
+      }, movedFilePath), { timeout: 1250 }).toBeTruthy();
+      moved = true;
+      break;
+    } catch {
+      // Retry the drag; WebKit/Chromium can occasionally miss the first drop event.
+    }
   }
 
   expect(moved).toBe(true);

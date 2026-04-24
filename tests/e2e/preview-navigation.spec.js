@@ -44,7 +44,7 @@ async function createLinkedMentionFiles(page, {
   target = 'projects/collabmd',
 } = {}) {
   for (let index = 0; index < count; index += 1) {
-    const response = await page.request.post('http://127.0.0.1:4173/api/file', {
+    const response = await page.request.post('/api/file', {
       data: {
         content: `# Mention ${index + 1}\n\n- [[${target}]]\n`,
         path: `linked-mention-${index + 1}.md`,
@@ -246,8 +246,9 @@ test('keeps the clicked parent section active in the outline after navigation se
   expect(parentHeadingOffset).toBeLessThan(80);
   await expect(page.locator('#outlineNav .outline-item.active').first()).toHaveText('Embedded Diagram Files');
   await expect(page.locator('#previewContent .excalidraw-embed').first()).toBeVisible();
-  await page.waitForTimeout(1000);
-  await expect(page.locator('#outlineNav .outline-item.active').first()).toHaveText('Embedded Diagram Files');
+  await expect.poll(async () => (
+    page.locator('#outlineNav .outline-item.active').first().textContent()
+  )).toBe('Embedded Diagram Files');
 });
 
 test('keeps the outline open on desktop after selecting a section', async ({ page }) => {
@@ -352,16 +353,28 @@ test('hydrates more mermaid and excalidraw content as the heavy preview scrolls'
   await page.locator('#previewContainer').evaluate((element) => {
     element.scrollTop = element.scrollHeight * 0.5;
   });
-  await page.waitForTimeout(3000);
 
-  const middle = await getHeavyPreviewCounts(page);
+  let middle = before;
+  await expect.poll(async () => {
+    const counts = await getHeavyPreviewCounts(page);
+    middle = counts;
+    return counts.mermaidSvgs > before.mermaidSvgs
+      || counts.excalidrawIframes > before.excalidrawIframes
+      || counts.scrollHeight > before.scrollHeight;
+  }, { timeout: 60000 }).toBeTruthy();
 
   await page.locator('#previewContainer').evaluate((element) => {
     element.scrollTop = element.scrollHeight * 0.85;
   });
-  await page.waitForTimeout(3000);
 
-  const after = await getHeavyPreviewCounts(page);
+  let after = middle;
+  await expect.poll(async () => {
+    const counts = await getHeavyPreviewCounts(page);
+    after = counts;
+    return counts.mermaidSvgs > middle.mermaidSvgs
+      || counts.excalidrawIframes > middle.excalidrawIframes
+      || counts.scrollHeight > middle.scrollHeight;
+  }, { timeout: 60000 }).toBeTruthy();
   const mermaidIncreased = middle.mermaidSvgs > before.mermaidSvgs || after.mermaidSvgs > middle.mermaidSvgs;
   const excalidrawIncreased = middle.excalidrawIframes > before.excalidrawIframes || after.excalidrawIframes > middle.excalidrawIframes;
   const layoutExpanded = middle.scrollHeight > before.scrollHeight || after.scrollHeight > middle.scrollHeight;
@@ -429,8 +442,6 @@ test('keeps editor, preview, and outline aligned in heavy documents after lazy h
   expect(Number.isFinite(targetLine)).toBeTruthy();
 
   await targetOutlineItem.click();
-
-  await page.waitForTimeout(1500);
 
   await expect.poll(async () => {
     const lineNumbers = await getVisibleEditorLineNumbers(page);
