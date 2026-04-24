@@ -100,9 +100,14 @@ export class CollabMdAppShell {
   handleGitCommitSubmit(...args) { return gitFeature.handleGitCommitSubmit.apply(this, args); }
   updateGlobalUsers(...args) { return presenceFeature.updateGlobalUsers.apply(this, args); }
   updateFileAwareness(...args) { return presenceFeature.updateFileAwareness.apply(this, args); }
+  closePresencePanel(...args) { return presenceFeature.closePresencePanel.apply(this, args); }
+  openPresencePanel(...args) { return presenceFeature.openPresencePanel.apply(this, args); }
   renderPresence(...args) { return presenceFeature.renderPresence.apply(this, args); }
   renderAvatars(...args) { return presenceFeature.renderAvatars.apply(this, args); }
+  renderPresencePanel(...args) { return presenceFeature.renderPresencePanel.apply(this, args); }
+  startFollowingUser(...args) { return presenceFeature.startFollowingUser.apply(this, args); }
   toggleFollowUser(...args) { return presenceFeature.toggleFollowUser.apply(this, args); }
+  togglePresencePanel(...args) { return presenceFeature.togglePresencePanel.apply(this, args); }
   stopFollowingUser(...args) { return presenceFeature.stopFollowingUser.apply(this, args); }
   syncFollowedUser(...args) { return presenceFeature.syncFollowedUser.apply(this, args); }
   followUserCursor(...args) { return presenceFeature.followUserCursor.apply(this, args); }
@@ -698,6 +703,8 @@ export class CollabMdAppShell {
   set gitRepoAvailable(value) { this.stateStore.set('gitRepoAvailable', value); }
   get activeSidebarTab() { return this.stateStore.get('activeSidebarTab'); }
   set activeSidebarTab(value) { this.stateStore.set('activeSidebarTab', value); }
+  get presencePanelOpen() { return this.stateStore.get('presencePanelOpen'); }
+  set presencePanelOpen(value) { this.stateStore.set('presencePanelOpen', value); }
   get followedUserClientId() { return this.stateStore.get('followedUserClientId'); }
   set followedUserClientId(value) { this.stateStore.set('followedUserClientId', value); }
   get followedCursorSignature() { return this.stateStore.get('followedCursorSignature'); }

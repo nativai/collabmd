@@ -8,6 +8,7 @@ const VERSION_RELOAD_TOAST_DURATION_MS = 0;
  * @property {boolean} chatIsOpen
  * @property {boolean} gitRepoAvailable
  * @property {boolean} isTabActive
+ * @property {boolean} presencePanelOpen
  * @property {string | null} currentFilePath
  * @property {number} lobbyChatMessageMaxLength
  * @property {any} runtimeConfig
@@ -237,6 +238,7 @@ function bindEvents() {
   });
 
   this.elements.chatToggleButton?.addEventListener('click', () => {
+    this.closePresencePanel?.();
     this.toggleChatPanel();
     this.closeToolbarOverflowMenu?.();
   });
@@ -269,12 +271,18 @@ function bindEvents() {
     this.toggleLineWrapping();
   });
 
+  this.elements.userCount?.addEventListener('click', (event) => {
+    event.preventDefault();
+    this.togglePresencePanel?.();
+  });
+
   this.elements.editorFindButton?.addEventListener('click', () => {
     this.runEditorCommand?.('openSearch');
   });
 
   this.elements.toolbarOverflowToggle?.addEventListener('click', (event) => {
     event.preventDefault();
+    this.closePresencePanel?.();
     this.toggleToolbarOverflowMenu();
   });
 
@@ -321,19 +329,29 @@ function bindEvents() {
 function handleDocumentPointerDown(event) {
   this.handleMarkdownToolbarDocumentPointerDown?.(event);
 
+  const target = event.target instanceof Element ? event.target : null;
+
   if (
     this.toolbarOverflowOpen
-    && !this.elements.toolbarOverflowMenu?.contains(event.target)
-    && !this.elements.toolbarOverflowToggle?.contains(event.target)
+    && !this.elements.toolbarOverflowMenu?.contains(target)
+    && !this.elements.toolbarOverflowToggle?.contains(target)
   ) {
     this.closeToolbarOverflowMenu();
+  }
+
+  if (
+    this.presencePanelOpen
+    && !this.elements.presencePanel?.contains(target)
+    && !target?.closest?.('[data-presence-panel-trigger="true"]')
+  ) {
+    this.closePresencePanel?.();
   }
 
   if (!this.chatIsOpen) {
     return;
   }
 
-  if (this.elements.chatContainer?.contains(event.target)) {
+  if (this.elements.chatContainer?.contains(target)) {
     return;
   }
 
@@ -344,6 +362,11 @@ function handleDocumentPointerDown(event) {
 function handleDocumentKeydown(event) {
   if (event.key === 'Escape' && this.toolbarOverflowOpen) {
     this.closeToolbarOverflowMenu();
+    return;
+  }
+
+  if (event.key === 'Escape' && this.presencePanelOpen) {
+    this.closePresencePanel?.();
     return;
   }
 

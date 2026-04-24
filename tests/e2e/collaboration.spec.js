@@ -1737,3 +1737,38 @@ test('pins and labels the current user in the header avatar list', async ({ brow
   await localPage.close();
   await remotePage.close();
 });
+
+test('opens the participant panel for hidden collaborators and follows them', async ({ browser }) => {
+  const names = ['Owner', 'Amy', 'Ben', 'Cara', 'Drew', 'Eli', 'Farah'];
+  const contexts = await Promise.all(names.map(() => browser.newContext()));
+  const pages = await Promise.all(contexts.map((context) => context.newPage()));
+
+  try {
+    for (const [index, page] of pages.entries()) {
+      await openFile(page, 'README.md', { userName: names[index] });
+    }
+
+    const ownerPage = pages[0];
+    const hiddenTargetPage = pages.at(-1);
+
+    await replaceEditorContent(hiddenTargetPage, createLongMarkdownDocument(140));
+    await expect(ownerPage.locator('#previewContent')).toContainText('Line 80 for follow testing.');
+    await expect(ownerPage.locator('#userCount')).toHaveText('7 online');
+    await expect(ownerPage.locator('#userAvatars .user-avatar-overflow-trigger')).toHaveText('+2');
+    await expect(ownerPage.locator('#userAvatars .user-avatar-button[aria-label*="Farah"]')).toHaveCount(0);
+
+    const initialScrollTop = await ownerPage.locator('.cm-scroller').evaluate((element) => element.scrollTop);
+
+    await ownerPage.locator('#userCount').click();
+    await expect(ownerPage.locator('#presencePanel')).toBeVisible();
+    await expect(ownerPage.locator('#presencePanel .presence-panel-user')).toHaveCount(7);
+    await ownerPage.locator('#presencePanel .presence-panel-user-button').filter({ hasText: 'Farah' }).click();
+    await expect(ownerPage.locator('#presencePanel')).toBeHidden();
+
+    await expect.poll(async () => (
+      ownerPage.locator('.cm-scroller').evaluate((element) => element.scrollTop)
+    )).toBeGreaterThan(initialScrollTop + 150);
+  } finally {
+    await Promise.all(contexts.map((context) => context.close().catch(() => {})));
+  }
+});

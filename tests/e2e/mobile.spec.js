@@ -447,13 +447,24 @@ test.describe('mobile presence', () => {
     const teammatePage = await teammateContext.newPage();
 
     await openFile(ownerPage, 'README.md', { userName: 'Owner', waitFor: 'preview' });
-    await openFile(teammatePage, 'README.md', { userName: 'Teammate', waitFor: 'preview' });
+    await openFile(teammatePage, 'projects/collabmd.md', { userName: 'Teammate', waitFor: 'preview' });
 
     await expect(ownerPage.locator('#userCount')).toHaveText('2 online');
     await expect(ownerPage.locator('#userAvatars')).toBeVisible();
     await expect(ownerPage.locator('#userAvatars .user-avatar').first()).toBeVisible();
     await expect(ownerPage.locator('#userAvatars .user-avatar-button').first()).toBeVisible();
     await expect(ownerPage.locator('#userAvatars .user-avatar-button').first()).toHaveAttribute('aria-label', /Follow Teammate/);
+
+    await ownerPage.locator('#userCount').click();
+    await expect(ownerPage.locator('#presencePanel')).toBeVisible();
+    await expect(ownerPage.locator('#presencePanel .presence-panel-user')).toHaveCount(2);
+    await expect.poll(async () => (
+      ownerPage.locator('#presencePanelList').evaluate((element) => getComputedStyle(element).overflowY)
+    )).toBe('auto');
+    await ownerPage.locator('#presencePanel .presence-panel-user-button').filter({ hasText: 'Teammate' }).click();
+    await expect(ownerPage.locator('#presencePanel')).toBeHidden();
+    await expect(ownerPage.locator('#activeFileName')).toHaveText('collabmd');
+    await expect(ownerPage.locator('#previewContent')).toContainText('CollabMD Project');
 
     await ownerContext.close();
     await teammateContext.close();

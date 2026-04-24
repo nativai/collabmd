@@ -1,3 +1,65 @@
+const MAX_INLINE_AVATARS = 5;
+
+function compareUserNames(left, right) {
+  return String(left?.name ?? '').localeCompare(String(right?.name ?? ''), undefined, {
+    sensitivity: 'base',
+  });
+}
+
+function getConnectedPresenceState(context) {
+  const hasEditorSession = Boolean(context.session);
+  const isDrawioRoute = Boolean(context.currentFilePath && context.isDrawioFile?.(context.currentFilePath));
+  const isExcalidrawRoute = Boolean(context.currentFilePath && context.isExcalidrawFile?.(context.currentFilePath));
+  const isImageRoute = Boolean(context.currentFilePath && context.isImageFile?.(context.currentFilePath));
+  const shouldUseLobbyState = !hasEditorSession
+    && (!context.currentFilePath || isDrawioRoute || isExcalidrawRoute || isImageRoute);
+  return shouldUseLobbyState
+    ? context.lobby?.getConnectionState?.() ?? context.connectionState
+    : context.connectionState;
+}
+
+function getInlineUsers(users, followedUserClientId) {
+  const visibleUsers = [...users];
+  const localIndex = visibleUsers.findIndex((user) => user.isLocal);
+  if (localIndex > 0) {
+    const [localUser] = visibleUsers.splice(localIndex, 1);
+    visibleUsers.unshift(localUser);
+  }
+
+  const followedIndex = visibleUsers.findIndex((user) => !user.isLocal && user.clientId === followedUserClientId);
+  const followedInsertIndex = visibleUsers[0]?.isLocal ? 1 : 0;
+  if (followedIndex > followedInsertIndex) {
+    const [followed] = visibleUsers.splice(followedIndex, 1);
+    visibleUsers.splice(followedInsertIndex, 0, followed);
+  }
+
+  return visibleUsers;
+}
+
+function getPanelUsers(users, followedUserClientId) {
+  const localUsers = users.filter((user) => user.isLocal).sort(compareUserNames);
+  const remoteUsers = users.filter((user) => !user.isLocal);
+  const followedUsers = remoteUsers
+    .filter((user) => user.clientId === followedUserClientId)
+    .sort(compareUserNames);
+  const remainingUsers = remoteUsers
+    .filter((user) => user.clientId !== followedUserClientId)
+    .sort(compareUserNames);
+  return [...localUsers, ...followedUsers, ...remainingUsers];
+}
+
+function getUserFileLabel(context, user) {
+  if (user.currentFile && user.currentFile === context.currentFilePath) {
+    return 'Here';
+  }
+
+  if (user.currentFile) {
+    return context.getDisplayName(user.currentFile);
+  }
+
+  return 'No file';
+}
+
 export const presenceFeature = {
   updateGlobalUsers(users) {
     this.globalUsers = users;
@@ -16,52 +78,50 @@ export const presenceFeature = {
     const badge = this.elements.userCount;
     if (!badge) return;
 
-    const hasEditorSession = Boolean(this.session);
-    const isDrawioRoute = Boolean(this.currentFilePath && this.isDrawioFile?.(this.currentFilePath));
-    const isExcalidrawRoute = Boolean(this.currentFilePath && this.isExcalidrawFile?.(this.currentFilePath));
-    const isImageRoute = Boolean(this.currentFilePath && this.isImageFile?.(this.currentFilePath));
-    const shouldUseLobbyState = !hasEditorSession
-      && (!this.currentFilePath || isDrawioRoute || isExcalidrawRoute || isImageRoute);
-    const effectiveConnectionState = shouldUseLobbyState
-      ? this.lobby?.getConnectionState?.() ?? this.connectionState
-      : this.connectionState;
+    const effectiveConnectionState = getConnectedPresenceState(this);
+    const hasUsers = this.globalUsers.length > 0;
+    if (effectiveConnectionState.status !== 'connected') {
+      this.presencePanelOpen = false;
+    }
+
+    badge.type = 'button';
+    badge.setAttribute('aria-controls', 'presencePanel');
+    badge.setAttribute('aria-expanded', String(this.presencePanelOpen));
+    badge.classList.toggle('is-active', this.presencePanelOpen);
 
     if (effectiveConnectionState.status === 'connected') {
       badge.textContent = `${this.globalUsers.length} online`;
       badge.style.opacity = '1';
+      badge.disabled = !hasUsers;
+      badge.setAttribute('aria-label', `Show ${this.globalUsers.length} online users`);
+      this.renderPresencePanel();
       return;
     }
 
     if (effectiveConnectionState.status === 'connecting') {
       badge.textContent = effectiveConnectionState.unreachable ? 'Unreachable' : 'Connecting...';
       badge.style.opacity = '0.6';
+      badge.disabled = true;
+      badge.setAttribute('aria-label', badge.textContent);
+      this.renderPresencePanel();
       return;
     }
 
     badge.textContent = 'Offline';
     badge.style.opacity = '0.6';
+    badge.disabled = true;
+    badge.setAttribute('aria-label', 'Offline');
+    this.renderPresencePanel();
   },
 
   renderAvatars() {
     const avatars = this.elements.userAvatars;
     if (!avatars) return;
 
-    avatars.innerHTML = '';
-    const visibleUsers = [...this.globalUsers];
-    const localIndex = visibleUsers.findIndex((u) => u.isLocal);
-    if (localIndex > 0) {
-      const [localUser] = visibleUsers.splice(localIndex, 1);
-      visibleUsers.unshift(localUser);
-    }
+    avatars.replaceChildren();
+    const visibleUsers = getInlineUsers(this.globalUsers, this.followedUserClientId);
 
-    const followedIndex = visibleUsers.findIndex((u) => !u.isLocal && u.clientId === this.followedUserClientId);
-    const followedInsertIndex = visibleUsers[0]?.isLocal ? 1 : 0;
-    if (followedIndex > followedInsertIndex) {
-      const [followed] = visibleUsers.splice(followedIndex, 1);
-      visibleUsers.splice(followedInsertIndex, 0, followed);
-    }
-
-    visibleUsers.slice(0, 5).forEach((user) => {
+    visibleUsers.slice(0, MAX_INLINE_AVATARS).forEach((user) => {
       const avatar = document.createElement(user.isLocal ? 'div' : 'button');
       avatar.className = 'user-avatar';
       avatar.classList.toggle('is-local', user.isLocal);
@@ -103,33 +163,191 @@ export const presenceFeature = {
       avatars.appendChild(avatar);
     });
 
-    if (visibleUsers.length > 5) {
-      const overflow = document.createElement('div');
-      overflow.className = 'user-avatar';
+    if (visibleUsers.length > MAX_INLINE_AVATARS) {
+      const overflow = document.createElement('button');
+      overflow.type = 'button';
+      overflow.className = 'user-avatar user-avatar-button user-avatar-overflow-trigger';
       overflow.style.backgroundColor = 'var(--color-surface-dynamic)';
       overflow.style.color = 'var(--color-text-muted)';
+      overflow.setAttribute('aria-controls', 'presencePanel');
+      overflow.setAttribute('aria-expanded', String(this.presencePanelOpen));
+      overflow.setAttribute('aria-label', `Show ${visibleUsers.length} online users`);
+      overflow.setAttribute('data-presence-panel-trigger', 'true');
+      overflow.title = `Show ${visibleUsers.length} online users`;
+      overflow.addEventListener('click', () => this.openPresencePanel());
       const overflowLabel = document.createElement('span');
       overflowLabel.className = 'user-avatar-initial';
-      overflowLabel.textContent = `+${visibleUsers.length - 5}`;
+      overflowLabel.textContent = `+${visibleUsers.length - MAX_INLINE_AVATARS}`;
       overflow.appendChild(overflowLabel);
       avatars.appendChild(overflow);
     }
+
+    this.renderPresencePanel();
   },
 
-  toggleFollowUser(clientId) {
-    if (!clientId) return;
-
-    if (this.followedUserClientId === clientId) {
-      this.stopFollowingUser();
+  openPresencePanel() {
+    const effectiveConnectionState = getConnectedPresenceState(this);
+    if (effectiveConnectionState.status !== 'connected' || this.globalUsers.length === 0) {
       return;
     }
 
-    const user = this.globalUsers.find((u) => u.clientId === clientId && !u.isLocal);
+    this.presencePanelOpen = true;
+    this.closeChatPanel?.();
+    this.closeToolbarOverflowMenu?.();
+    this.renderAvatars();
+    this.renderPresence();
+    this.renderPresencePanel();
+  },
+
+  closePresencePanel() {
+    if (!this.presencePanelOpen) {
+      return;
+    }
+
+    this.presencePanelOpen = false;
+    this.renderAvatars();
+    this.renderPresence();
+    this.renderPresencePanel();
+  },
+
+  togglePresencePanel() {
+    if (this.presencePanelOpen) {
+      this.closePresencePanel();
+      return;
+    }
+
+    this.openPresencePanel();
+  },
+
+  renderPresencePanel() {
+    const panel = this.elements.presencePanel;
+    const list = this.elements.presencePanelList;
+    const status = this.elements.presencePanelStatus;
+    if (!panel || !list) return;
+
+    panel.classList.toggle('hidden', !this.presencePanelOpen);
+    panel.setAttribute('aria-hidden', String(!this.presencePanelOpen));
+
+    const orderedUsers = getPanelUsers(this.globalUsers, this.followedUserClientId);
+    const effectiveConnectionState = getConnectedPresenceState(this);
+    if (status) {
+      if (effectiveConnectionState.status === 'connected') {
+        status.textContent = `${this.globalUsers.length} online. Click someone to follow.`;
+      } else if (effectiveConnectionState.status === 'connecting') {
+        status.textContent = effectiveConnectionState.unreachable ? 'Server unreachable.' : 'Connecting presence...';
+      } else {
+        status.textContent = 'Presence is offline.';
+      }
+    }
+
+    list.replaceChildren();
+
+    if (orderedUsers.length === 0) {
+      const emptyState = document.createElement('div');
+      emptyState.className = 'presence-panel-empty-state';
+      emptyState.textContent = effectiveConnectionState.status === 'connected'
+        ? 'Nobody else is here yet.'
+        : 'Presence will appear here when the connection is active.';
+      list.appendChild(emptyState);
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    orderedUsers.forEach((user) => {
+      const row = document.createElement('article');
+      row.className = 'presence-panel-user';
+      row.classList.toggle('is-local', user.isLocal);
+      row.classList.toggle('is-following', user.clientId === this.followedUserClientId);
+
+      const primaryAction = document.createElement(user.isLocal ? 'div' : 'button');
+      primaryAction.className = 'presence-panel-user-button';
+
+      const avatar = document.createElement('span');
+      avatar.className = 'presence-panel-user-avatar';
+      avatar.style.backgroundColor = user.color;
+      avatar.textContent = user.name.charAt(0).toUpperCase();
+      avatar.setAttribute('aria-hidden', 'true');
+
+      const body = document.createElement('span');
+      body.className = 'presence-panel-user-body';
+
+      const topLine = document.createElement('span');
+      topLine.className = 'presence-panel-user-topline';
+
+      const name = document.createElement('span');
+      name.className = 'presence-panel-user-name';
+      name.textContent = user.name;
+      topLine.appendChild(name);
+
+      if (user.isLocal) {
+        const youBadge = document.createElement('span');
+        youBadge.className = 'presence-panel-user-badge';
+        youBadge.textContent = 'You';
+        topLine.appendChild(youBadge);
+      } else if (user.clientId === this.followedUserClientId) {
+        const followingBadge = document.createElement('span');
+        followingBadge.className = 'presence-panel-user-badge';
+        followingBadge.textContent = 'Following';
+        topLine.appendChild(followingBadge);
+      }
+
+      const file = document.createElement('span');
+      file.className = 'presence-panel-user-file';
+      file.textContent = getUserFileLabel(this, user);
+
+      body.append(topLine, file);
+      primaryAction.append(avatar, body);
+
+      if (user.isLocal) {
+        primaryAction.setAttribute('role', 'group');
+        primaryAction.setAttribute('aria-label', `${user.name} (you) — ${file.textContent}`);
+      } else {
+        const isFollowing = user.clientId === this.followedUserClientId;
+        primaryAction.type = 'button';
+        primaryAction.setAttribute(
+          'aria-label',
+          isFollowing
+            ? `Keep following ${user.name}`
+            : `Follow ${user.name} — ${file.textContent}`,
+        );
+        primaryAction.addEventListener('click', () => {
+          this.startFollowingUser(user.clientId, { closePanel: true });
+        });
+      }
+
+      row.appendChild(primaryAction);
+
+      if (!user.isLocal && user.clientId === this.followedUserClientId) {
+        const stopButton = document.createElement('button');
+        stopButton.type = 'button';
+        stopButton.className = 'presence-panel-user-stop';
+        stopButton.textContent = 'Stop';
+        stopButton.setAttribute('aria-label', `Stop following ${user.name}`);
+        stopButton.addEventListener('click', (event) => {
+          event.stopPropagation();
+          this.stopFollowingUser({ closePanel: true });
+        });
+        row.appendChild(stopButton);
+      }
+
+      fragment.appendChild(row);
+    });
+    list.appendChild(fragment);
+  },
+
+  startFollowingUser(clientId, { closePanel = false } = {}) {
+    if (!clientId) return;
+
+    const user = this.globalUsers.find((entry) => entry.clientId === clientId && !entry.isLocal);
     if (!user) return;
 
     this.followedUserClientId = clientId;
     this.followedCursorSignature = '';
     this.renderAvatars();
+
+    if (closePanel) {
+      this.closePresencePanel();
+    }
 
     if (user.currentFile && user.currentFile !== this.currentFilePath) {
       this.navigation.navigateToFile(user.currentFile);
@@ -141,10 +359,20 @@ export const presenceFeature = {
         this.followUserCursor(user, { force: true });
       }
     });
-
   },
 
-  stopFollowingUser() {
+  toggleFollowUser(clientId) {
+    if (!clientId) return;
+
+    if (this.followedUserClientId === clientId) {
+      this.stopFollowingUser();
+      return;
+    }
+
+    this.startFollowingUser(clientId);
+  },
+
+  stopFollowingUser({ closePanel = false } = {}) {
     if (!this.followedUserClientId) return;
     if (this.currentFilePath && this.isExcalidrawFile?.(this.currentFilePath)) {
       void this.excalidrawEmbed?.setFollowedUser(this.currentFilePath, null);
@@ -152,6 +380,9 @@ export const presenceFeature = {
     this.followedUserClientId = null;
     this.followedCursorSignature = '';
     this.renderAvatars();
+    if (closePanel) {
+      this.closePresencePanel();
+    }
   },
 
   syncFollowedUser() {
