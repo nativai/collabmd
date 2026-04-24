@@ -1219,6 +1219,16 @@ test('downloads standalone Mermaid previews as SVG with the diagram file name', 
   const download = await downloadPromise;
 
   expect(download.suggestedFilename()).toBe('sample-mermaid.svg');
+  const stream = await download.createReadStream();
+  const chunks = [];
+  for await (const chunk of stream) {
+    chunks.push(chunk);
+  }
+  const svgMarkup = Buffer.concat(chunks).toString('utf8');
+  expect(svgMarkup).toContain('Start');
+  expect(svgMarkup).toContain('Review');
+  expect(svgMarkup).toContain('Ship');
+  expect(svgMarkup).not.toContain('foreignObject');
 });
 
 test('PlantUML standalone download saves SVG with the diagram file name', async ({ page }) => {

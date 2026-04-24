@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   downloadBlob,
   exportSvgMarkupFromElement,
+  exportTrimmedSvgMarkupFromElement,
   rasterizeSvgMarkupToPngBlob,
+  renderMermaidExportSvgMarkup,
 } from '../../src/client/application/diagram-preview-export.js';
 
 describe('diagram preview export helpers', () => {
@@ -46,6 +48,75 @@ describe('diagram preview export helpers', () => {
     expect(blob).toBeInstanceOf(Blob);
     expect(blob.type).toBe('image/png');
     expect(blob.size).toBeGreaterThan(0);
+  });
+
+  it('trims exported SVG markup to rendered content bounds', () => {
+    const shell = document.createElement('div');
+    shell.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600"><text x="100" y="80">Label</text></svg>';
+    const svg = shell.querySelector('svg');
+    svg.getBBox = () => ({
+      height: 40,
+      width: 120,
+      x: 96,
+      y: 52,
+    });
+
+    const markup = exportTrimmedSvgMarkupFromElement(svg, { padding: 24 });
+
+    expect(markup).toContain('viewBox="72 28 168 88"');
+    expect(markup).toContain('width="168"');
+    expect(markup).toContain('height="88"');
+  });
+
+  it('renders Mermaid exports with light SVG text labels', async () => {
+    const initialize = vi.fn();
+    const run = vi.fn(async ({ nodes }) => {
+      const node = nodes[0];
+      expect(node.textContent).toContain('"htmlLabels":false');
+      node.innerHTML = [
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" width="120" height="80">',
+        '  <style>.label{fill:#111827}</style>',
+        '  <rect width="120" height="80" fill="#fff"></rect>',
+        '  <text class="label" x="8" y="24">Visible label</text>',
+        '</svg>',
+      ].join('');
+    });
+
+    const markup = await renderMermaidExportSvgMarkup({ initialize, run }, 'flowchart TD\n  A[Visible label] --> B');
+
+    expect(initialize).toHaveBeenCalledWith(expect.objectContaining({
+      htmlLabels: false,
+      startOnLoad: false,
+      theme: 'default',
+    }));
+    expect(markup).toContain('Visible label');
+    expect(markup).toContain('<text');
+    expect(markup).not.toContain('foreignObject');
+  });
+
+  it('overrides existing Mermaid init directives for export safety', async () => {
+    const initialize = vi.fn();
+    const run = vi.fn(async ({ nodes }) => {
+      const node = nodes[0];
+      expect(node.textContent).toContain('"theme":"default"');
+      expect(node.textContent).toContain('"htmlLabels":false');
+      expect(node.textContent).not.toContain('"theme":"dark"');
+      expect(node.textContent).not.toContain('"htmlLabels":true');
+      node.innerHTML = [
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" width="120" height="80">',
+        '  <text x="8" y="24">Forced SVG label</text>',
+        '</svg>',
+      ].join('');
+    });
+
+    const markup = await renderMermaidExportSvgMarkup({ initialize, run }, [
+      '%%{init: {"theme":"dark","htmlLabels":true,"flowchart":{"htmlLabels":true}}}%%',
+      'flowchart TD',
+      '  A[Forced SVG label] --> B',
+    ].join('\n'));
+
+    expect(markup).toContain('Forced SVG label');
+    expect(markup).not.toContain('foreignObject');
   });
 
   it('keeps blob download URLs alive until delayed cleanup', () => {

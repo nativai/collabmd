@@ -3,8 +3,8 @@ import { setDiagramActionButtonIcon } from '../domain/diagram-action-icons.js';
 import {
   createDiagramExportFileNames,
   downloadBlob,
-  exportSvgMarkupFromElement,
   rasterizeSvgMarkupToPngBlob,
+  renderMermaidExportSvgMarkup,
   writeBlobToClipboard,
 } from './diagram-preview-export.js';
 import { DiagramPreviewHydrator } from './diagram-preview-hydrator.js';
@@ -400,6 +400,43 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     });
   }
 
+  async renderExportSvgMarkup(shell) {
+    const mermaid = await this.ensureMermaid();
+    try {
+      const source = shell.querySelector('.mermaid-source')?.textContent ?? '';
+      return await renderMermaidExportSvgMarkup(mermaid, source);
+    } finally {
+      this.configureMermaid(mermaid);
+    }
+  }
+
+  async copyExportImage(shell, exportFileNames) {
+    try {
+      const { pngFileName } = exportFileNames();
+      const pngBlob = await rasterizeSvgMarkupToPngBlob(await this.renderExportSvgMarkup(shell));
+      try {
+        await writeBlobToClipboard(pngBlob);
+        this.renderer.toastController?.show?.('Diagram copied');
+      } catch {
+        downloadBlob(pngBlob, pngFileName);
+        this.renderer.toastController?.show?.('Clipboard image copy is unavailable here. Downloaded PNG instead.');
+      }
+    } catch {
+      this.renderer.toastController?.show?.('Failed to copy diagram');
+    }
+  }
+
+  async downloadExportSvg(shell, exportFileNames) {
+    try {
+      const { svgFileName } = exportFileNames();
+      const svgBlob = new Blob([await this.renderExportSvgMarkup(shell)], { type: 'image/svg+xml;charset=utf-8' });
+      downloadBlob(svgBlob, svgFileName);
+      this.renderer.toastController?.show?.('Diagram download started');
+    } catch {
+      this.renderer.toastController?.show?.('Failed to download diagram');
+    }
+  }
+
   enhanceDiagram(shell, renderedDiagram) {
     const svg = renderedDiagram.querySelector('svg');
     if (!svg) {
@@ -450,8 +487,6 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     svg.style.display = 'block';
     svg.style.margin = '0 auto';
     svg.style.maxWidth = 'none';
-
-    const exportSvgMarkup = () => exportSvgMarkupFromElement(svg);
 
     const exportFileNames = () => createDiagramExportFileNames({
       currentFilePath: this.renderer.getSourceFilePath?.() ?? '',
@@ -606,31 +641,8 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     resetButton.addEventListener('click', () => {
       scheduleResetZoomToFit({ force: true });
     });
-    copyButton.addEventListener('click', async () => {
-      try {
-        const { pngFileName } = exportFileNames();
-        const pngBlob = await rasterizeSvgMarkupToPngBlob(exportSvgMarkup());
-        try {
-          await writeBlobToClipboard(pngBlob);
-          this.renderer.toastController?.show?.('Diagram copied');
-        } catch {
-          downloadBlob(pngBlob, pngFileName);
-          this.renderer.toastController?.show?.('Clipboard image copy is unavailable here. Downloaded PNG instead.');
-        }
-      } catch {
-        this.renderer.toastController?.show?.('Failed to copy diagram');
-      }
-    });
-    downloadButton.addEventListener('click', () => {
-      try {
-        const { svgFileName } = exportFileNames();
-        const svgBlob = new Blob([exportSvgMarkup()], { type: 'image/svg+xml;charset=utf-8' });
-        downloadBlob(svgBlob, svgFileName);
-        this.renderer.toastController?.show?.('Diagram download started');
-      } catch {
-        this.renderer.toastController?.show?.('Failed to download diagram');
-      }
-    });
+    copyButton.addEventListener('click', () => this.copyExportImage(shell, exportFileNames));
+    downloadButton.addEventListener('click', () => this.downloadExportSvg(shell, exportFileNames));
 
     const syncMaximizeButtonState = () => {
       const isMaximized = shell.classList.contains('is-maximized');
