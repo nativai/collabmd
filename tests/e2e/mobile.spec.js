@@ -315,29 +315,42 @@ test.describe('mobile bases preview', () => {
 
     await openFile(page, 'views/mobile-toolbar.base', { waitFor: 'preview' });
 
-    const shellMetrics = await page.locator('.bases-shell').evaluate((element) => {
-      const style = getComputedStyle(element);
-      return {
-        borderTopLeftRadius: style.borderTopLeftRadius,
-        borderTopRightRadius: style.borderTopRightRadius,
-        overflowX: style.overflowX,
-        overflowY: style.overflowY,
-      };
-    });
-    const toolbarMetrics = await page.locator('.bases-toolbar').evaluate((element) => {
-      const style = getComputedStyle(element);
-      return {
-        borderTopLeftRadius: style.borderTopLeftRadius,
-        borderTopRightRadius: style.borderTopRightRadius,
-      };
-    });
+    await expect.poll(async () => {
+      const shellMetrics = await page.locator('.bases-shell').evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          borderTopLeftRadius: style.borderTopLeftRadius,
+          borderTopRightRadius: style.borderTopRightRadius,
+          isConnected: element.isConnected,
+          overflowX: style.overflowX,
+          overflowY: style.overflowY,
+        };
+      });
+      const toolbarMetrics = await page.locator('.bases-toolbar').evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          borderTopLeftRadius: style.borderTopLeftRadius,
+          borderTopRightRadius: style.borderTopRightRadius,
+          isConnected: element.isConnected,
+        };
+      });
 
-    expect(shellMetrics.overflowX).toBe('hidden');
-    expect(shellMetrics.overflowY).toBe('hidden');
-    expect(shellMetrics.borderTopLeftRadius).not.toBe('0px');
-    expect(shellMetrics.borderTopRightRadius).not.toBe('0px');
-    expect(toolbarMetrics.borderTopLeftRadius).not.toBe('0px');
-    expect(toolbarMetrics.borderTopRightRadius).not.toBe('0px');
+      return {
+        shellHasRadius: shellMetrics.borderTopLeftRadius !== '0px' && shellMetrics.borderTopRightRadius !== '0px',
+        shellIsConnected: shellMetrics.isConnected,
+        shellOverflowX: shellMetrics.overflowX,
+        shellOverflowY: shellMetrics.overflowY,
+        toolbarHasRadius: toolbarMetrics.borderTopLeftRadius !== '0px' && toolbarMetrics.borderTopRightRadius !== '0px',
+        toolbarIsConnected: toolbarMetrics.isConnected,
+      };
+    }).toEqual({
+      shellHasRadius: true,
+      shellIsConnected: true,
+      shellOverflowX: 'hidden',
+      shellOverflowY: 'hidden',
+      toolbarHasRadius: true,
+      toolbarIsConnected: true,
+    });
   });
 });
 

@@ -151,6 +151,45 @@ test('ExcalidrawRoomClient syncs local scene updates into the structured room st
   });
 });
 
+test('ExcalidrawRoomClient preserves concurrent remote app state while flushing queued element updates', async () => {
+  const timers = [];
+  const provider = createFakeProvider();
+  const ydoc = new Y.Doc();
+  const client = new ExcalidrawRoomClient({
+    filePath: 'diagram.excalidraw',
+    resolveWsBaseUrlFn: () => 'ws://localhost:3000',
+    setTimeoutFn: (callback, delay) => {
+      timers.push({ callback, delay });
+      return timers.length;
+    },
+    vaultClient: {
+      async readFile() {
+        return { content: JSON.stringify({ type: 'excalidraw', version: 2, source: 'collabmd', elements: [], appState: {}, files: {} }) };
+      },
+    },
+    websocketProviderFactory: () => provider,
+    ydocFactory: () => ydoc,
+  });
+
+  await client.connect({
+    initialUser: { color: '#111111', colorLight: '#11111133', name: 'Andes', peerId: 'peer-1' },
+  });
+  client.commitSceneJson(createScene('shape-1'), { origin: 'seed-shape' });
+
+  client.scheduleSceneSync(
+    [{ id: 'shape-1', isDeleted: false, type: 'rectangle', x: 20, y: 0, width: 100, height: 80 }],
+    { gridSize: null, viewBackgroundColor: '#ffffff' },
+    {},
+  );
+  client.commitSceneJson(createScene('shape-1', { color: '#dbeafe' }), { origin: 'remote-background-change' });
+
+  timers.shift().callback();
+
+  const scene = buildExcalidrawRoomScene(ydoc);
+  assert.equal(scene.appState.viewBackgroundColor, '#dbeafe');
+  assert.equal(scene.elements[0].x, 20);
+});
+
 test('ExcalidrawRoomClient commitSceneJson writes the latest scene without tracking room history', async () => {
   const { client, ydoc } = await createConnectedClient();
 

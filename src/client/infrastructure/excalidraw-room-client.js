@@ -368,8 +368,31 @@ export class ExcalidrawRoomClient {
     replaceExcalidrawRoomScene(this.ydoc, nextScene);
   }
 
+  mergeLocallyChangedAppState(appState, baseSceneJson) {
+    const baseScene = parseSceneJson(baseSceneJson);
+    const roomScene = parseSceneJson(this.getStructuredSceneJson() || this.lastSceneJson);
+    const nextAppState = {
+      ...roomScene.appState,
+    };
+
+    ['gridSize', 'viewBackgroundColor'].forEach((key) => {
+      if (appState?.[key] === baseScene.appState?.[key]) {
+        return;
+      }
+
+      nextAppState[key] = appState?.[key];
+    });
+
+    return nextAppState;
+  }
+
   scheduleSceneSync(elements, appState, files) {
-    this.pendingSceneSyncPayload = { appState, elements, files };
+    this.pendingSceneSyncPayload = {
+      appState,
+      baseSceneJson: this.lastSceneJson,
+      elements,
+      files,
+    };
     if (!this.canWriteToRoom) {
       return;
     }
@@ -395,13 +418,27 @@ export class ExcalidrawRoomClient {
       return;
     }
 
-    const { elements, appState, files } = this.pendingSceneSyncPayload;
+    const {
+      appState,
+      baseSceneJson,
+      elements,
+      files,
+    } = this.pendingSceneSyncPayload;
     this.pendingSceneSyncPayload = null;
 
-    const sceneData = buildLiveCollaborationScene(elements, appState, files);
+    const sceneData = buildLiveCollaborationScene(
+      elements,
+      this.mergeLocallyChangedAppState(appState, baseSceneJson),
+      files,
+    );
     const json = JSON.stringify(sceneData);
     if (this.shouldDelayEmptySceneCommit(json)) {
-      this.pendingSceneSyncPayload = { appState, elements, files };
+      this.pendingSceneSyncPayload = {
+        appState,
+        baseSceneJson,
+        elements,
+        files,
+      };
       this.scheduleDelayedEmptySceneCommit();
       return;
     }
