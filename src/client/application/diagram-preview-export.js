@@ -72,12 +72,25 @@ function dataUrlToBlob(dataUrl) {
   return new Blob([decodeURIComponent(payload)], { type: mimeType });
 }
 
+function removeSvgComments(rootElement) {
+  const ownerDocument = rootElement.ownerDocument;
+  const walker = ownerDocument.createTreeWalker(rootElement, 128);
+  const comments = [];
+
+  while (walker.nextNode()) {
+    comments.push(walker.currentNode);
+  }
+
+  comments.forEach((comment) => comment.remove());
+}
+
 function cleanupExportSvg(svgElement) {
   const clonedSvg = svgElement.cloneNode(true);
   if (!(clonedSvg instanceof SVGSVGElement)) {
     throw new Error('Renderer returned invalid SVG');
   }
 
+  removeSvgComments(clonedSvg);
   clonedSvg.style.removeProperty('display');
   clonedSvg.style.removeProperty('margin');
   clonedSvg.style.removeProperty('max-width');
@@ -169,10 +182,13 @@ export function downloadBlob(blob, fileName) {
   const anchor = document.createElement('a');
   anchor.href = downloadUrl;
   anchor.download = fileName;
+  anchor.style.display = 'none';
   document.body.appendChild(anchor);
   anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 0);
+  window.setTimeout(() => {
+    anchor.remove();
+    URL.revokeObjectURL(downloadUrl);
+  }, 30_000);
 }
 
 export async function writeBlobToClipboard(blob) {

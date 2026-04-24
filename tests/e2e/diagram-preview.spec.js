@@ -1221,6 +1221,28 @@ test('downloads standalone Mermaid previews as SVG with the diagram file name', 
   expect(download.suggestedFilename()).toBe('sample-mermaid.svg');
 });
 
+test('PlantUML standalone download saves SVG with the diagram file name', async ({ page }) => {
+  await page.route('**/api/plantuml/render', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        ok: true,
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 48"><text x="8" y="28">standalone-puml-download</text></svg>',
+      }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
+  await openFile(page, 'sample-plantuml.puml');
+  await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Download SVG"]').click();
+  const download = await downloadPromise;
+
+  expect(download.suggestedFilename()).toBe('sample-plantuml.svg');
+});
+
 test('copies standalone Mermaid previews as PNG when image clipboard write succeeds', async ({ page }) => {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await openFile(page, 'sample-mermaid.mmd');

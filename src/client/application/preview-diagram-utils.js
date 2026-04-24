@@ -166,8 +166,9 @@ export function createPlantUmlPlaceholderCard(key, message = 'Renders server-sid
 }
 
 export function sanitizeSvgMarkup(svgMarkup) {
+  const markupWithoutComments = String(svgMarkup ?? '').replace(/<!--[\s\S]*?-->/gu, '');
   const parser = new DOMParser();
-  const documentNode = parser.parseFromString(svgMarkup, 'image/svg+xml');
+  const documentNode = parser.parseFromString(markupWithoutComments, 'image/svg+xml');
   const svg = documentNode.documentElement;
 
   if (!svg || svg.nodeName.toLowerCase() !== 'svg') {
