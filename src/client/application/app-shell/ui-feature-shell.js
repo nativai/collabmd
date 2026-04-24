@@ -3,6 +3,8 @@ import { isPlainQuickSwitcherShortcut } from '../../domain/keyboard-shortcuts.js
 import { createFileRouteHash, isCollabMdHashRoute } from '../../domain/hash-routes.js';
 
 const VERSION_RELOAD_TOAST_DURATION_MS = 0;
+const PREVIEW_ROUTE_ANCHOR_STABILIZE_MS = 2000;
+const PREVIEW_ROUTE_ANCHOR_MAX_APPLICATIONS = 8;
 const PREVIEW_HEADING_LINK_ICON = `
   <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
     <path d="M10 13.5 14 9.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -449,6 +451,10 @@ function getHeadingLinkLabel(heading) {
   return headingClone.textContent.replace(/\s+/g, ' ').trim();
 }
 
+function nowMs() {
+  return globalThis.performance?.now?.() ?? Date.now();
+}
+
 /** @this {UiShellContext} */
 function navigatePreviewHeading(target, headingId, { behavior = 'auto' } = {}) {
   if (!(target instanceof HTMLElement) || !headingId) {
@@ -536,8 +542,11 @@ function requestPreviewRouteAnchor(anchorId, filePath = this.currentFilePath) {
   const normalizedAnchor = String(anchorId ?? '').trim();
   this._pendingPreviewRouteAnchor = normalizedAnchor
     ? {
+      applied: false,
+      appliedCount: 0,
       anchorId: normalizedAnchor,
       filePath: filePath ?? this.currentFilePath ?? null,
+      stabilizeUntil: nowMs() + PREVIEW_ROUTE_ANCHOR_STABILIZE_MS,
     }
     : null;
 
@@ -549,9 +558,14 @@ function requestPreviewRouteAnchor(anchorId, filePath = this.currentFilePath) {
 }
 
 /** @this {UiShellContext} */
-function applyPendingPreviewRouteAnchor({ behavior = 'auto', clearMissing = false } = {}) {
+function applyPendingPreviewRouteAnchor({ allowExpired = false, behavior = 'auto', clearMissing = false } = {}) {
   const pendingAnchor = this._pendingPreviewRouteAnchor;
   if (!pendingAnchor) {
+    return false;
+  }
+
+  if (!allowExpired && pendingAnchor.applied && pendingAnchor.stabilizeUntil <= nowMs()) {
+    this._pendingPreviewRouteAnchor = null;
     return false;
   }
 
@@ -561,7 +575,7 @@ function applyPendingPreviewRouteAnchor({ behavior = 'auto', clearMissing = fals
 
   const target = document.getElementById(pendingAnchor.anchorId);
   if (!(target instanceof HTMLElement) || !this.elements.previewContent?.contains(target)) {
-    if (clearMissing && pendingAnchor.filePath && pendingAnchor.filePath === this.currentFilePath) {
+    if (!pendingAnchor.applied && clearMissing && pendingAnchor.filePath && pendingAnchor.filePath === this.currentFilePath) {
       this._pendingPreviewRouteAnchor = null;
     }
     return false;
@@ -571,7 +585,12 @@ function applyPendingPreviewRouteAnchor({ behavior = 'auto', clearMissing = fals
     return false;
   }
 
-  this._pendingPreviewRouteAnchor = null;
+  pendingAnchor.applied = true;
+  pendingAnchor.appliedCount = (pendingAnchor.appliedCount ?? 0) + 1;
+  pendingAnchor.stabilizeUntil = nowMs() + PREVIEW_ROUTE_ANCHOR_STABILIZE_MS;
+  if (pendingAnchor.appliedCount >= PREVIEW_ROUTE_ANCHOR_MAX_APPLICATIONS) {
+    this._pendingPreviewRouteAnchor = null;
+  }
   return true;
 }
 

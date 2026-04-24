@@ -678,7 +678,11 @@ describe('uiFeature browser helpers', () => {
     context.requestPreviewRouteAnchor('section-a', 'MongoDB/migration-plan.md');
     expect(context.outlineController.navigateToHeading).toHaveBeenCalledWith(targetHeading, 'section-a', { behavior: 'auto' });
     expect(context.session.scrollToLine).not.toHaveBeenCalled();
-    expect(context._pendingPreviewRouteAnchor).toBeNull();
+    expect(context._pendingPreviewRouteAnchor).toMatchObject({
+      anchorId: 'section-a',
+      applied: true,
+      filePath: 'MongoDB/migration-plan.md',
+    });
   });
 
   it('keeps pending route anchors until the first preview render commits', () => {
@@ -712,8 +716,9 @@ describe('uiFeature browser helpers', () => {
     Object.assign(context, uiFeatureShellMethods);
 
     expect(context.requestPreviewRouteAnchor('section-a', 'MongoDB/migration-plan.md')).toBe(false);
-    expect(context._pendingPreviewRouteAnchor).toEqual({
+    expect(context._pendingPreviewRouteAnchor).toMatchObject({
       anchorId: 'section-a',
+      applied: false,
       filePath: 'MongoDB/migration-plan.md',
     });
 
@@ -725,7 +730,119 @@ describe('uiFeature browser helpers', () => {
     expect(context.applyPendingPreviewRouteAnchor({ behavior: 'auto' })).toBe(true);
     expect(context.session.scrollToLine).toHaveBeenCalledWith(12, 0);
     expect(scrollTo).toHaveBeenCalled();
-    expect(context._pendingPreviewRouteAnchor).toBeNull();
+    expect(context._pendingPreviewRouteAnchor).toMatchObject({
+      anchorId: 'section-a',
+      applied: true,
+      appliedCount: 1,
+      filePath: 'MongoDB/migration-plan.md',
+    });
+  });
+
+  it('reapplies active route anchors after delayed preview layout changes', () => {
+    document.body.innerHTML = `
+      <div id="previewContainer">
+        <div id="preview-content" data-render-phase="ready">
+          <h2 id="section-a" data-source-line="12">Section A</h2>
+        </div>
+      </div>
+    `;
+
+    const previewContainer = document.getElementById('previewContainer');
+    const targetHeading = document.getElementById('section-a');
+    const scrollTo = vi.fn();
+    previewContainer.scrollTo = scrollTo;
+    previewContainer.scrollTop = 0;
+    previewContainer.getBoundingClientRect = () => ({ top: 100 });
+    targetHeading.getBoundingClientRect = () => ({ top: 340, height: 28 });
+
+    const context = {
+      _pendingPreviewRouteAnchor: null,
+      currentFilePath: 'MongoDB/migration-plan.md',
+      elements: {
+        previewContainer,
+        previewContent: document.getElementById('preview-content'),
+      },
+      scrollSyncController: {
+        suspendSync: vi.fn(),
+      },
+      session: {
+        scrollToLine: vi.fn(),
+      },
+    };
+
+    Object.assign(context, uiFeatureShellMethods);
+
+    expect(context.requestPreviewRouteAnchor('section-a', 'MongoDB/migration-plan.md')).toBe(true);
+    targetHeading.getBoundingClientRect = () => ({ top: 580, height: 28 });
+
+    expect(context.applyPendingPreviewRouteAnchor({ behavior: 'auto', clearMissing: false })).toBe(true);
+    expect(scrollTo).toHaveBeenCalledTimes(2);
+    expect(scrollTo).toHaveBeenLastCalledWith({ behavior: 'auto', top: 480 });
+    expect(context._pendingPreviewRouteAnchor).toMatchObject({
+      anchorId: 'section-a',
+      applied: true,
+      appliedCount: 2,
+    });
+  });
+
+  it('allows render completion to correct slow route anchor hydration once the settle window expired', () => {
+    document.body.innerHTML = `
+      <div id="previewContainer">
+        <div id="preview-content" data-render-phase="ready">
+          <h2 id="section-a" data-source-line="12">Section A</h2>
+        </div>
+      </div>
+    `;
+
+    const previewContainer = document.getElementById('previewContainer');
+    const targetHeading = document.getElementById('section-a');
+    const scrollTo = vi.fn();
+    previewContainer.scrollTo = scrollTo;
+    previewContainer.scrollTop = 0;
+    previewContainer.getBoundingClientRect = () => ({ top: 100 });
+    targetHeading.getBoundingClientRect = () => ({ top: 420, height: 28 });
+
+    const context = {
+      _pendingPreviewRouteAnchor: {
+        anchorId: 'section-a',
+        applied: true,
+        appliedCount: 1,
+        filePath: 'MongoDB/migration-plan.md',
+        stabilizeUntil: 0,
+      },
+      currentFilePath: 'MongoDB/migration-plan.md',
+      elements: {
+        previewContainer,
+        previewContent: document.getElementById('preview-content'),
+      },
+      scrollSyncController: {
+        suspendSync: vi.fn(),
+      },
+      session: {
+        scrollToLine: vi.fn(),
+      },
+    };
+
+    Object.assign(context, uiFeatureShellMethods);
+
+    expect(context.applyPendingPreviewRouteAnchor({ behavior: 'auto' })).toBe(false);
+    expect(scrollTo).not.toHaveBeenCalled();
+
+    context._pendingPreviewRouteAnchor = {
+      anchorId: 'section-a',
+      applied: true,
+      appliedCount: 1,
+      filePath: 'MongoDB/migration-plan.md',
+      stabilizeUntil: 0,
+    };
+
+    expect(context.applyPendingPreviewRouteAnchor({ allowExpired: true, behavior: 'auto' })).toBe(true);
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: 'auto', top: 320 });
+    expect(context._pendingPreviewRouteAnchor).toMatchObject({
+      applied: true,
+      appliedCount: 2,
+      anchorId: 'section-a',
+    });
   });
 
   it('clears missing pending route anchors only after a committed preview render', () => {
@@ -746,14 +863,16 @@ describe('uiFeature browser helpers', () => {
     Object.assign(context, uiFeatureShellMethods);
 
     expect(context.requestPreviewRouteAnchor('missing-section', 'MongoDB/migration-plan.md')).toBe(false);
-    expect(context._pendingPreviewRouteAnchor).toEqual({
+    expect(context._pendingPreviewRouteAnchor).toMatchObject({
       anchorId: 'missing-section',
+      applied: false,
       filePath: 'MongoDB/migration-plan.md',
     });
 
     expect(context.applyPendingPreviewRouteAnchor({ behavior: 'auto' })).toBe(false);
-    expect(context._pendingPreviewRouteAnchor).toEqual({
+    expect(context._pendingPreviewRouteAnchor).toMatchObject({
       anchorId: 'missing-section',
+      applied: false,
       filePath: 'MongoDB/migration-plan.md',
     });
 

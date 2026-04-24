@@ -367,6 +367,7 @@ export class CollabMdAppShell {
       },
       onPreviewLayoutChange: () => {
         this.scrollSyncController.invalidatePreviewBlocks();
+        this.applyPendingPreviewRouteAnchor({ behavior: 'auto', clearMissing: false });
         this.schedulePreviewLayoutSync({ delayMs: 0 });
         this.refreshCommentUiLayout();
       },
@@ -374,7 +375,7 @@ export class CollabMdAppShell {
         this.videoEmbed.syncLayout();
         this.drawioEmbed.syncLayout();
         this.excalidrawEmbed.syncLayout();
-        this.applyPendingPreviewRouteAnchor({ behavior: 'auto', clearMissing: true });
+        this.applyPendingPreviewRouteAnchor({ allowExpired: true, behavior: 'auto', clearMissing: true });
         this.schedulePreviewLayoutSync({ delayMs: 0 });
         this.refreshCommentUiLayout();
       },
