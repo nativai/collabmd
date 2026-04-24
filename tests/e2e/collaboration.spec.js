@@ -18,6 +18,7 @@ import {
   waitForCommentSelectionChip,
   waitForExcalidrawFrameHarness,
   waitForExcalidrawTestHarness,
+  writeVaultFileAndResetCollab,
 } from './helpers/app-fixture.js';
 
 function createSeededMultiplayerScene() {
@@ -266,6 +267,20 @@ function createSeededMultiplayerScene() {
   };
 }
 
+function createEmptyExcalidrawScene() {
+  return {
+    type: 'excalidraw',
+    version: 2,
+    source: 'collabmd',
+    appState: {
+      gridSize: null,
+      viewBackgroundColor: '#ffffff',
+    },
+    files: {},
+    elements: [],
+  };
+}
+
 function createImageScene() {
   const timestamp = 1_710_000_100_000;
   const fileId = 'remote-image-file';
@@ -369,8 +384,43 @@ async function seedExcalidrawMultiplayerScene(page) {
   return scene;
 }
 
+async function prepareExcalidrawTestFile(page, filePath) {
+  await writeVaultFileAndResetCollab(page, {
+    path: filePath,
+    content: JSON.stringify(createEmptyExcalidrawScene()),
+  });
+}
+
 async function getSceneElementIds(page) {
   return page.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds());
+}
+
+async function waitForExcalidrawSceneFrame(page) {
+  await page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  }));
+}
+
+async function waitForExcalidrawBackground(page, expectedColor) {
+  await expect.poll(async () => (
+    page.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
+  )).toBe(expectedColor);
+}
+
+async function waitForExcalidrawAuthoritativeReady(page) {
+  await expect.poll(async () => (
+    page.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.isAuthoritativeReady())
+  ), { timeout: 15000 }).toBe(true);
+}
+
+async function waitForExcalidrawElementIds(page, expectedIds) {
+  await expect.poll(async () => getSceneElementIds(page)).toEqual(expectedIds);
+}
+
+async function waitForExcalidrawHistoryState(page, key, expectedValue) {
+  await expect.poll(async () => (
+    page.evaluate((stateKey) => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState()[stateKey], key)
+  )).toBe(expectedValue);
 }
 
 async function getSceneElementCount(page) {
@@ -474,6 +524,8 @@ test('direct Excalidraw collaboration registers binary files before applying rem
   await pageB.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
   await waitForExcalidrawTestHarness(pageA);
   await waitForExcalidrawTestHarness(pageB);
+  await waitForExcalidrawAuthoritativeReady(pageA);
+  await waitForExcalidrawAuthoritativeReady(pageB);
 
   const imageScene = createImageScene();
 
@@ -578,9 +630,12 @@ test('local Excalidraw undo and redo sync the resulting scene to collaborators',
   const context = await browser.newContext();
   const pageA = await context.newPage();
   const pageB = await context.newPage();
+  const filePath = 'history-undo-redo.e2e.excalidraw';
 
-  await pageA.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
-  await pageB.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
+  await prepareExcalidrawTestFile(pageA, filePath);
+
+  await pageA.goto(`/excalidraw-editor.html?file=${encodeURIComponent(filePath)}&test=1`);
+  await pageB.goto(`/excalidraw-editor.html?file=${encodeURIComponent(filePath)}&test=1`);
   await waitForExcalidrawTestHarness(pageA);
   await waitForExcalidrawTestHarness(pageB);
 
@@ -593,9 +648,12 @@ test('local Excalidraw undo and redo sync the resulting scene to collaborators',
     window.__COLLABMD_EXCALIDRAW_TEST__.setScene(scene);
   });
 
-  await expect.poll(async () => (
-    pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#111111');
+  await waitForExcalidrawSceneFrame(pageA);
+  await waitForExcalidrawBackground(pageA, '#111111');
+  await waitForExcalidrawBackground(pageB, '#111111');
+  await waitForExcalidrawSceneFrame(pageB);
+  await waitForExcalidrawAuthoritativeReady(pageB);
+  await waitForExcalidrawHistoryState(pageA, 'canUndo', true);
 
   await pageA.evaluate(() => {
     const scene = JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson());
@@ -606,37 +664,23 @@ test('local Excalidraw undo and redo sync the resulting scene to collaborators',
     window.__COLLABMD_EXCALIDRAW_TEST__.setScene(scene);
   });
 
-  await expect.poll(async () => (
-    pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#222222');
+  await waitForExcalidrawSceneFrame(pageA);
+  await waitForExcalidrawBackground(pageA, '#222222');
+  await waitForExcalidrawBackground(pageB, '#222222');
 
-  await expect.poll(async () => (
-    pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canUndo)
-  )).toBe(true);
-  await expect.poll(async () => (
-    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canUndo)
-  )).toBe(false);
+  await waitForExcalidrawHistoryState(pageA, 'canUndo', true);
+  await waitForExcalidrawHistoryState(pageB, 'canUndo', false);
 
   await pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.undoShared());
 
-  await expect.poll(async () => (
-    pageA.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#111111');
-  await expect.poll(async () => (
-    pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#111111');
-  await expect.poll(async () => (
-    pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canRedo)
-  )).toBe(true);
+  await waitForExcalidrawBackground(pageA, '#111111');
+  await waitForExcalidrawBackground(pageB, '#111111');
+  await waitForExcalidrawHistoryState(pageA, 'canRedo', true);
 
   await pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.redoShared());
 
-  await expect.poll(async () => (
-    pageA.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#222222');
-  await expect.poll(async () => (
-    pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#222222');
+  await waitForExcalidrawBackground(pageA, '#222222');
+  await waitForExcalidrawBackground(pageB, '#222222');
 
   await context.close();
 });
@@ -645,11 +689,16 @@ test('local Excalidraw redo is dropped after local undo followed by a new local 
   const context = await browser.newContext();
   const pageA = await context.newPage();
   const pageB = await context.newPage();
+  const filePath = 'history-drop-redo.e2e.excalidraw';
 
-  await pageA.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
-  await pageB.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
+  await prepareExcalidrawTestFile(pageA, filePath);
+
+  await pageA.goto(`/excalidraw-editor.html?file=${encodeURIComponent(filePath)}&test=1`);
+  await pageB.goto(`/excalidraw-editor.html?file=${encodeURIComponent(filePath)}&test=1`);
   await waitForExcalidrawTestHarness(pageA);
   await waitForExcalidrawTestHarness(pageB);
+  await waitForExcalidrawAuthoritativeReady(pageA);
+  await waitForExcalidrawAuthoritativeReady(pageB);
 
   await pageA.evaluate(() => {
     const base = {
@@ -669,7 +718,16 @@ test('local Excalidraw redo is dropped after local undo followed by a new local 
       version: 2,
     };
     window.__COLLABMD_EXCALIDRAW_TEST__.setScene(base);
+  });
 
+  await waitForExcalidrawSceneFrame(pageA);
+  await waitForExcalidrawElementIds(pageA, ['shape-1']);
+  await waitForExcalidrawElementIds(pageB, ['shape-1']);
+  await waitForExcalidrawSceneFrame(pageB);
+  await waitForExcalidrawAuthoritativeReady(pageB);
+
+  await pageA.evaluate(() => {
+    const base = JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson());
     const withSecondShape = {
       ...base,
       elements: [
@@ -688,15 +746,16 @@ test('local Excalidraw redo is dropped after local undo followed by a new local 
     window.__COLLABMD_EXCALIDRAW_TEST__.setScene(withSecondShape);
   });
 
-  await expect.poll(async () => (
-    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
-  )).toEqual(['shape-1', 'shape-2']);
+  await waitForExcalidrawSceneFrame(pageA);
+  await waitForExcalidrawElementIds(pageA, ['shape-1', 'shape-2']);
+  await waitForExcalidrawElementIds(pageB, ['shape-1', 'shape-2']);
+  await waitForExcalidrawSceneFrame(pageB);
+  await waitForExcalidrawAuthoritativeReady(pageB);
 
   await pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.undoShared());
 
-  await expect.poll(async () => (
-    pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
-  )).toEqual(['shape-1']);
+  await waitForExcalidrawElementIds(pageA, ['shape-1']);
+  await waitForExcalidrawElementIds(pageB, ['shape-1']);
 
   await pageA.evaluate(() => {
     const scene = JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson());
@@ -715,21 +774,15 @@ test('local Excalidraw redo is dropped after local undo followed by a new local 
     window.__COLLABMD_EXCALIDRAW_TEST__.setScene(scene);
   });
 
-  await expect.poll(async () => (
-    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
-  )).toEqual(['shape-1', 'shape-3']);
-  await expect.poll(async () => (
-    pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canRedo)
-  )).toBe(false);
-  await expect.poll(async () => (
-    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canUndo)
-  )).toBe(false);
+  await waitForExcalidrawSceneFrame(pageA);
+  await waitForExcalidrawElementIds(pageA, ['shape-1', 'shape-3']);
+  await waitForExcalidrawElementIds(pageB, ['shape-1', 'shape-3']);
+  await waitForExcalidrawHistoryState(pageA, 'canRedo', false);
+  await waitForExcalidrawHistoryState(pageB, 'canUndo', false);
 
   await pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.redoShared());
 
-  await expect.poll(async () => (
-    pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
-  )).toEqual(['shape-1', 'shape-3']);
+  await waitForExcalidrawElementIds(pageA, ['shape-1', 'shape-3']);
 
   await context.close();
 });

@@ -799,11 +799,16 @@ function scheduleSyncToRoom(elements, appState, files) {
     return;
   }
 
-  appliedSceneJson = JSON.stringify(normalizeScene({
+  const nextSceneJson = JSON.stringify(normalizeScene({
     elements,
     appState,
     files,
   }));
+  if (nextSceneJson === appliedSceneJson) {
+    return;
+  }
+
+  appliedSceneJson = nextSceneJson;
   roomClient.scheduleSceneSync(elements, appState, files);
 }
 
