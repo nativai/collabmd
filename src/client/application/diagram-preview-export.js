@@ -3,7 +3,7 @@ import {
   isPlantUmlFilePath,
   stripVaultFileExtension,
 } from '../../domain/file-kind.js';
-import { sanitizeSvgMarkup } from './preview-diagram-utils.js';
+import { sanitizeSvgMarkup, serializeSvgElement } from './preview-diagram-utils.js';
 
 function getPathLeaf(pathValue) {
   return String(pathValue ?? '')
@@ -72,25 +72,12 @@ function dataUrlToBlob(dataUrl) {
   return new Blob([decodeURIComponent(payload)], { type: mimeType });
 }
 
-function removeSvgComments(rootElement) {
-  const ownerDocument = rootElement.ownerDocument;
-  const walker = ownerDocument.createTreeWalker(rootElement, 128);
-  const comments = [];
-
-  while (walker.nextNode()) {
-    comments.push(walker.currentNode);
-  }
-
-  comments.forEach((comment) => comment.remove());
-}
-
 function cleanupExportSvg(svgElement) {
   const clonedSvg = svgElement.cloneNode(true);
   if (!(clonedSvg instanceof SVGSVGElement)) {
     throw new Error('Renderer returned invalid SVG');
   }
 
-  removeSvgComments(clonedSvg);
   clonedSvg.style.removeProperty('display');
   clonedSvg.style.removeProperty('margin');
   clonedSvg.style.removeProperty('max-width');
@@ -145,7 +132,7 @@ export function createDiagramExportFileNames(options = {}) {
 
 export function exportSvgMarkupFromElement(svgElement) {
   const cleanedSvg = cleanupExportSvg(svgElement);
-  return sanitizeSvgMarkup(cleanedSvg.outerHTML);
+  return serializeSvgElement(cleanedSvg);
 }
 
 export async function rasterizeSvgMarkupToPngBlob(svgMarkup) {

@@ -20,6 +20,7 @@ describe('diagram preview export helpers', () => {
       '  <script>alert(1)</script>',
       '  <foreignObject><div>bad</div></foreignObject>',
       '  <!--plantuml-src bad--metadata-->',
+      '  <text x="4" y="16">A&nbsp;B</text>',
       '  <rect width="120" height="80" fill="#fff" />',
       '</svg>',
     ].join('');
@@ -32,7 +33,9 @@ describe('diagram preview export helpers', () => {
     expect(markup).not.toContain('<script');
     expect(markup).not.toContain('<foreignObject');
     expect(markup).not.toContain('plantuml-src');
+    expect(markup).not.toContain('&nbsp;');
     expect(markup).not.toContain('width:240px');
+    expect(markup).toContain('<text');
     expect(markup).toContain('<rect');
   });
 
