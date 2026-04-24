@@ -808,6 +808,49 @@ test('BaseQueryService property values cap high-cardinality results', async (t) 
   assert.match(result.values[0].text, /status-/);
 });
 
+test('BaseQueryService enforces a configurable returned-row ceiling', async (t) => {
+  const vaultDir = await mkdtemp(join(tmpdir(), 'collabmd-base-limit-test-'));
+  t.after(() => rm(vaultDir, { force: true, recursive: true }));
+  const writeVaultFile = async (relativePath, content) => {
+    await mkdir(join(vaultDir, dirname(relativePath)), { recursive: true });
+    await writeFile(join(vaultDir, relativePath), content, 'utf8');
+  };
+  const service = new BaseQueryService({
+    maxResultRows: 3,
+    vaultFileStore: new VaultFileStore({ vaultDir }),
+  });
+
+  await Promise.all(Array.from({ length: 8 }, (_, index) => (
+    writeVaultFile(`notes/${index}.md`, [
+      '---',
+      `rank: ${index}`,
+      '---',
+    ].join('\n'))
+  )));
+  await writeVaultFile('views/rank.base', [
+    'filters: file.ext == "md"',
+    'properties:',
+    '  note.rank: {}',
+    'views:',
+    '  - type: table',
+    '    order: [file.name, note.rank]',
+    '    sort:',
+    '      - property: note.rank',
+    '        direction: desc',
+  ].join('\n'));
+
+  const result = await service.query({
+    basePath: 'views/rank.base',
+  });
+
+  assert.deepEqual(result.rows.map((row) => row.path), [
+    'notes/7.md',
+    'notes/6.md',
+    'notes/5.md',
+  ]);
+  assert.equal(result.totalRows, 3);
+});
+
 test('BaseQueryService property values ignore self-filters for the requested property', async (t) => {
   const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
   t.after(cleanup);

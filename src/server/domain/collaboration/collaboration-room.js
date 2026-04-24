@@ -165,6 +165,7 @@ export class CollaborationRoom {
     getHydrateDelayMs = null,
     name,
     idleGraceMs = 0,
+    maxInitialSyncBytes = 16_777_216,
     maxBufferedAmountBytes,
     perfLoggingEnabled = false,
     vaultFileStore,
@@ -173,6 +174,7 @@ export class CollaborationRoom {
   }) {
     this.name = name;
     this.idleGraceMs = idleGraceMs;
+    this.maxInitialSyncBytes = maxInitialSyncBytes;
     this.maxBufferedAmountBytes = maxBufferedAmountBytes;
     this.perfLoggingEnabled = perfLoggingEnabled;
     this.documentStore = documentStore ?? new CollaborationDocumentStore({
@@ -576,10 +578,17 @@ export class CollaborationRoom {
     this.debugMetrics.initialSyncCount += 1;
     this.debugMetrics.lastInitialSyncAt = Date.now();
     const initialSyncMessage = this.getInitialSyncMessage();
+    const initialSyncBytes = initialSyncMessage.byteLength;
+    if (initialSyncBytes > this.maxInitialSyncBytes) {
+      console.warn(
+        `[room:${this.name}] Initial sync payload is ${initialSyncBytes} bytes, exceeding ${this.maxInitialSyncBytes} bytes`,
+      );
+    }
     logPerfEvent(this.perfLoggingEnabled, `room:${this.name}`, {
-      bytes: initialSyncMessage.byteLength,
+      bytes: initialSyncBytes,
       count: this.debugMetrics.initialSyncCount,
       event: 'initial-sync',
+      exceedsLimit: initialSyncBytes > this.maxInitialSyncBytes,
     });
     return sendMessage.call(this, ws, initialSyncMessage, this);
   }

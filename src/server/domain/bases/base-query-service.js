@@ -53,6 +53,32 @@ function sortRows(rows, sortChain = []) {
   });
 }
 
+function compareRowsBySortChain(left, right, sortChain = []) {
+  for (const sortConfig of sortChain) {
+    const delta = compareValues(left.rawCells[sortConfig.property], right.rawCells[sortConfig.property]);
+    if (delta !== 0) {
+      return sortConfig.direction === 'desc' ? -delta : delta;
+    }
+  }
+
+  return String(left.file.path ?? '').localeCompare(String(right.file.path ?? ''));
+}
+
+function insertSortedBounded(rows, row, {
+  limit,
+  sortChain = [],
+}) {
+  let insertIndex = rows.findIndex((existingRow) => compareRowsBySortChain(row, existingRow, sortChain) < 0);
+  if (insertIndex === -1) {
+    insertIndex = rows.length;
+  }
+
+  rows.splice(insertIndex, 0, row);
+  if (rows.length > limit) {
+    rows.pop();
+  }
+}
+
 function escapeRegExp(value = '') {
   return String(value ?? '').replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
@@ -102,16 +128,19 @@ function pruneFilterNodeForProperty(filterNode, propertyId = '') {
 
 export class BaseQueryService {
   constructor({
+    maxResultRows = 5_000,
     vaultFileStore,
     workspaceStateProvider = null,
     workspaceStateSynchronizer = null,
   }) {
+    this.maxResultRows = maxResultRows;
     this.vaultFileStore = vaultFileStore;
     this.snapshotStore = new BaseIndexSnapshotStore({
       vaultFileStore,
       workspaceStateProvider,
       workspaceStateSynchronizer,
     });
+    this.definitionCache = new Map();
     this.propertyCatalogCache = new Map();
   }
 
@@ -202,6 +231,25 @@ export class BaseQueryService {
     return result;
   }
 
+  getCachedDefinition(cacheKey, baseSource) {
+    const sourceText = String(baseSource ?? '');
+    const existing = this.definitionCache.get(cacheKey);
+    if (existing?.source === sourceText) {
+      return existing.definition;
+    }
+
+    const definition = normalizeBaseDefinition(sourceText);
+    this.definitionCache.set(cacheKey, {
+      definition,
+      source: sourceText,
+    });
+    if (this.definitionCache.size > 50) {
+      const firstKey = this.definitionCache.keys().next().value;
+      this.definitionCache.delete(firstKey);
+    }
+    return definition;
+  }
+
   invalidatePropertyCatalogsExcept(scannedAt = '') {
     Array.from(this.propertyCatalogCache.keys()).forEach((cacheKey) => {
       if (cacheKey !== scannedAt) {
@@ -222,7 +270,7 @@ export class BaseQueryService {
       throw new Error('Base source not found');
     }
 
-    const definition = normalizeBaseDefinition(baseSource);
+    const definition = this.getCachedDefinition(source === null ? `file:${basePath}` : `source:${sourcePath}:${basePath}`, baseSource);
     const snapshot = await this.ensureIndexSnapshot({
       basePath,
       sourcePath,
@@ -251,12 +299,24 @@ export class BaseQueryService {
   collectCandidateRows({
     activeView,
     astCache = new Map(),
+    columns = [],
     definition,
     evaluatedPropertyIds,
+    limit = null,
+    maxRows = this.maxResultRows,
     snapshot,
+    sortChain = [],
+    search = '',
     thisFile,
   }) {
     const rows = [];
+    const effectiveMaxRows = Number.isInteger(maxRows) && maxRows > 0 ? maxRows : Infinity;
+    const effectiveLimit = Number.isInteger(limit) && limit > 0 ? limit : Infinity;
+    const canBoundDuringCollection = Number.isFinite(Math.min(effectiveLimit, effectiveMaxRows))
+      && sortChain.length > 0
+      && !activeView.groupBy?.property
+      && (activeView.summaries?.length ?? 0) === 0;
+    const hardLimit = Math.min(effectiveLimit, effectiveMaxRows);
 
     snapshot.filePaths.forEach((filePath) => {
       const row = snapshot.rowsByPath.get(filePath);
@@ -280,10 +340,23 @@ export class BaseQueryService {
         rawCells[propertyId] = getPropertyValue(propertyId, row, definition, snapshot, thisFile, rowContext);
       });
 
-      rows.push({
+      const candidateRow = {
         file: row.file,
         rawCells,
-      });
+      };
+      if (!rowMatchesSearch(candidateRow, columns, search)) {
+        return;
+      }
+
+      if (canBoundDuringCollection) {
+        insertSortedBounded(rows, candidateRow, {
+          limit: hardLimit,
+          sortChain,
+        });
+        return;
+      }
+
+      rows.push(candidateRow);
     });
 
     return rows;
@@ -378,15 +451,24 @@ export class BaseQueryService {
     });
 
     const astCache = new Map();
+    const sortChain = buildSortChain(context.activeView);
+    const requestedLimit = Number.isInteger(context.activeView.limit) && context.activeView.limit > 0
+      ? context.activeView.limit
+      : null;
     let rows = this.collectCandidateRows({
       ...context,
       astCache,
+      limit: requestedLimit,
+      maxRows: this.maxResultRows,
+      search,
+      sortChain,
     });
-    rows = rows.filter((row) => rowMatchesSearch(row, context.columns, search));
-    rows = sortRows(rows, buildSortChain(context.activeView));
+    rows = sortRows(rows, sortChain);
 
-    if (context.activeView.limit != null) {
-      rows = rows.slice(0, context.activeView.limit);
+    if (requestedLimit != null) {
+      rows = rows.slice(0, Math.min(requestedLimit, this.maxResultRows));
+    } else if (Number.isInteger(this.maxResultRows) && this.maxResultRows > 0) {
+      rows = rows.slice(0, this.maxResultRows);
     }
 
     const payload = buildQueryResultPayload({

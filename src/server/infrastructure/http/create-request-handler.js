@@ -63,6 +63,7 @@ export function createRequestHandler(
   const handleVaultApi = createVaultApiHandler({
     baseQueryService,
     backlinkIndex,
+    config,
     docxExporter,
     plantUmlRenderer,
     roomRegistry,

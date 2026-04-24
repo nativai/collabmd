@@ -77,6 +77,7 @@ export function createAppServer(config = loadConfig()) {
   let fileSystemSyncService = null;
   let workspaceMutationCoordinator = null;
   const baseQueryService = new BaseQueryService({
+    maxResultRows: config.maxBaseQueryRows,
     vaultFileStore,
     workspaceStateProvider: () => workspaceMutationCoordinator?.workspaceState ?? null,
     workspaceStateSynchronizer: () => fileSystemSyncService?.flushPendingChanges?.(),
@@ -104,6 +105,7 @@ export function createAppServer(config = loadConfig()) {
         }),
         getHydrateDelayMs: () => testControls.wsRoomHydrateDelayMs,
         idleGraceMs: config.wsRoomIdleGraceMs,
+        maxInitialSyncBytes: config.maxInitialSyncBytes,
         maxBufferedAmountBytes: config.wsMaxBufferedAmountBytes,
         name,
         onEmpty,
