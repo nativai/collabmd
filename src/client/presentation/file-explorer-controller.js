@@ -90,6 +90,16 @@ export class FileExplorerController {
     this.renderTree();
   }
 
+  revealFile(filePath, { clearSearch = false } = {}) {
+    if (clearSearch) {
+      this.state.setSearchQuery('');
+    }
+
+    this.state.setActiveFile(filePath);
+    this.renderTree({ reset: clearSearch });
+    this.view.revealFile(filePath);
+  }
+
   get flatFiles() {
     return this.state.flatFiles;
   }

@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  createFileRouteHash,
   getHashRoute,
+  isCollabMdHashRoute,
   navigateToGitCommit,
   navigateToGitFileHistory,
   navigateToGitFilePreview,
@@ -93,6 +95,7 @@ test('runtime-config parses and builds drawio text fallback routes', (t) => {
   });
 
   assert.deepEqual(getHashRoute(), {
+    anchor: null,
     drawioMode: 'text',
     filePath: 'diagrams/architecture.drawio',
     type: 'file',
@@ -100,4 +103,38 @@ test('runtime-config parses and builds drawio text fallback routes', (t) => {
 
   navigateToFile('diagrams/architecture.drawio', { drawioMode: 'text' });
   assert.equal(globalThis.window.location.hash, 'file=diagrams%2Farchitecture.drawio&drawio=text');
+});
+
+test('runtime-config parses and builds file anchor routes', (t) => {
+  const previousWindow = globalThis.window;
+  globalThis.window = createWindowStub('#file=MongoDB%2Fmigration-plan.md&anchor=approach-b-pros');
+
+  t.after(() => {
+    globalThis.window = previousWindow;
+  });
+
+  assert.deepEqual(getHashRoute(), {
+    anchor: 'approach-b-pros',
+    drawioMode: null,
+    filePath: 'MongoDB/migration-plan.md',
+    type: 'file',
+  });
+
+  assert.equal(
+    createFileRouteHash('MongoDB/migration-plan.md', { anchor: 'approach-b-pros' }),
+    'file=MongoDB%2Fmigration-plan.md&anchor=approach-b-pros',
+  );
+
+  navigateToFile('MongoDB/migration-plan.md', { anchor: 'approach-b-pros' });
+  assert.equal(globalThis.window.location.hash, 'file=MongoDB%2Fmigration-plan.md&anchor=approach-b-pros');
+});
+
+test('runtime-config distinguishes app-owned hash routes from document fragments', () => {
+  assert.equal(isCollabMdHashRoute('#file=README.md'), true);
+  assert.equal(isCollabMdHashRoute('#git-diff=README.md'), true);
+  assert.equal(isCollabMdHashRoute('#git-history=1'), true);
+  assert.equal(isCollabMdHashRoute('#file'), false);
+  assert.equal(isCollabMdHashRoute('#git-history'), false);
+  assert.equal(isCollabMdHashRoute('#section-a'), false);
+  assert.equal(isCollabMdHashRoute('#approach-b-pros'), false);
 });

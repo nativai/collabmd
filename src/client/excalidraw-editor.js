@@ -17,6 +17,9 @@ import {
 import './styles/surfaces/embedded-editor-base.css';
 import './styles/surfaces/excalidraw-editor.css';
 import {
+  applySceneUpdateWithFiles,
+} from './domain/excalidraw-api-scene-sync.js';
+import {
   normalizeScene,
   parseSceneJson,
   sceneToInitialData,
@@ -24,6 +27,7 @@ import {
 import {
   normalizeDocumentMode,
 } from './domain/excalidraw-document-switch.js';
+import { isPlainQuickSwitcherShortcut } from './domain/keyboard-shortcuts.js';
 import { ensureClientAuthenticated } from './infrastructure/auth-client.js';
 import { ExcalidrawRoomClient } from './infrastructure/excalidraw-room-client.js';
 import { vaultApiClient } from './infrastructure/vault-api-client.js';
@@ -63,6 +67,9 @@ let initialViewportFitPending = true;
 let roomClient = null;
 let roomClientGeneration = 0;
 let reactRoot = null;
+let editorRenderKey = 0;
+let skipRoomDisconnectOnUnmount = false;
+const reportedFileConflictSignatures = new Set();
 
 function getDocumentViewState(mode = currentDocument.mode) {
   const normalizedMode = normalizeDocumentMode(mode);
@@ -113,7 +120,11 @@ function buildExcalidrawProps({ initialData } = {}) {
     },
     onUnmount: () => {
       clearEditorApiStateBindings();
-      disconnectRealtimeRoom({ preserveEditorBindings: true });
+      if (skipRoomDisconnectOnUnmount) {
+        skipRoomDisconnectOnUnmount = false;
+      } else {
+        disconnectRealtimeRoom({ preserveEditorBindings: true });
+      }
       excalidrawAPI = null;
       collabReady = false;
     },
@@ -154,7 +165,10 @@ function renderExcalidrawApp({ initialData } = {}) {
     React.createElement(
       'div',
       { style: { height: '100vh', width: '100%' } },
-      React.createElement(Excalidraw, buildExcalidrawProps({ initialData })),
+      React.createElement(Excalidraw, {
+        key: `editor-${editorRenderKey}`,
+        ...buildExcalidrawProps({ initialData }),
+      }),
     ),
   );
 }
@@ -223,6 +237,13 @@ if (isTestMode) {
         ?.filter((element) => !element.isDeleted)
         .map((element) => element.id)
         .sort() ?? []
+    ),
+    getElementStatus: (elementId) => (
+      excalidrawAPI?.getSceneElementsIncludingDeleted?.()
+        ?.find((entry) => entry.id === elementId && !entry.isDeleted)?.status ?? null
+    ),
+    getFileIds: () => (
+      Object.keys(excalidrawAPI?.getFiles?.() || {}).sort()
     ),
     getHistoryState: () => getNativeHistoryState(),
     getLocalUserName: () => localAwarenessUser?.name || '',
@@ -321,7 +342,9 @@ function applySceneFromJson(rawJson) {
     return;
   }
 
-  updateApiScene(scene);
+  updateApiScene(scene, {
+    replaceElements: true,
+  });
 }
 
 function releaseOnChangeSuppressionAfterPaint({ trackedSharedSnapshot = false } = {}) {
@@ -376,8 +399,86 @@ function buildApiSceneUpdate(scene, {
       ...appStateOverrides,
     },
     elements: reconciledElements,
-    files: scene?.files || {},
   };
+}
+
+function logFileConflictOnce(conflictingFileIds = []) {
+  const signature = `${currentDocument.filePath}::${[...conflictingFileIds].sort().join(',')}`;
+  if (reportedFileConflictSignatures.has(signature)) {
+    return;
+  }
+
+  reportedFileConflictSignatures.add(signature);
+  console.warn(
+    `[excalidraw:${currentDocument.filePath}] Remounting editor after receiving conflicting binary file payload(s) for existing file ids: ${conflictingFileIds.join(', ')}`,
+  );
+}
+
+function requestEditorRemount(scene) {
+  if (!reactRoot) {
+    return false;
+  }
+
+  const normalizedScene = normalizeScene(scene);
+  const normalizedJson = JSON.stringify(normalizedScene);
+  pendingRemoteSceneJson = normalizedJson;
+  appliedSceneJson = normalizedJson;
+  pendingCollaborators = activeCollaborators;
+  initialViewportFitPending = true;
+  clearEditorApiStateBindings();
+  skipRoomDisconnectOnUnmount = true;
+  editorRenderKey += 1;
+  renderExcalidrawApp({
+    initialData: sceneToInitialData(normalizedScene, { theme: currentTheme }),
+  });
+  return true;
+}
+
+function applySceneToMountedApi(scene, {
+  appStateOverrides = {},
+  captureUpdate = CaptureUpdateAction.NEVER,
+  replaceElements = false,
+  trackedSharedSnapshot = false,
+} = {}) {
+  const nextSceneUpdate = buildApiSceneUpdate(scene, {
+    appStateOverrides,
+    replaceElements,
+  });
+  let applyResult = null;
+
+  suppressOnChange = true;
+  if (trackedSharedSnapshot) {
+    roomClient?.beginApplyingSharedSnapshot();
+  }
+
+  try {
+    applyResult = applySceneUpdateWithFiles(excalidrawAPI, {
+      captureUpdate,
+      files: scene?.files || {},
+      sceneUpdate: nextSceneUpdate,
+    }, {
+      onFileConflict: ({ conflictingFileIds }) => {
+        logFileConflictOnce(conflictingFileIds);
+      },
+    });
+  } finally {
+    if (applyResult?.requiresRemount) {
+      if (trackedSharedSnapshot) {
+        roomClient?.endApplyingSharedSnapshot();
+      }
+      suppressOnChange = false;
+    } else {
+      releaseOnChangeSuppressionAfterPaint({ trackedSharedSnapshot });
+    }
+  }
+
+  if (applyResult?.requiresRemount) {
+    requestEditorRemount(scene);
+    return applyResult;
+  }
+
+  scheduleInitialViewportFit();
+  return applyResult;
 }
 
 function updateApiScene(scene, {
@@ -386,25 +487,12 @@ function updateApiScene(scene, {
   replaceElements = false,
   trackedSharedSnapshot = true,
 } = {}) {
-  const nextSceneUpdate = buildApiSceneUpdate(scene, {
+  applySceneToMountedApi(scene, {
     appStateOverrides,
+    captureUpdate,
     replaceElements,
+    trackedSharedSnapshot,
   });
-
-  suppressOnChange = true;
-  if (trackedSharedSnapshot) {
-    roomClient?.beginApplyingSharedSnapshot();
-  }
-  try {
-    excalidrawAPI.updateScene({
-      ...nextSceneUpdate,
-      captureUpdate,
-    });
-  } finally {
-    releaseOnChangeSuppressionAfterPaint({ trackedSharedSnapshot });
-  }
-
-  scheduleInitialViewportFit();
 }
 
 function applyLocalScene(scene, {
@@ -420,16 +508,12 @@ function applyLocalScene(scene, {
     return;
   }
 
-  excalidrawAPI.updateScene({
-    ...buildApiSceneUpdate(normalizedScene),
+  applySceneToMountedApi(normalizedScene, {
     captureUpdate,
   });
-
-  if (suppressOnChange) {
-    roomClient?.commitSceneJson(normalizedJson, {
-      origin: 'excalidraw-local-scene-apply',
-    });
-  }
+  roomClient?.commitSceneJson(normalizedJson, {
+    origin: 'excalidraw-local-scene-apply',
+  });
 }
 
 function onRoomTextUpdate() {
@@ -438,6 +522,16 @@ function onRoomTextUpdate() {
 
 function postToParent(type, payload = {}) {
   window.parent.postMessage({ source: 'excalidraw-editor', type, ...payload }, parentOrigin);
+}
+
+function handleQuickSwitcherKeyDown(event) {
+  if (!isPlainQuickSwitcherShortcut(event)) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  postToParent('request-toggle-quick-switcher');
 }
 
 function getSceneElementsForPreviewFit() {
@@ -705,11 +799,16 @@ function scheduleSyncToRoom(elements, appState, files) {
     return;
   }
 
-  appliedSceneJson = JSON.stringify(normalizeScene({
+  const nextSceneJson = JSON.stringify(normalizeScene({
     elements,
     appState,
     files,
   }));
+  if (nextSceneJson === appliedSceneJson) {
+    return;
+  }
+
+  appliedSceneJson = nextSceneJson;
   roomClient.scheduleSceneSync(elements, appState, files);
 }
 
@@ -756,6 +855,8 @@ function initializeEditor(api) {
 function handleEditorMount({ excalidrawAPI: api }) {
   excalidrawAPI = api;
 }
+
+window.addEventListener('keydown', handleQuickSwitcherKeyDown, { capture: true });
 
 async function init() {
   const loadingElement = document.getElementById('loadingState');

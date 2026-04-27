@@ -9,6 +9,7 @@ import {
   replaceEditorContent,
   test,
   waitForHeavyPreviewContent,
+  writeVaultFileAndResetCollab,
 } from './helpers/app-fixture.js';
 
 const OUTLINE_TEST_DOCUMENT = `# My Vault
@@ -39,12 +40,37 @@ Welcome to the test vault.
 - [[projects/collabmd]]
 `;
 
+const FRAGMENT_LINK_DOCUMENT = `# My Vault
+
+- [Jump to section](#section-a)
+- [Back to top](#top)
+
+## Section A
+
+Target content
+`;
+
+const DUPLICATE_SUBHEADING_DOCUMENT = `# My Vault
+
+## Approach A
+
+#### Pros
+
+- Alpha
+
+## Approach B
+
+#### Pros
+
+- Beta
+`;
+
 async function createLinkedMentionFiles(page, {
   count = 12,
   target = 'projects/collabmd',
 } = {}) {
   for (let index = 0; index < count; index += 1) {
-    const response = await page.request.post('http://127.0.0.1:4173/api/file', {
+    const response = await page.request.post('/api/file', {
       data: {
         content: `# Mention ${index + 1}\n\n- [[${target}]]\n`,
         path: `linked-mention-${index + 1}.md`,
@@ -246,8 +272,9 @@ test('keeps the clicked parent section active in the outline after navigation se
   expect(parentHeadingOffset).toBeLessThan(80);
   await expect(page.locator('#outlineNav .outline-item.active').first()).toHaveText('Embedded Diagram Files');
   await expect(page.locator('#previewContent .excalidraw-embed').first()).toBeVisible();
-  await page.waitForTimeout(1000);
-  await expect(page.locator('#outlineNav .outline-item.active').first()).toHaveText('Embedded Diagram Files');
+  await expect.poll(async () => (
+    page.locator('#outlineNav .outline-item.active').first().textContent()
+  )).toBe('Embedded Diagram Files');
 });
 
 test('keeps the outline open on desktop after selecting a section', async ({ page }) => {
@@ -281,6 +308,117 @@ test('renders frontmatter as metadata while keeping outline navigation aligned',
 
   await expect(page.locator('#previewContent h2[data-source-line="13"]')).toBeVisible();
   await expect(page.locator('#outlineNav .outline-item.active').first()).toHaveText('Links');
+});
+
+test('keeps in-document anchor clicks inside the current preview without changing the file route', async ({ page }) => {
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, FRAGMENT_LINK_DOCUMENT);
+  await expect(page.locator('#previewContent a[href="#section-a"]')).toBeVisible();
+
+  await expect(page).toHaveURL(/#file=README\.md$/);
+  await page.locator('#previewContent a[href="#section-a"]').click();
+
+  await expect(page).toHaveURL(/#file=README\.md$/);
+  expect(page.context().pages()).toHaveLength(1);
+  await expect(page.locator('#tabLockOverlay')).toBeHidden();
+
+  await expect.poll(async () => {
+    const heading = page.locator('#previewContent h2#section-a');
+    return heading.evaluate((element) => {
+      const container = document.getElementById('previewContainer');
+      const containerRect = container.getBoundingClientRect();
+      const headingRect = element.getBoundingClientRect();
+      return Math.abs(headingRect.top - containerRect.top);
+    });
+  }).toBeLessThan(220);
+});
+
+test('copies and restores file-plus-anchor deep links from preview headings', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, FRAGMENT_LINK_DOCUMENT);
+
+  const headingLinkButton = page.locator('#previewContent h2#section-a .preview-heading-link-button');
+  await expect(headingLinkButton).toBeVisible();
+  await headingLinkButton.click();
+
+  await expect.poll(async () => (
+    page.evaluate(() => navigator.clipboard.readText())
+  )).toBe(`${new URL(page.url()).origin}/#file=README.md&anchor=section-a`);
+
+  await page.goto('/#file=README.md&anchor=section-a');
+  await expect(page).toHaveURL(/#file=README\.md&anchor=section-a$/);
+  await expect(page.locator('#tabLockOverlay')).toBeHidden();
+  await expect(page.locator('#previewContent h2#section-a')).toBeVisible();
+
+  await expect.poll(async () => {
+    const heading = page.locator('#previewContent h2#section-a');
+    return heading.evaluate((element) => {
+      const container = document.getElementById('previewContainer');
+      const containerRect = container.getBoundingClientRect();
+      const headingRect = element.getBoundingClientRect();
+      return Math.abs(headingRect.top - containerRect.top);
+    });
+  }).toBeLessThan(220);
+});
+
+test('restores a file-plus-anchor route on the first page load', async ({ page }) => {
+  await writeVaultFileAndResetCollab(page, {
+    content: FRAGMENT_LINK_DOCUMENT,
+    path: 'README.md',
+  });
+
+  await page.goto('/#file=README.md&anchor=section-a');
+  await expect(page).toHaveURL(/#file=README\.md&anchor=section-a$/);
+  await expect(page.locator('#tabLockOverlay')).toBeHidden();
+  await expect(page.locator('#previewContent h2#section-a')).toBeVisible();
+
+  await expect.poll(async () => {
+    const heading = page.locator('#previewContent h2#section-a');
+    return heading.evaluate((element) => {
+      const container = document.getElementById('previewContainer');
+      const containerRect = container.getBoundingClientRect();
+      const headingRect = element.getBoundingClientRect();
+      return Math.abs(headingRect.top - containerRect.top);
+    });
+  }).toBeLessThan(220);
+
+  const editorHeadingOffset = await page.locator('.cm-line', { hasText: '## Section A' }).first().evaluate((line) => {
+    const scroller = document.querySelector('.cm-scroller');
+    const scrollerRect = scroller.getBoundingClientRect();
+    const lineRect = line.getBoundingClientRect();
+    return Math.abs(lineRect.top - scrollerRect.top);
+  });
+
+  expect(editorHeadingOffset).toBeLessThan(220);
+});
+
+test('copies and restores duplicate nested heading links using contextual anchors', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, DUPLICATE_SUBHEADING_DOCUMENT);
+
+  const headingLinkButton = page.locator('#previewContent h4#approach-b-pros .preview-heading-link-button');
+  await expect(headingLinkButton).toBeVisible();
+  await headingLinkButton.click();
+
+  await expect.poll(async () => (
+    page.evaluate(() => navigator.clipboard.readText())
+  )).toBe(`${new URL(page.url()).origin}/#file=README.md&anchor=approach-b-pros`);
+
+  await page.goto('/#file=README.md&anchor=approach-b-pros');
+  await expect(page).toHaveURL(/#file=README\.md&anchor=approach-b-pros$/);
+  await expect(page.locator('#previewContent h4#approach-b-pros')).toBeVisible();
+
+  await expect.poll(async () => {
+    const heading = page.locator('#previewContent h4#approach-b-pros');
+    return heading.evaluate((element) => {
+      const container = document.getElementById('previewContainer');
+      const containerRect = container.getBoundingClientRect();
+      const headingRect = element.getBoundingClientRect();
+      return Math.abs(headingRect.top - containerRect.top);
+    });
+  }).toBeLessThan(320);
 });
 
 test('keeps the preview container width stable when the outline opens in preview mode', async ({ page }) => {
@@ -352,16 +490,28 @@ test('hydrates more mermaid and excalidraw content as the heavy preview scrolls'
   await page.locator('#previewContainer').evaluate((element) => {
     element.scrollTop = element.scrollHeight * 0.5;
   });
-  await page.waitForTimeout(3000);
 
-  const middle = await getHeavyPreviewCounts(page);
+  let middle = before;
+  await expect.poll(async () => {
+    const counts = await getHeavyPreviewCounts(page);
+    middle = counts;
+    return counts.mermaidSvgs > before.mermaidSvgs
+      || counts.excalidrawIframes > before.excalidrawIframes
+      || counts.scrollHeight > before.scrollHeight;
+  }, { timeout: 60000 }).toBeTruthy();
 
   await page.locator('#previewContainer').evaluate((element) => {
     element.scrollTop = element.scrollHeight * 0.85;
   });
-  await page.waitForTimeout(3000);
 
-  const after = await getHeavyPreviewCounts(page);
+  let after = middle;
+  await expect.poll(async () => {
+    const counts = await getHeavyPreviewCounts(page);
+    after = counts;
+    return counts.mermaidSvgs > middle.mermaidSvgs
+      || counts.excalidrawIframes > middle.excalidrawIframes
+      || counts.scrollHeight > middle.scrollHeight;
+  }, { timeout: 60000 }).toBeTruthy();
   const mermaidIncreased = middle.mermaidSvgs > before.mermaidSvgs || after.mermaidSvgs > middle.mermaidSvgs;
   const excalidrawIncreased = middle.excalidrawIframes > before.excalidrawIframes || after.excalidrawIframes > middle.excalidrawIframes;
   const layoutExpanded = middle.scrollHeight > before.scrollHeight || after.scrollHeight > middle.scrollHeight;
@@ -429,8 +579,6 @@ test('keeps editor, preview, and outline aligned in heavy documents after lazy h
   expect(Number.isFinite(targetLine)).toBeTruthy();
 
   await targetOutlineItem.click();
-
-  await page.waitForTimeout(1500);
 
   await expect.poll(async () => {
     const lineNumbers = await getVisibleEditorLineNumbers(page);

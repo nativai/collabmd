@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { FileExplorerController } from '../../src/client/presentation/file-explorer-controller.js';
 import { FileExplorerView } from '../../src/client/presentation/file-explorer-view.js';
 
 function createView(overrides = {}) {
@@ -252,5 +253,124 @@ describe('FileExplorerView drag and drop', () => {
       sourcePath: 'notes.md',
       sourceType: 'file',
     });
+  });
+});
+
+describe('File explorer reveal behavior', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  it('scrolls the matching file into view when revealed', () => {
+    const view = createView();
+
+    view.render({
+      activeFilePath: null,
+      expandedDirs: new Set(['docs']),
+      reset: true,
+      searchMatches: [],
+      searchQuery: '',
+      tree: [{
+        children: [
+          { name: 'guide.md', path: 'docs/guide.md', type: 'file' },
+        ],
+        name: 'docs',
+        path: 'docs',
+        type: 'directory',
+      }],
+    });
+
+    const item = document.querySelector('[data-path="docs/guide.md"]');
+    item.scrollIntoView = vi.fn();
+
+    view.revealFile('docs/guide.md');
+
+    expect(item.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+  });
+
+  it('clears tree search before revealing a quick-switcher file', () => {
+    document.body.innerHTML = `
+      <input id="fileSearchInput">
+      <nav id="fileTree"></nav>
+    `;
+
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    try {
+      const controller = new FileExplorerController({
+        mobileBreakpointQuery: { matches: true },
+        onFileDelete: vi.fn(),
+        onFileSelect: vi.fn(),
+        toastController: { show: vi.fn() },
+        vaultClient: { readTree: vi.fn() },
+      });
+
+      controller.setTree([{
+        children: [{
+          children: [
+            { name: 'guide.md', path: 'docs/guides/guide.md', type: 'file' },
+          ],
+          name: 'guides',
+          path: 'docs/guides',
+          type: 'directory',
+        }],
+        name: 'docs',
+        path: 'docs',
+        type: 'directory',
+      }], { reset: true });
+
+      controller.state.setSearchQuery('guide');
+      controller.renderTree();
+      expect(document.querySelectorAll('.file-tree-children')).toHaveLength(0);
+
+      controller.revealFile('docs/guides/guide.md', { clearSearch: true });
+
+      expect(document.getElementById('fileSearchInput').value).toBe('');
+      expect(document.querySelectorAll('.file-tree-dir')).toHaveLength(2);
+      expect(document.querySelector('.file-tree-file.active')?.dataset.path).toBe('docs/guides/guide.md');
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
+  it('does not auto-scroll for normal active-file updates', () => {
+    document.body.innerHTML = `
+      <input id="fileSearchInput">
+      <nav id="fileTree"></nav>
+    `;
+
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    try {
+      const controller = new FileExplorerController({
+        mobileBreakpointQuery: { matches: true },
+        onFileDelete: vi.fn(),
+        onFileSelect: vi.fn(),
+        toastController: { show: vi.fn() },
+        vaultClient: { readTree: vi.fn() },
+      });
+
+      controller.setTree([{
+        children: [
+          { name: 'guide.md', path: 'docs/guide.md', type: 'file' },
+        ],
+        name: 'docs',
+        path: 'docs',
+        type: 'directory',
+      }], { reset: true });
+
+      controller.setActiveFile('docs/guide.md');
+
+      expect(document.querySelector('.file-tree-file.active')?.dataset.path).toBe('docs/guide.md');
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    }
   });
 });

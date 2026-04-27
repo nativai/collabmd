@@ -228,6 +228,54 @@ test('FileSystemSyncService collapses overlapping pending paths during increment
   assert.deepEqual(applied?.workspaceChange?.changedPaths, ['docs/guide.md']);
 });
 
+test('FileSystemSyncService preserves asset directory entries when deleting one image incrementally', async (t) => {
+  const { cleanup, store, vaultDir } = await createVault();
+  t.after(cleanup);
+
+  await mkdir(join(vaultDir, 'assets'), { recursive: true });
+  await writeFile(join(vaultDir, 'assets', 'keep.webp'), 'keep-image');
+  await writeFile(join(vaultDir, 'assets', 'delete.webp'), 'delete-image');
+
+  const baselineState = await store.scanWorkspaceState();
+  let scanCount = 0;
+  const originalScanWorkspaceState = store.scanWorkspaceState.bind(store);
+  store.scanWorkspaceState = async (...args) => {
+    scanCount += 1;
+    return originalScanWorkspaceState(...args);
+  };
+
+  let applied = null;
+  const mutationCoordinator = {
+    filterManagedWorkspaceChange(workspaceChange) {
+      return workspaceChange;
+    },
+    async apply(payload) {
+      applied = payload;
+      return payload;
+    },
+    getWorkspaceRoom() {
+      return null;
+    },
+    workspaceState: baselineState,
+  };
+
+  const service = new FileSystemSyncService({
+    mutationCoordinator,
+    vaultFileStore: store,
+  });
+  service.lastState = baselineState;
+  service.pendingEventTypesByPath.set('assets/delete.webp', new Set(['rename']));
+
+  await rm(join(vaultDir, 'assets', 'delete.webp'));
+  await service.flush();
+
+  assert.equal(scanCount, 0);
+  assert.deepEqual(applied?.workspaceChange?.deletedPaths, ['assets/delete.webp']);
+  assert.equal(applied?.nextState?.entries?.has('assets'), true);
+  assert.equal(applied?.nextState?.entries?.has('assets/keep.webp'), true);
+  assert.equal(applied?.nextState?.entries?.has('assets/delete.webp'), false);
+});
+
 test('FileSystemSyncService does not reintroduce a deleted file from a stale parent snapshot', async () => {
   const staleState = createWorkspaceState([
     ['docs', 'directory'],
@@ -394,4 +442,65 @@ test('FileSystemSyncService silently rebases workspace state during global suppr
   assert.equal(replaceCount, 1);
   assert.equal(mutationCoordinator.workspaceState.entries.has('docs/external.md'), true);
   assert.equal(service.lastState.entries.has('docs/external.md'), true);
+});
+
+test('FileSystemSyncService silently rebases workspace state for managed writes', async () => {
+  const baselineState = createWorkspaceState([
+    ['diagram.excalidraw', 'file'],
+  ]);
+  const managedWriteState = createWorkspaceState([
+    ['diagram.excalidraw', 'file'],
+  ]);
+  managedWriteState.metadata.set('diagram.excalidraw', {
+    ...managedWriteState.metadata.get('diagram.excalidraw'),
+    mtimeMs: 2,
+    size: 2,
+  });
+  let scanCount = 0;
+  let applyCount = 0;
+  let syncCount = 0;
+  let replaceCount = 0;
+
+  const mutationCoordinator = {
+    filterManagedWorkspaceChange() {
+      return null;
+    },
+    isGloballySuppressed() {
+      return false;
+    },
+    async apply() {
+      applyCount += 1;
+    },
+    replaceWorkspaceState(nextState) {
+      replaceCount += 1;
+      this.workspaceState = nextState;
+    },
+    syncWorkspaceEntries() {
+      syncCount += 1;
+    },
+    workspaceState: baselineState,
+  };
+
+  const service = new FileSystemSyncService({
+    mutationCoordinator,
+    vaultFileStore: {
+      async scanWorkspaceState() {
+        scanCount += 1;
+        return managedWriteState;
+      },
+      vaultDir: process.cwd(),
+    },
+  });
+  service.lastState = baselineState;
+  service.pendingEventTypesByPath.set('diagram.excalidraw', new Set(['change']));
+  service.readWorkspacePathSnapshot = async () => managedWriteState;
+
+  await service.flush();
+
+  assert.equal(scanCount, 1);
+  assert.equal(applyCount, 0);
+  assert.equal(syncCount, 1);
+  assert.equal(replaceCount, 1);
+  assert.equal(mutationCoordinator.workspaceState.metadata.get('diagram.excalidraw').mtimeMs, 2);
+  assert.equal(service.lastState.metadata.get('diagram.excalidraw').mtimeMs, 2);
 });

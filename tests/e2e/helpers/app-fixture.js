@@ -1,8 +1,10 @@
 import { test as base, expect } from '@playwright/test';
+import { spawn } from 'node:child_process';
 import { readFile, rm } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import { resolve } from 'node:path';
 
-import { resetE2EVaultSnapshot, runtimeVaultDir, templateVaultDir } from './vault-snapshot.js';
+import { getRuntimeVaultDir, resetE2EVaultSnapshot, templateVaultDir } from './vault-snapshot.js';
 
 export const E2E_USER_NAME = 'E2E User';
 export const ACTIVE_MAXIMIZED_DRAWIO_SELECTOR = '[data-drawio-maximized-root="true"] .drawio-embed.is-maximized';
@@ -19,8 +21,115 @@ Welcome to the test vault. This is the top-level readme.
 - [[projects/collabmd]]
 `;
 let lateStatePrimePending = false;
+let runtimeVaultDir = getRuntimeVaultDir();
 
-export const test = base;
+export const test = base.extend({
+  e2eServer: [async ({ browserName }, use, workerInfo) => {
+    const workerId = `${workerInfo.project.name}-${browserName}-${workerInfo.parallelIndex}`;
+    const vaultDir = getRuntimeVaultDir(workerId);
+    const port = await getAvailablePort();
+    const baseURL = `http://127.0.0.1:${port}`;
+    await resetE2EVaultSnapshot(vaultDir);
+    const serverProcess = spawn(process.execPath, [
+      'bin/collabmd.js',
+      '--no-tunnel',
+      '--port',
+      String(port),
+      '--host',
+      '127.0.0.1',
+      vaultDir,
+    ], {
+      cwd: resolve(import.meta.dirname, '../../..'),
+      env: {
+        ...process.env,
+        COLLABMD_E2E_WORKER_ID: workerId,
+        NODE_ENV: 'test',
+        WS_ROOM_IDLE_GRACE_MS: '1',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const output = [];
+    const captureOutput = (chunk) => {
+      output.push(chunk.toString());
+      if (output.length > 80) {
+        output.shift();
+      }
+    };
+
+    serverProcess.stdout.on('data', captureOutput);
+    serverProcess.stderr.on('data', captureOutput);
+
+    try {
+      await waitForHealth(baseURL, serverProcess, output);
+      await use({ baseURL, vaultDir });
+    } finally {
+      await stopServerProcess(serverProcess);
+    }
+  }, { scope: 'worker' }],
+  baseURL: async ({ e2eServer }, use) => {
+    await use(e2eServer.baseURL);
+  },
+  page: async ({ page, e2eServer }, use) => {
+    runtimeVaultDir = e2eServer.vaultDir;
+    await use(page);
+  },
+});
+
+async function getAvailablePort() {
+  return new Promise((resolvePort, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      server.close(() => {
+        if (address && typeof address === 'object') {
+          resolvePort(address.port);
+          return;
+        }
+
+        reject(new Error('Could not allocate a local port for the e2e server.'));
+      });
+    });
+  });
+}
+
+async function waitForHealth(baseURL, serverProcess, output, timeoutMs = 120000) {
+  const startedAt = Date.now();
+  while ((Date.now() - startedAt) < timeoutMs) {
+    if (serverProcess.exitCode !== null) {
+      throw new Error(`E2E server exited before becoming healthy.\n${output.join('')}`);
+    }
+
+    try {
+      const response = await fetch(`${baseURL}/health`);
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      // The process may still be starting.
+    }
+
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+
+  throw new Error(`Timed out waiting for E2E server at ${baseURL}.\n${output.join('')}`);
+}
+
+async function stopServerProcess(serverProcess) {
+  if (serverProcess.exitCode !== null) {
+    return;
+  }
+
+  serverProcess.kill('SIGTERM');
+  await Promise.race([
+    new Promise((resolveStop) => serverProcess.once('exit', resolveStop)),
+    new Promise((resolveStop) => setTimeout(resolveStop, 5000)),
+  ]);
+
+  if (serverProcess.exitCode === null) {
+    serverProcess.kill('SIGKILL');
+  }
+}
 
 test.beforeEach(async ({ browser, page }) => {
   const currentContext = page.context();
@@ -37,7 +146,6 @@ test.beforeEach(async ({ browser, page }) => {
 test.afterEach(async ({ page }) => {
   try {
     await page.goto('about:blank');
-    await page.waitForTimeout(250);
   } catch {
     // Ignore teardown navigation failures when the page is already closed.
   }
@@ -45,10 +153,10 @@ test.afterEach(async ({ page }) => {
 
 export { expect };
 
-async function resetE2EAppState(page, { attempts = 5, stabilityWindowMs = 650 } = {}) {
+async function resetE2EAppState(page, { attempts = 5 } = {}) {
   let lastContent = '';
   const resetServerState = async () => {
-    const response = await page.request.post('http://127.0.0.1:4173/api/test/reset-state');
+    const response = await page.request.post('/api/test/reset-state');
     if (!response.ok()) {
       throw new Error(`reset-state failed: ${response.status()} ${await response.text()}`);
     }
@@ -56,30 +164,41 @@ async function resetE2EAppState(page, { attempts = 5, stabilityWindowMs = 650 } 
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     await resetServerState();
-    await resetE2EVaultSnapshot();
+    await resetE2EVaultSnapshot(runtimeVaultDir);
     await resetServerState();
 
     const readReadme = async () => {
-      const response = await page.request.get('http://127.0.0.1:4173/api/file?path=README.md');
+      const response = await page.request.get('/api/file?path=README.md');
       const data = await response.json();
       return typeof data?.content === 'string' ? data.content : '';
     };
 
     lastContent = await readReadme();
 
-    if (lastContent.includes('# My Vault') && lastContent.includes('Welcome to the test vault')) {
-      await page.waitForTimeout(stabilityWindowMs);
-      lastContent = await readReadme();
-
-      if (lastContent.includes('# My Vault') && lastContent.includes('Welcome to the test vault')) {
-        return;
-      }
+    if (await readmeSnapshotIsStable(readReadme)) {
+      return;
     }
 
     await page.waitForTimeout(100);
   }
 
   throw new Error(`Failed to restore the E2E vault snapshot. README.md content was: ${lastContent}`);
+}
+
+async function readmeSnapshotIsStable(readReadme, { requiredMatches = 2 } = {}) {
+  let matches = 0;
+
+  await expect.poll(async () => {
+    const content = await readReadme();
+    const restored = content.includes('# My Vault') && content.includes('Welcome to the test vault');
+    matches = restored ? matches + 1 : 0;
+    return matches >= requiredMatches;
+  }, {
+    intervals: [50, 50, 100, 250],
+    timeout: 5000,
+  }).toBeTruthy();
+
+  return true;
 }
 
 async function ensureLateStatePrime(page) {
@@ -147,7 +266,7 @@ export async function openHome(page, { userName = E2E_USER_NAME } = {}) {
 }
 
 export async function setHydrateDelay(page, delayMs = 0) {
-  const response = await page.request.post('http://127.0.0.1:4173/api/test/hydrate-delay', {
+  const response = await page.request.post('/api/test/hydrate-delay', {
     data: { delayMs },
   });
   if (!response.ok()) {
@@ -156,20 +275,20 @@ export async function setHydrateDelay(page, delayMs = 0) {
 }
 
 export async function writeVaultFileAndResetCollab(page, { path, content }) {
-  const resetResponseBeforeWrite = await page.request.post('http://127.0.0.1:4173/api/test/reset-state');
+  const resetResponseBeforeWrite = await page.request.post('/api/test/reset-state');
   if (!resetResponseBeforeWrite.ok()) {
     throw new Error(`reset-state failed before write: ${resetResponseBeforeWrite.status()} ${await resetResponseBeforeWrite.text()}`);
   }
 
   await clearCollaborationSidecars(path);
-  const writeResponse = await page.request.put('http://127.0.0.1:4173/api/file', {
+  const writeResponse = await page.request.put('/api/file', {
     data: { content, path },
   });
   if (!writeResponse.ok()) {
     throw new Error(`write file failed: ${writeResponse.status()} ${await writeResponse.text()}`);
   }
 
-  const resetResponseAfterWrite = await page.request.post('http://127.0.0.1:4173/api/test/reset-state');
+  const resetResponseAfterWrite = await page.request.post('/api/test/reset-state');
   if (!resetResponseAfterWrite.ok()) {
     throw new Error(`reset-state failed after write: ${resetResponseAfterWrite.status()} ${await resetResponseAfterWrite.text()}`);
   }
@@ -217,9 +336,9 @@ export async function stubPlantUmlRender(page, label = 'plantuml-stub') {
   });
 }
 
-export async function openSampleFull(page, { plantUmlLabel = 'sample-full-plantuml' } = {}) {
+export async function openSampleFull(page, { plantUmlLabel = 'sample-full-plantuml', waitFor = 'editor' } = {}) {
   await stubPlantUmlRender(page, plantUmlLabel);
-  await openFile(page, 'sample-full.md');
+  await openFile(page, 'sample-full.md', { waitFor });
 }
 
 export async function duplicateVaultFile(page, sourcePath, targetPath) {

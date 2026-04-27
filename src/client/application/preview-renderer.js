@@ -20,6 +20,7 @@ export class PreviewRenderer {
     plantUmlRenderClient = null,
     previewContainer,
     previewElement,
+    toastController = null,
   }) {
     this.getContent = getContent;
     this.getFileList = getFileList;
@@ -33,6 +34,7 @@ export class PreviewRenderer {
     this.plantUmlRenderClient = plantUmlRenderClient;
     this.previewContainer = previewContainer;
     this.previewElement = previewElement;
+    this.toastController = toastController;
     this.renderHost = null;
 
     this.pendingRenderVersion = 0;

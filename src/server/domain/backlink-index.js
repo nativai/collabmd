@@ -10,11 +10,15 @@
  * incrementally whenever a file is persisted, created, deleted, or renamed.
  */
 
-import { createWikiTargetIndex, resolveWikiTargetWithIndex } from '../../domain/wiki-link-resolver.js';
-import { getVaultFileExtension, isMarkdownFilePath } from '../../domain/file-kind.js';
+import { createWikiTargetIndex } from '../../domain/wiki-link-resolver.js';
+import { isMarkdownFilePath } from '../../domain/file-kind.js';
+import {
+  collectMarkdownReferences,
+  collectReferenceTargetKeysForFilePath,
+  createReferenceTargetAliasMap,
+} from './markdown-reference-extractor.js';
 import { mapWithConcurrency } from '../shared/async-utils.js';
 
-const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
 const BACKLINK_BUILD_CONCURRENCY = 8;
 
 function createDeferred() {
@@ -25,39 +29,6 @@ function createDeferred() {
     reject = nextReject;
   });
   return { promise, reject, resolve };
-}
-
-function normalizeWikiTargetKey(target = '') {
-  const normalizedTarget = String(target ?? '').trim();
-  if (!normalizedTarget) {
-    return '';
-  }
-
-  return getVaultFileExtension(normalizedTarget)
-    ? normalizedTarget
-    : `${normalizedTarget}.md`;
-}
-
-function collectWikiTargetKeysForFilePath(filePath = '') {
-  const normalizedPath = String(filePath ?? '').trim();
-  if (!normalizedPath) {
-    return [];
-  }
-
-  const segments = normalizedPath.split('/').filter(Boolean);
-  const keys = [];
-  for (let index = 0; index < segments.length; index += 1) {
-    keys.push(segments.slice(index).join('/'));
-  }
-
-  if (isMarkdownFilePath(normalizedPath)) {
-    const rawSegments = normalizedPath.replace(/\.md$/i, '').split('/').filter(Boolean);
-    for (let index = 0; index < rawSegments.length; index += 1) {
-      keys.push(rawSegments.slice(index).join('/'));
-    }
-  }
-
-  return [...new Set(keys)];
 }
 
 export class BacklinkIndex {
@@ -225,7 +196,10 @@ export class BacklinkIndex {
    * Incrementally update the index when a file's content changes.
    * Call this after every persist / write.
    */
-  updateFile(filePath, content, { refreshIndex = true } = {}) {
+  updateFile(filePath, content, {
+    refreshIndex = true,
+    targetPathAliases = new Map(),
+  } = {}) {
     // Remove old forward links for this file
     this._removeForwardLinks(filePath);
 
@@ -242,7 +216,7 @@ export class BacklinkIndex {
     }
 
     // Re-index with new content
-    this._indexFile(filePath, content);
+    this._indexFile(filePath, content, { targetPathAliases });
   }
 
   /**
@@ -514,38 +488,32 @@ export class BacklinkIndex {
 
   // --- Private methods ---
 
-  _indexFile(filePath, content) {
+  _indexFile(filePath, content, { targetPathAliases = new Map() } = {}) {
     const resolvedTargets = new Set();
     const contextsByTarget = new Map();
     const rawTargetKeys = new Set();
-    const lines = content.split('\n');
+    const references = collectMarkdownReferences(content, {
+      sourceFilePath: filePath,
+      targetPathAliases,
+      wikiTargetIndex: this._wikiTargetIndex,
+    });
 
-    for (const line of lines) {
-      WIKI_LINK_RE.lastIndex = 0;
-      let match;
-      while ((match = WIKI_LINK_RE.exec(line)) !== null) {
-        const target = match[1].trim();
-        if (!target) {
-          continue;
-        }
-
-        const rawTargetKey = normalizeWikiTargetKey(target);
-        if (rawTargetKey) {
-          rawTargetKeys.add(rawTargetKey);
-        }
-
-        const resolved = this._resolveTarget(target);
-        if (!resolved || resolved === filePath) {
-          continue;
-        }
-
-        resolvedTargets.add(resolved);
-
-        if (!contextsByTarget.has(resolved)) {
-          contextsByTarget.set(resolved, []);
-        }
-        contextsByTarget.get(resolved).push(line.trim());
+    for (const reference of references) {
+      if (reference.rawTargetKey) {
+        rawTargetKeys.add(reference.rawTargetKey);
       }
+
+      const resolved = reference.resolvedPath;
+      if (!resolved || resolved === filePath) {
+        continue;
+      }
+
+      resolvedTargets.add(resolved);
+
+      if (!contextsByTarget.has(resolved)) {
+        contextsByTarget.set(resolved, []);
+      }
+      contextsByTarget.get(resolved).push(reference.context);
     }
 
     this.contextsBySource.delete(filePath);
@@ -594,14 +562,6 @@ export class BacklinkIndex {
     this.forward.delete(filePath);
   }
 
-  /**
-   * Resolve a wiki-link target string to a vault file path.
-   * Same logic as the client's resolveWikiTarget.
-   */
-  _resolveTarget(target) {
-    return resolveWikiTargetWithIndex(target, this._wikiTargetIndex);
-  }
-
   _refreshWikiTargetIndex() {
     this._wikiTargetIndex = createWikiTargetIndex(this._fileList);
   }
@@ -629,7 +589,7 @@ export class BacklinkIndex {
   _collectImpactedSourcesForMembershipChanges(pathValues = []) {
     const affectedTargetKeys = new Set();
     pathValues.forEach((pathValue) => {
-      collectWikiTargetKeysForFilePath(pathValue).forEach((targetKey) => {
+      collectReferenceTargetKeysForFilePath(pathValue).forEach((targetKey) => {
         affectedTargetKeys.add(targetKey);
       });
     });
@@ -648,6 +608,7 @@ export class BacklinkIndex {
     renameMap = new Map(),
   } = {}) {
     const refreshedSources = new Set();
+    const targetPathAliases = createReferenceTargetAliasMap(Array.from(renameMap.entries()));
 
     for (const sourcePath of impactedSources) {
       const livePath = renameMap.get(sourcePath) ?? sourcePath;
@@ -666,7 +627,7 @@ export class BacklinkIndex {
       }
 
       refreshedSources.add(livePath);
-      this.updateFile(livePath, content, { refreshIndex: false });
+      this.updateFile(livePath, content, { refreshIndex: false, targetPathAliases });
     }
   }
 }

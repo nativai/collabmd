@@ -9,6 +9,29 @@
   align-items: center;
 }
 
+.toolbar-badge-button {
+  cursor: pointer;
+  transition: background var(--transition-interactive), box-shadow var(--transition-interactive), color var(--transition-interactive);
+}
+
+.toolbar-badge-button:hover:not(:disabled) {
+  background: var(--surface-accent-soft);
+}
+
+.toolbar-badge-button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-accent-ring-strong);
+}
+
+.toolbar-badge-button:disabled {
+  cursor: default;
+}
+
+.toolbar-badge-button.is-active {
+  background: var(--surface-accent-soft);
+  box-shadow: var(--shadow-accent-inset);
+}
+
 .user-avatar {
   position: relative;
   z-index: 1;
@@ -100,4 +123,193 @@
 
 .user-avatar-button.different-file:hover {
   opacity: 0.85;
+}
+
+.user-avatar-overflow-trigger {
+  background: var(--color-surface-dynamic);
+  color: var(--color-text-muted);
+}
+
+.presence-panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: min(420px, calc(100vw - var(--space-6)));
+  max-height: min(72vh, 540px);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: oklch(from var(--color-surface) l c h / 0.98);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(14px);
+}
+
+.presence-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.presence-panel-title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.presence-panel-status {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+
+.presence-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: var(--space-1);
+}
+
+.presence-panel-empty-state {
+  padding: var(--space-4);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-label);
+}
+
+.presence-panel-user {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: var(--surface-fill-subtle);
+}
+
+.presence-panel-user.is-following {
+  border-color: oklch(from var(--color-primary) l c h / 0.3);
+  background: var(--interactive-surface);
+  box-shadow: var(--shadow-accent-inset);
+}
+
+.presence-panel-user-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: calc(var(--radius-md) - 2px);
+  color: inherit;
+  text-align: left;
+  transition: background var(--transition-interactive), transform var(--transition-interactive);
+}
+
+.presence-panel-user-button:not(div) {
+  cursor: pointer;
+}
+
+.presence-panel-user-button:hover {
+  background: var(--color-surface-offset);
+}
+
+.presence-panel-user-button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-accent-ring);
+}
+
+.presence-panel-user-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-full);
+  color: var(--color-text-on-dark);
+  font-size: var(--text-label);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.presence-panel-user-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.presence-panel-user-topline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.presence-panel-user-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.presence-panel-user-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  background: var(--surface-avatar-label);
+  color: var(--color-text-on-dark);
+  font-size: var(--text-micro);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.presence-panel-user-file {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+
+.presence-panel-user-stop {
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-full);
+  background: var(--surface-accent-soft);
+  color: var(--color-primary);
+  font-size: var(--text-meta);
+  font-weight: 700;
+  transition: background var(--transition-interactive), box-shadow var(--transition-interactive);
+}
+
+.presence-panel-user-stop:hover {
+  background: var(--interactive-surface);
+}
+
+.presence-panel-user-stop:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-accent-ring);
+}
+
+@media (max-width: 768px) {
+  .presence-panel {
+    width: min(360px, calc(100vw - var(--space-4)));
+    max-height: min(68vh, 460px);
+  }
+
+  .presence-panel-user-button {
+    padding: 9px 10px;
+  }
 }

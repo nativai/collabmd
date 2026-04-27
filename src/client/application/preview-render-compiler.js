@@ -49,6 +49,96 @@ function escapePreviewText(content = '') {
   return escapeHtml(normalizePreviewTypography(content));
 }
 
+function createHeadingSlug(content = '') {
+  return String(content ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    || 'section';
+}
+
+function createHeadingId(baseId = '', headingIdCounts = new Map()) {
+  const normalizedBaseId = String(baseId ?? '').trim() || 'section';
+  const occurrenceIndex = headingIdCounts.get(normalizedBaseId) ?? 0;
+  headingIdCounts.set(normalizedBaseId, occurrenceIndex + 1);
+  return occurrenceIndex === 0 ? normalizedBaseId : `${normalizedBaseId}-${occurrenceIndex}`;
+}
+
+function createContextualHeadingBaseId(headingInfo, groupedHeadingInfos = []) {
+  if (!headingInfo?.slug) {
+    return 'section';
+  }
+
+  if (groupedHeadingInfos.length <= 1) {
+    return headingInfo.slug;
+  }
+
+  for (let depth = 1; depth <= headingInfo.parentSlugs.length; depth += 1) {
+    const candidate = [
+      ...headingInfo.parentSlugs.slice(-depth),
+      headingInfo.slug,
+    ].join('-');
+
+    const isUniqueWithinGroup = groupedHeadingInfos.every((otherInfo) => {
+      if (otherInfo === headingInfo) {
+        return true;
+      }
+
+      const otherCandidate = [
+        ...otherInfo.parentSlugs.slice(-depth),
+        otherInfo.slug,
+      ].join('-');
+      return otherCandidate !== candidate;
+    });
+
+    if (isUniqueWithinGroup) {
+      return candidate;
+    }
+  }
+
+  return headingInfo.slug;
+}
+
+function assignHeadingIds(state) {
+  const headingInfos = [];
+  const parentSlugs = [];
+
+  state.tokens.forEach((token, index) => {
+    if (token.type !== 'heading_open' || token.attrGet('id')) {
+      return;
+    }
+
+    const level = Number.parseInt(token.tag.slice(1), 10);
+    if (!Number.isFinite(level) || level < 1) {
+      return;
+    }
+
+    parentSlugs.length = Math.max(level - 1, 0);
+    const inlineToken = state.tokens[index + 1];
+    const slug = createHeadingSlug(inlineToken?.type === 'inline' ? inlineToken.content : '');
+    headingInfos.push({
+      parentSlugs: parentSlugs.filter(Boolean),
+      slug,
+      token,
+    });
+    parentSlugs[level - 1] = slug;
+  });
+
+  const headingsBySlug = new Map();
+  headingInfos.forEach((headingInfo) => {
+    const group = headingsBySlug.get(headingInfo.slug) ?? [];
+    group.push(headingInfo);
+    headingsBySlug.set(headingInfo.slug, group);
+  });
+
+  const headingIdCounts = new Map();
+  headingInfos.forEach((headingInfo) => {
+    const baseId = createContextualHeadingBaseId(headingInfo, headingsBySlug.get(headingInfo.slug) ?? []);
+    headingInfo.token.attrSet('id', createHeadingId(baseId, headingIdCounts));
+  });
+}
+
 function renderSafeInlineBreaks(content = '') {
   const parts = String(content).split(/<br\s*\/?>/i);
   if (parts.length === 1) {
@@ -239,6 +329,13 @@ function resolveLocalAttachmentUrl(source = '', {
   return `${attachmentApiPath}?path=${encodeURIComponent(resolvedPath)}`;
 }
 
+function removeTokenAttr(token, name) {
+  const attributeIndex = token.attrIndex(name);
+  if (attributeIndex >= 0) {
+    token.attrs.splice(attributeIndex, 1);
+  }
+}
+
 function renderInlineWikiText(content, {
   baseEmbedCounts,
   drawioEmbedCounts,
@@ -367,6 +464,10 @@ function createMarkdownRenderer(fileList = [], {
     });
   });
 
+  markdown.core.ruler.push('collabmd-heading-anchors', (state) => {
+    assignHeadingIds(state);
+  });
+
   const drawioEmbedCounts = new Map();
   const excalidrawEmbedCounts = new Map();
   const baseCounts = new Map();
@@ -488,6 +589,13 @@ function createMarkdownRenderer(fileList = [], {
   };
 
   markdown.renderer.rules.link_open = (tokens, index, options, env, self) => {
+    const href = tokens[index].attrGet('href') || '';
+    if (href.startsWith('#')) {
+      removeTokenAttr(tokens[index], 'target');
+      removeTokenAttr(tokens[index], 'rel');
+      return renderToken(fallbackLinkOpen, tokens, index, options, env, self);
+    }
+
     tokens[index].attrSet('target', '_blank');
     tokens[index].attrSet('rel', 'noopener noreferrer');
     return renderToken(fallbackLinkOpen, tokens, index, options, env, self);

@@ -19,11 +19,13 @@ export class WorkspaceRouteController {
     previewRenderer,
     renderAvatars,
     renderPresence,
+    requestPreviewRouteAnchor = null,
     resetPreviewMode,
     scrollSyncController,
     setSession,
     setSessionLoadToken,
     setSidebarTab,
+    setSidebarVisibility,
     setCurrentFilePath,
     showGitCommit,
     showGitDiff,
@@ -54,11 +56,13 @@ export class WorkspaceRouteController {
     this.previewRenderer = previewRenderer;
     this.renderAvatars = renderAvatars;
     this.renderPresence = renderPresence;
+    this.requestPreviewRouteAnchor = requestPreviewRouteAnchor;
     this.resetPreviewMode = resetPreviewMode;
     this.scrollSyncController = scrollSyncController;
     this.setSession = setSession;
     this.setSessionLoadToken = setSessionLoadToken;
     this.setSidebarTab = setSidebarTab;
+    this.setSidebarVisibility = setSidebarVisibility ?? (() => {});
     this.setCurrentFilePath = setCurrentFilePath;
     this.showGitCommit = showGitCommit;
     this.showGitDiff = showGitDiff;
@@ -69,6 +73,7 @@ export class WorkspaceRouteController {
     this.videoEmbed = videoEmbed;
     this.workspaceCoordinator = workspaceCoordinator;
     this.layoutController = layoutController;
+    this.pendingTreeRevealPath = null;
   }
 
   async handleHashChange() {
@@ -78,6 +83,7 @@ export class WorkspaceRouteController {
 
     const route = this.navigation.getHashRoute();
     if (route.type === 'empty') {
+      this.requestPreviewRouteAnchor?.(null);
       this.gitPanel.setSelection();
       this.showEmptyState();
       this.syncMainChrome({ mode: 'empty', title: 'CollabMD' });
@@ -85,30 +91,35 @@ export class WorkspaceRouteController {
     }
 
     if (route.type === 'git-diff') {
+      this.requestPreviewRouteAnchor?.(null);
       this.setSidebarTab('git');
       await this.showGitDiff(route);
       return;
     }
 
     if (route.type === 'git-file-history') {
+      this.requestPreviewRouteAnchor?.(null);
       this.setSidebarTab('files');
       await this.showGitFileHistory(route);
       return;
     }
 
     if (route.type === 'git-file-preview') {
+      this.requestPreviewRouteAnchor?.(null);
       this.setSidebarTab('files');
       await this.showGitFilePreview(route);
       return;
     }
 
     if (route.type === 'git-history') {
+      this.requestPreviewRouteAnchor?.(null);
       this.setSidebarTab('git');
       await this.showGitHistory();
       return;
     }
 
     if (route.type === 'git-commit') {
+      this.requestPreviewRouteAnchor?.(null);
       this.setSidebarTab('git');
       await this.showGitCommit(route);
       return;
@@ -116,6 +127,7 @@ export class WorkspaceRouteController {
 
     this.setSidebarTab('files');
     await this.openFile(route.filePath, { drawioMode: route.drawioMode || null });
+    this.requestPreviewRouteAnchor?.(route.anchor ?? null, route.filePath);
   }
 
   showEmptyState() {
@@ -246,6 +258,11 @@ export class WorkspaceRouteController {
   }
 
   async openFile(filePath, options = {}) {
+    const shouldRevealInTree = this.pendingTreeRevealPath === filePath;
+    if (shouldRevealInTree) {
+      this.pendingTreeRevealPath = null;
+    }
+
     this.imageLightbox?.close?.();
     this.gitPanel.setSelection();
     this.gitDiffView.hide();
@@ -254,6 +271,10 @@ export class WorkspaceRouteController {
     this.syncMainChrome({ mode: 'editor' });
     await this.workspaceCoordinator.openFile(filePath, options);
     this.setSession(this.workspaceCoordinator.getSession());
+
+    if (shouldRevealInTree) {
+      this.revealFileInTree(filePath, { clearSearch: true });
+    }
   }
 
   cleanupSession() {
@@ -261,12 +282,33 @@ export class WorkspaceRouteController {
     this.setSession(this.workspaceCoordinator.getSession());
   }
 
-  handleFileSelection(filePath, { closeSidebarOnMobile = false } = {}) {
-    if (closeSidebarOnMobile) {
+  handleFileSelection(filePath, { closeSidebarOnMobile = false, revealInTree = false } = {}) {
+    const currentRoute = this.navigation.getHashRoute?.() ?? null;
+    const isCanonicalCurrentFileRoute = (
+      currentRoute?.type === 'file'
+      && currentRoute.filePath === filePath
+      && !currentRoute.drawioMode
+    );
+    if (revealInTree) {
+      this.pendingTreeRevealPath = filePath;
+      if (isCanonicalCurrentFileRoute) {
+        this.pendingTreeRevealPath = null;
+        this.revealFileInTree(filePath, { clearSearch: true });
+        return;
+      }
+    }
+
+    if (closeSidebarOnMobile && !revealInTree) {
       this.closeSidebarOnMobile();
     }
 
     this.navigation.navigateToFile(filePath);
+  }
+
+  revealFileInTree(filePath, { clearSearch = false } = {}) {
+    this.setSidebarTab('files');
+    this.setSidebarVisibility(true);
+    this.fileExplorer.revealFile?.(filePath, { clearSearch });
   }
 
   resetPreviewSurface() {

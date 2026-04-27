@@ -55,6 +55,7 @@ export class ExcalidrawEmbedController {
     getTheme,
     getLocalUser,
     onOpenFile = null,
+    onToggleQuickSwitcher = null,
     previewContainer,
     previewElement,
     toastController,
@@ -62,6 +63,7 @@ export class ExcalidrawEmbedController {
     this.getTheme = getTheme;
     this.getLocalUser = getLocalUser;
     this.onOpenFile = onOpenFile;
+    this.onToggleQuickSwitcher = onToggleQuickSwitcher;
     this.previewContainer = previewContainer;
     this.previewElement = previewElement;
     this.toastController = toastController;
@@ -1194,6 +1196,11 @@ export class ExcalidrawEmbedController {
       if (this._entryNeedsHardReload(entry)) {
         void this._hydrateEntry(entry);
       }
+      return;
+    }
+
+    if (msg.type === 'request-toggle-quick-switcher') {
+      this.onToggleQuickSwitcher?.();
       return;
     }
 

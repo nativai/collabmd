@@ -1209,6 +1209,18 @@ test('HTTP server downloads vault files as attachments', async (t) => {
   assert.match(response.body, /Hello from test vault/);
 });
 
+test('HTTP server rejects downloads that exceed configured limits', async (t) => {
+  const app = await startTestServer({
+    maxDownloadFileBytes: 8,
+  });
+  t.after(() => app.close());
+
+  const response = await httpRequest(`${app.baseUrl}/api/download/file?path=${encodeURIComponent('test.md')}`);
+
+  assert.equal(response.statusCode, 413);
+  assert.match(response.body, /too large/i);
+});
+
 test('HTTP server downloads directories as zip archives and excludes ignored entries', async (t) => {
   const app = await startTestServer();
   t.after(() => app.close());
@@ -1232,6 +1244,22 @@ test('HTTP server downloads directories as zip archives and excludes ignored ent
     'docs/empty-dir/',
     'docs/guide.md',
   ]);
+});
+
+test('HTTP server rejects directory archives that exceed configured entry limits', async (t) => {
+  const app = await startTestServer({
+    maxArchiveEntries: 1,
+  });
+  t.after(() => app.close());
+
+  await mkdir(join(app.vaultDir, 'docs'), { recursive: true });
+  await writeFile(join(app.vaultDir, 'docs', 'one.md'), '# One\n', 'utf-8');
+  await writeFile(join(app.vaultDir, 'docs', 'two.md'), '# Two\n', 'utf-8');
+
+  const response = await httpRequest(`${app.baseUrl}/api/download/directory?path=${encodeURIComponent('docs')}`);
+
+  assert.equal(response.statusCode, 413);
+  assert.match(response.body, /exceeds 1 entries/);
 });
 
 test('HTTP server serves attachment bytes for password-authenticated workspaces with a session cookie', async (t) => {

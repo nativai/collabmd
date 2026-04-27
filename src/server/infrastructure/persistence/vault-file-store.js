@@ -1,3 +1,4 @@
+import { createReadStream } from 'fs';
 import { mkdir, readFile, readdir, rename, rm, rmdir, stat, writeFile } from 'fs/promises';
 import { basename, dirname, extname, join, relative, resolve } from 'path';
 import sharp from 'sharp';
@@ -483,6 +484,36 @@ export class VaultFileStore {
     }
   }
 
+  async openImageAttachmentReadStream(filePath, { maxBytes = Infinity } = {}) {
+    const absolute = this.resolveContentPath(filePath, { requireVaultFile: false });
+    if (!absolute || !isImageAttachmentFilePath(filePath)) {
+      return null;
+    }
+
+    try {
+      const info = await stat(absolute);
+      if (!info.isFile()) {
+        return null;
+      }
+      if (Number(info.size || 0) > maxBytes) {
+        return { error: 'Attachment is too large', statusCode: 413 };
+      }
+
+      return {
+        mimeType: IMAGE_EXTENSION_TO_MIME_TYPE[extname(filePath).toLowerCase()] || 'application/octet-stream',
+        path: filePath,
+        size: Number(info.size || 0),
+        stream: createReadStream(absolute),
+      };
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
   async writeMarkdownFile(filePath, content, options = {}) {
     return this.writeContentFile(filePath, content, 'markdown', options);
   }
@@ -592,6 +623,45 @@ export class VaultFileStore {
         content: await readFile(absolute),
         mimeType: getDownloadMimeType(normalizedPath),
         path: normalizedPath,
+      };
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
+  async openDownloadFileStream(filePath, { maxBytes = Infinity } = {}) {
+    const normalizedPath = String(filePath ?? '').replace(/\\/g, '/').trim();
+    if (!normalizedPath || !isVaultFilePath(normalizedPath)) {
+      return null;
+    }
+
+    if (isImageAttachmentFilePath(normalizedPath)) {
+      return this.openImageAttachmentReadStream(normalizedPath, { maxBytes });
+    }
+
+    const absolute = this.resolveContentPath(normalizedPath, { requireVaultFile: false });
+    if (!absolute) {
+      return null;
+    }
+
+    try {
+      const info = await stat(absolute);
+      if (!info.isFile()) {
+        return null;
+      }
+      if (Number(info.size || 0) > maxBytes) {
+        return { error: 'File is too large to download', statusCode: 413 };
+      }
+
+      return {
+        mimeType: getDownloadMimeType(normalizedPath),
+        path: normalizedPath,
+        size: Number(info.size || 0),
+        stream: createReadStream(absolute),
       };
     } catch (error) {
       if (error.code === 'ENOENT') {
@@ -858,6 +928,72 @@ export class VaultFileStore {
       entries,
       ok: true,
       rootName: basename(normalizedPath),
+    };
+  }
+
+  async resolveDirectoryDownloadRoot(dirPath) {
+    const normalizedPath = String(dirPath ?? '').replace(/\\/g, '/').trim();
+    const { absolute, error } = resolveVaultDirectoryPath(this.vaultDir, normalizedPath);
+    if (!absolute) {
+      return { ok: false, error };
+    }
+
+    try {
+      const info = await stat(absolute);
+      if (!info.isDirectory()) {
+        return { ok: false, error: 'Directory not found' };
+      }
+    } catch (statError) {
+      if (statError.code === 'ENOENT') {
+        return { ok: false, error: 'Directory not found' };
+      }
+
+      throw statError;
+    }
+
+    return {
+      absolute,
+      ok: true,
+      rootName: basename(normalizedPath),
+    };
+  }
+
+  async countDirectoryDownloadEntries(directoryAbsolutePath, { maxEntries = Infinity } = {}) {
+    let count = 0;
+    const visitDirectory = async (currentDirectoryPath) => {
+      const dirEntries = sortDirectoryEntries(await readdir(currentDirectoryPath, { withFileTypes: true }))
+        .filter((entry) => !isIgnoredVaultEntry(entry.name));
+
+      if (dirEntries.length === 0) {
+        count += 1;
+        return count <= maxEntries;
+      }
+
+      for (const entry of dirEntries) {
+        const childAbsolutePath = join(currentDirectoryPath, entry.name);
+        if (entry.isDirectory()) {
+          const withinLimit = await visitDirectory(childAbsolutePath);
+          if (!withinLimit) {
+            return false;
+          }
+          continue;
+        }
+
+        if (entry.isFile()) {
+          count += 1;
+          if (count > maxEntries) {
+            return false;
+          }
+        }
+      }
+
+      return true;
+    };
+
+    const withinLimit = await visitDirectory(directoryAbsolutePath);
+    return {
+      count,
+      withinLimit,
     };
   }
 

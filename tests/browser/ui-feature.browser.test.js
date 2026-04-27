@@ -4,6 +4,7 @@ import { uiFeatureIdentityMethods } from '../../src/client/application/app-shell
 import { uiFeatureShellMethods } from '../../src/client/application/app-shell/ui-feature-shell.js';
 import { uiFeatureSidebarMethods } from '../../src/client/application/app-shell/ui-feature-sidebar.js';
 import { uiFeatureToolbarMethods } from '../../src/client/application/app-shell/ui-feature-toolbar.js';
+import { ensureQuickSwitcherInstance } from '../../src/client/application/quick-switcher-loader.js';
 
 function createSidebarContext({ gitRepoAvailable = true, mobile = false } = {}) {
   document.body.innerHTML = `
@@ -400,6 +401,73 @@ describe('uiFeature browser helpers', () => {
 
     document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ctrlKey: true, key: 'k' }));
     expect(context.toggleQuickSwitcher).toHaveBeenCalledTimes(1);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ctrlKey: true, key: 'K' }));
+    expect(context.toggleQuickSwitcher).toHaveBeenCalledTimes(2);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      bubbles: true,
+      code: 'KeyK',
+      key: 'Unidentified',
+      metaKey: true,
+    }));
+    expect(context.toggleQuickSwitcher).toHaveBeenCalledTimes(3);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      bubbles: true,
+      key: 'K',
+      metaKey: true,
+      shiftKey: true,
+    }));
+    expect(context.toggleQuickSwitcher).toHaveBeenCalledTimes(3);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      bubbles: true,
+      ctrlKey: true,
+      key: 'k',
+      repeat: true,
+    }));
+    expect(context.toggleQuickSwitcher).toHaveBeenCalledTimes(3);
+  });
+
+  it('resets the quick switcher loader after a lazy import failure', async () => {
+    const loadError = new Error('chunk failed');
+    class TestQuickSwitcher {
+      constructor(options) {
+        this.options = options;
+      }
+    }
+
+    const context = {
+      fileExplorer: { flatFiles: ['README.md'] },
+      handleFileSelection: vi.fn(),
+      loadQuickSwitcherController: vi.fn()
+        .mockRejectedValueOnce(loadError)
+        .mockResolvedValueOnce(TestQuickSwitcher),
+      quickSwitcher: null,
+      quickSwitcherModulePromise: null,
+      toastController: { show: vi.fn() },
+    };
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(ensureQuickSwitcherInstance(context)).rejects.toThrow('chunk failed');
+
+    expect(context.quickSwitcherModulePromise).toBeNull();
+    expect(context.toastController.show).toHaveBeenCalledWith('Failed to load file search. Try again.', {
+      dismissible: true,
+    });
+    expect(consoleError).toHaveBeenCalled();
+
+    const quickSwitcher = await ensureQuickSwitcherInstance(context);
+
+    expect(context.loadQuickSwitcherController).toHaveBeenCalledTimes(2);
+    expect(quickSwitcher).toBeInstanceOf(TestQuickSwitcher);
+    expect(quickSwitcher.options.getFileList()).toEqual(['README.md']);
+    quickSwitcher.options.onFileSelect('docs/guide.md');
+    expect(context.handleFileSelection).toHaveBeenCalledWith('docs/guide.md', {
+      closeSidebarOnMobile: true,
+      revealInTree: true,
+    });
   });
 
   it('toggles preview task items from preview clicks without hijacking wiki links', () => {
@@ -454,5 +522,361 @@ describe('uiFeature browser helpers', () => {
 
     expect(context.handleWikiLinkClick).toHaveBeenCalledWith('README');
     expect(context.session.toggleTaskListItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('scrolls preview fragment links through shared heading navigation without intercepting app hash routes', () => {
+    document.body.innerHTML = `
+      <div id="previewContainer">
+        <div id="preview-content">
+          <p>
+            <a id="jump-link" href="#section-a">Jump</a>
+            <a id="top-link" href="#top">Top</a>
+            <a id="route-link" href="#file=other.md">Route</a>
+            <a id="reserved-heading-link" href="#file">File heading</a>
+          </p>
+          <h2 id="section-a">Section A</h2>
+          <h2 id="file">File</h2>
+        </div>
+      </div>
+    `;
+
+    const previewContainer = document.getElementById('previewContainer');
+    const previewContent = document.getElementById('preview-content');
+    const targetHeading = document.getElementById('section-a');
+    const reservedHeading = document.getElementById('file');
+    const scrollTo = vi.fn();
+    previewContainer.scrollTo = scrollTo;
+
+    const context = {
+      elements: {
+        previewContainer,
+        previewContent,
+      },
+      outlineController: {
+        navigateToHeading: vi.fn(() => true),
+      },
+      scrollSyncController: {
+        suspendSync: vi.fn(),
+      },
+      session: {
+        toggleTaskListItem: vi.fn(),
+      },
+    };
+
+    Object.assign(context, uiFeatureShellMethods);
+
+    const fragmentClick = {
+      preventDefault: vi.fn(),
+      target: document.getElementById('jump-link'),
+    };
+    context.handlePreviewContentClick(fragmentClick);
+
+    expect(fragmentClick.preventDefault).toHaveBeenCalledTimes(1);
+    expect(context.outlineController.navigateToHeading).toHaveBeenCalledWith(targetHeading, 'section-a', { behavior: 'smooth' });
+    expect(context.scrollSyncController.suspendSync).not.toHaveBeenCalled();
+    expect(scrollTo).not.toHaveBeenCalled();
+
+    const reservedHeadingClick = {
+      preventDefault: vi.fn(),
+      target: document.getElementById('reserved-heading-link'),
+    };
+    context.handlePreviewContentClick(reservedHeadingClick);
+
+    expect(reservedHeadingClick.preventDefault).toHaveBeenCalledTimes(1);
+    expect(context.outlineController.navigateToHeading).toHaveBeenCalledWith(reservedHeading, 'file', { behavior: 'smooth' });
+
+    const topClick = {
+      preventDefault: vi.fn(),
+      target: document.getElementById('top-link'),
+    };
+    context.handlePreviewContentClick(topClick);
+
+    expect(topClick.preventDefault).toHaveBeenCalledTimes(1);
+    expect(context.scrollSyncController.suspendSync).toHaveBeenCalledWith(250);
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 0, behavior: 'smooth' });
+
+    const routeClick = {
+      preventDefault: vi.fn(),
+      target: document.getElementById('route-link'),
+    };
+    context.handlePreviewContentClick(routeClick);
+
+    expect(routeClick.preventDefault).not.toHaveBeenCalled();
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+  });
+
+  it('copies preview heading links and applies pending route anchors', async () => {
+    document.body.innerHTML = `
+      <div id="previewContainer">
+        <div id="preview-content" data-render-phase="ready">
+          <h2 id="section-a" data-source-line="12">Section A</h2>
+          <h3 id="section-b">Approach E: Push MongoDB to enable <code>Live Migration Service</code> on Jakarta cluster</h3>
+        </div>
+      </div>
+    `;
+
+    const previewContainer = document.getElementById('previewContainer');
+    const previewContent = document.getElementById('preview-content');
+    const targetHeading = document.getElementById('section-a');
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    const context = {
+      _pendingPreviewRouteAnchor: null,
+      currentDrawioMode: null,
+      currentFilePath: 'MongoDB/migration-plan.md',
+      elements: {
+        previewContainer,
+        previewContent,
+      },
+      outlineController: {
+        navigateToHeading: vi.fn(() => true),
+      },
+      scrollSyncController: {
+        suspendSync: vi.fn(),
+      },
+      session: {
+        scrollToLine: vi.fn(),
+        toggleTaskListItem: vi.fn(),
+      },
+      toastController: {
+        show: vi.fn(),
+      },
+    };
+
+    Object.assign(context, uiFeatureShellMethods);
+    window.location.hash = 'file=MongoDB%2Fmigration-plan.md';
+
+    context.syncPreviewHeadingLinkButtons();
+    const button = previewContent.querySelector('#section-a .preview-heading-link-button');
+    expect(button).not.toBeNull();
+    expect(button.getAttribute('aria-label')).toBe('Copy link to Section A');
+
+    const complexHeadingButton = previewContent.querySelector('#section-b .preview-heading-link-button');
+    expect(complexHeadingButton).not.toBeNull();
+    expect(complexHeadingButton.getAttribute('aria-label')).toBe('Copy link to Approach E: Push MongoDB to enable Live Migration Service on Jakarta cluster');
+
+    const clickEvent = {
+      preventDefault: vi.fn(),
+      target: button,
+    };
+    context.handlePreviewContentClick(clickEvent);
+
+    expect(clickEvent.preventDefault).toHaveBeenCalledTimes(1);
+    const expectedUrl = new URL(window.location.href);
+    expectedUrl.hash = '#file=MongoDB%2Fmigration-plan.md&anchor=section-a';
+    expect(writeText).toHaveBeenCalledWith(expectedUrl.toString());
+
+    writeText.mockClear();
+    await context.copyPreviewHeadingLink('section-a');
+    expect(writeText).toHaveBeenCalledWith(expectedUrl.toString());
+    expect(context.toastController.show).toHaveBeenCalledWith('Section link copied');
+
+    context.requestPreviewRouteAnchor('section-a', 'MongoDB/migration-plan.md');
+    expect(context.outlineController.navigateToHeading).toHaveBeenCalledWith(targetHeading, 'section-a', { behavior: 'auto' });
+    expect(context.session.scrollToLine).not.toHaveBeenCalled();
+    expect(context._pendingPreviewRouteAnchor).toMatchObject({
+      anchorId: 'section-a',
+      applied: true,
+      filePath: 'MongoDB/migration-plan.md',
+    });
+  });
+
+  it('keeps pending route anchors until the first preview render commits', () => {
+    document.body.innerHTML = `
+      <div id="previewContainer">
+        <div id="preview-content" data-render-phase="shell"></div>
+      </div>
+    `;
+
+    const previewContainer = document.getElementById('previewContainer');
+    const previewContent = document.getElementById('preview-content');
+    const scrollTo = vi.fn();
+    previewContainer.scrollTo = scrollTo;
+    previewContainer.getBoundingClientRect = () => ({ top: 100 });
+
+    const context = {
+      _pendingPreviewRouteAnchor: null,
+      currentFilePath: 'MongoDB/migration-plan.md',
+      elements: {
+        previewContainer,
+        previewContent,
+      },
+      scrollSyncController: {
+        suspendSync: vi.fn(),
+      },
+      session: {
+        scrollToLine: vi.fn(),
+      },
+    };
+
+    Object.assign(context, uiFeatureShellMethods);
+
+    expect(context.requestPreviewRouteAnchor('section-a', 'MongoDB/migration-plan.md')).toBe(false);
+    expect(context._pendingPreviewRouteAnchor).toMatchObject({
+      anchorId: 'section-a',
+      applied: false,
+      filePath: 'MongoDB/migration-plan.md',
+    });
+
+    previewContent.dataset.renderPhase = 'ready';
+    previewContent.innerHTML = '<h2 id="section-a" data-source-line="12">Section A</h2>';
+    const targetHeading = document.getElementById('section-a');
+    targetHeading.getBoundingClientRect = () => ({ top: 340, height: 28 });
+
+    expect(context.applyPendingPreviewRouteAnchor({ behavior: 'auto' })).toBe(true);
+    expect(context.session.scrollToLine).toHaveBeenCalledWith(12, 0);
+    expect(scrollTo).toHaveBeenCalled();
+    expect(context._pendingPreviewRouteAnchor).toMatchObject({
+      anchorId: 'section-a',
+      applied: true,
+      appliedCount: 1,
+      filePath: 'MongoDB/migration-plan.md',
+    });
+  });
+
+  it('reapplies active route anchors after delayed preview layout changes', () => {
+    document.body.innerHTML = `
+      <div id="previewContainer">
+        <div id="preview-content" data-render-phase="ready">
+          <h2 id="section-a" data-source-line="12">Section A</h2>
+        </div>
+      </div>
+    `;
+
+    const previewContainer = document.getElementById('previewContainer');
+    const targetHeading = document.getElementById('section-a');
+    const scrollTo = vi.fn();
+    previewContainer.scrollTo = scrollTo;
+    previewContainer.scrollTop = 0;
+    previewContainer.getBoundingClientRect = () => ({ top: 100 });
+    targetHeading.getBoundingClientRect = () => ({ top: 340, height: 28 });
+
+    const context = {
+      _pendingPreviewRouteAnchor: null,
+      currentFilePath: 'MongoDB/migration-plan.md',
+      elements: {
+        previewContainer,
+        previewContent: document.getElementById('preview-content'),
+      },
+      scrollSyncController: {
+        suspendSync: vi.fn(),
+      },
+      session: {
+        scrollToLine: vi.fn(),
+      },
+    };
+
+    Object.assign(context, uiFeatureShellMethods);
+
+    expect(context.requestPreviewRouteAnchor('section-a', 'MongoDB/migration-plan.md')).toBe(true);
+    targetHeading.getBoundingClientRect = () => ({ top: 580, height: 28 });
+
+    expect(context.applyPendingPreviewRouteAnchor({ behavior: 'auto', clearMissing: false })).toBe(true);
+    expect(scrollTo).toHaveBeenCalledTimes(2);
+    expect(scrollTo).toHaveBeenLastCalledWith({ behavior: 'auto', top: 480 });
+    expect(context._pendingPreviewRouteAnchor).toMatchObject({
+      anchorId: 'section-a',
+      applied: true,
+      appliedCount: 2,
+    });
+  });
+
+  it('allows render completion to correct slow route anchor hydration once the settle window expired', () => {
+    document.body.innerHTML = `
+      <div id="previewContainer">
+        <div id="preview-content" data-render-phase="ready">
+          <h2 id="section-a" data-source-line="12">Section A</h2>
+        </div>
+      </div>
+    `;
+
+    const previewContainer = document.getElementById('previewContainer');
+    const targetHeading = document.getElementById('section-a');
+    const scrollTo = vi.fn();
+    previewContainer.scrollTo = scrollTo;
+    previewContainer.scrollTop = 0;
+    previewContainer.getBoundingClientRect = () => ({ top: 100 });
+    targetHeading.getBoundingClientRect = () => ({ top: 420, height: 28 });
+
+    const context = {
+      _pendingPreviewRouteAnchor: {
+        anchorId: 'section-a',
+        applied: true,
+        appliedCount: 1,
+        filePath: 'MongoDB/migration-plan.md',
+        stabilizeUntil: 0,
+      },
+      currentFilePath: 'MongoDB/migration-plan.md',
+      elements: {
+        previewContainer,
+        previewContent: document.getElementById('preview-content'),
+      },
+      scrollSyncController: {
+        suspendSync: vi.fn(),
+      },
+      session: {
+        scrollToLine: vi.fn(),
+      },
+    };
+
+    Object.assign(context, uiFeatureShellMethods);
+
+    expect(context.applyPendingPreviewRouteAnchor({ behavior: 'auto' })).toBe(false);
+    expect(scrollTo).not.toHaveBeenCalled();
+
+    context._pendingPreviewRouteAnchor = {
+      anchorId: 'section-a',
+      applied: true,
+      appliedCount: 1,
+      filePath: 'MongoDB/migration-plan.md',
+      stabilizeUntil: 0,
+    };
+
+    expect(context.applyPendingPreviewRouteAnchor({ allowExpired: true, behavior: 'auto' })).toBe(true);
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: 'auto', top: 320 });
+    expect(context._pendingPreviewRouteAnchor).toMatchObject({
+      applied: true,
+      appliedCount: 2,
+      anchorId: 'section-a',
+    });
+  });
+
+  it('clears missing pending route anchors only after a committed preview render', () => {
+    document.body.innerHTML = `
+      <div id="previewContainer">
+        <div id="preview-content" data-render-phase="ready"></div>
+      </div>
+    `;
+
+    const context = {
+      _pendingPreviewRouteAnchor: null,
+      currentFilePath: 'MongoDB/migration-plan.md',
+      elements: {
+        previewContent: document.getElementById('preview-content'),
+      },
+    };
+
+    Object.assign(context, uiFeatureShellMethods);
+
+    expect(context.requestPreviewRouteAnchor('missing-section', 'MongoDB/migration-plan.md')).toBe(false);
+    expect(context._pendingPreviewRouteAnchor).toMatchObject({
+      anchorId: 'missing-section',
+      applied: false,
+      filePath: 'MongoDB/migration-plan.md',
+    });
+
+    expect(context.applyPendingPreviewRouteAnchor({ behavior: 'auto' })).toBe(false);
+    expect(context._pendingPreviewRouteAnchor).toMatchObject({
+      anchorId: 'missing-section',
+      applied: false,
+      filePath: 'MongoDB/migration-plan.md',
+    });
+
+    expect(context.applyPendingPreviewRouteAnchor({ behavior: 'auto', clearMissing: true })).toBe(false);
+    expect(context._pendingPreviewRouteAnchor).toBeNull();
   });
 });

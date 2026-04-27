@@ -73,6 +73,42 @@ test('replays a queued follow target after the Excalidraw iframe reports ready',
   }
 });
 
+test('forwards Excalidraw quick switcher requests from known same-origin iframe', () => {
+  const originalWindow = globalThis.window;
+  const iframeWindow = {};
+  let toggleCalls = 0;
+
+  globalThis.window = {
+    location: { origin: 'http://localhost:4173' },
+  };
+
+  try {
+    const controller = {
+      embedEntries: new Map([['sample-excalidraw.excalidraw#0', {
+        filePath: 'sample-excalidraw.excalidraw',
+        iframe: { contentWindow: iframeWindow },
+      }]]),
+      _findEntryByContentWindow: ExcalidrawEmbedController.prototype._findEntryByContentWindow,
+      onToggleQuickSwitcher: () => {
+        toggleCalls += 1;
+      },
+    };
+
+    ExcalidrawEmbedController.prototype._onMessage.call(controller, {
+      data: {
+        source: 'excalidraw-editor',
+        type: 'request-toggle-quick-switcher',
+      },
+      origin: 'http://localhost:4173',
+      source: iframeWindow,
+    });
+
+    assert.equal(toggleCalls, 1);
+  } finally {
+    globalThis.window = originalWindow;
+  }
+});
+
 test('persists follow intent even before the embed entry exists', async () => {
   const controller = {
     embedEntries: new Map(),

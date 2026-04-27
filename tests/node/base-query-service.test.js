@@ -466,10 +466,13 @@ test('BaseQueryService exposes file embeds and backlinks', async (t) => {
     '',
     '![[assets/cover.png]]',
     '',
+    '![Hero](../assets/hero.webp)',
+    '',
     '![[diagrams/flow.mmd]]',
   ].join('\n'));
   await writeVaultFile('notes/target.md', '# Target\n');
   await writeVaultFile('assets/cover.png', 'png-bytes');
+  await writeVaultFile('assets/hero.webp', 'webp-bytes');
   await writeVaultFile('diagrams/flow.mmd', 'flowchart TD\n  A --> B\n');
   await writeVaultFile('views/references.base', [
     'views:',
@@ -477,7 +480,7 @@ test('BaseQueryService exposes file embeds and backlinks', async (t) => {
     '    name: References',
     '    filters:',
     '      and:',
-    '        - file.name == "source.md" || file.name == "target.md" || file.name == "flow.mmd"',
+    '        - file.name == "source.md" || file.name == "target.md" || file.name == "flow.mmd" || file.name == "hero.webp"',
     '    order:',
     '      - file.name',
       '      - file.embeds',
@@ -491,11 +494,16 @@ test('BaseQueryService exposes file embeds and backlinks', async (t) => {
 
   const sourceRow = result.rows.find((row) => row.path === 'notes/source.md');
   const diagramRow = result.rows.find((row) => row.path === 'diagrams/flow.mmd');
+  const heroRow = result.rows.find((row) => row.path === 'assets/hero.webp');
   const targetRow = result.rows.find((row) => row.path === 'notes/target.md');
 
   assert.deepEqual(
     sourceRow.cells['file.embeds'].items.map((item) => item.path),
-    ['assets/cover.png', 'diagrams/flow.mmd'],
+    ['assets/cover.png', 'assets/hero.webp', 'diagrams/flow.mmd'],
+  );
+  assert.deepEqual(
+    heroRow.cells['file.backlinks'].items.map((item) => item.path),
+    ['notes/source.md'],
   );
   assert.deepEqual(
     diagramRow.cells['file.backlinks'].items.map((item) => item.path),
@@ -798,6 +806,49 @@ test('BaseQueryService property values cap high-cardinality results', async (t) 
 
   assert.equal(result.values.length, 100);
   assert.match(result.values[0].text, /status-/);
+});
+
+test('BaseQueryService enforces a configurable returned-row ceiling', async (t) => {
+  const vaultDir = await mkdtemp(join(tmpdir(), 'collabmd-base-limit-test-'));
+  t.after(() => rm(vaultDir, { force: true, recursive: true }));
+  const writeVaultFile = async (relativePath, content) => {
+    await mkdir(join(vaultDir, dirname(relativePath)), { recursive: true });
+    await writeFile(join(vaultDir, relativePath), content, 'utf8');
+  };
+  const service = new BaseQueryService({
+    maxResultRows: 3,
+    vaultFileStore: new VaultFileStore({ vaultDir }),
+  });
+
+  await Promise.all(Array.from({ length: 8 }, (_, index) => (
+    writeVaultFile(`notes/${index}.md`, [
+      '---',
+      `rank: ${index}`,
+      '---',
+    ].join('\n'))
+  )));
+  await writeVaultFile('views/rank.base', [
+    'filters: file.ext == "md"',
+    'properties:',
+    '  note.rank: {}',
+    'views:',
+    '  - type: table',
+    '    order: [file.name, note.rank]',
+    '    sort:',
+    '      - property: note.rank',
+    '        direction: desc',
+  ].join('\n'));
+
+  const result = await service.query({
+    basePath: 'views/rank.base',
+  });
+
+  assert.deepEqual(result.rows.map((row) => row.path), [
+    'notes/7.md',
+    'notes/6.md',
+    'notes/5.md',
+  ]);
+  assert.equal(result.totalRows, 3);
 });
 
 test('BaseQueryService property values ignore self-filters for the requested property', async (t) => {

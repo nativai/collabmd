@@ -356,7 +356,7 @@ test('embedded drawio uses the shared diagram preview header chrome', async ({ p
 test('markdown excalidraw embeds use preview mode with an edit button', async ({ page }) => {
   test.slow();
 
-  await openSampleFull(page);
+  await openSampleFull(page, { waitFor: 'preview' });
   await expect.poll(async () => (
     page.locator('#previewContent .excalidraw-embed iframe').count()
   ), { timeout: 60000 }).toBeGreaterThan(0);
@@ -369,7 +369,7 @@ test('markdown excalidraw embeds use preview mode with an edit button', async ({
 test('embedded excalidraw edit button navigates to the diagram file', async ({ page }) => {
   test.slow();
 
-  await openSampleFull(page);
+  await openSampleFull(page, { waitFor: 'preview' });
   await expect.poll(async () => (
     page.locator('#previewContent .excalidraw-embed-btn[aria-label="Edit in Excalidraw"]').count()
   ), { timeout: 60000 }).toBeGreaterThan(0);
@@ -613,7 +613,7 @@ test('switching directly between excalidraw files updates the reused iframe scen
     }),
   });
 
-  const writtenDiagram = await page.request.get('http://127.0.0.1:4173/api/file?path=new-diagram.excalidraw');
+  const writtenDiagram = await page.request.get('/api/file?path=new-diagram.excalidraw');
   expect(writtenDiagram.ok()).toBe(true);
   expect(await writtenDiagram.text()).toContain('shape-new');
 
@@ -752,7 +752,7 @@ test('embedded excalidraw maximize preserves layout and modal sizing', async ({ 
 test('embedded excalidraw matches mermaid width in preview-only view', async ({ page }) => {
   test.slow();
 
-  await openSampleFull(page);
+  await openSampleFull(page, { waitFor: 'preview' });
   await page.locator('.view-btn[data-view="preview"]').click();
   await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'preview');
 
@@ -963,11 +963,43 @@ test('opens .puml files with side-by-side PlantUML preview', async ({ page }) =>
   await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
   await expect(page.locator('#previewContent .plantuml-frame')).toContainText('standalone-puml');
   await expect(page.locator('#previewContent .plantuml-zoom-label')).toHaveText('100%');
+  await expect(page.locator('#previewContent .plantuml-tool-btn[aria-label="Copy image"]')).toBeVisible();
+  await expect(page.locator('#previewContent .plantuml-tool-btn[aria-label="Download SVG"]')).toBeVisible();
+  await expect(page.locator('#previewContent .plantuml-tool-btn[aria-label="Reload diagram"]')).toBeVisible();
   await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
   await expect(page.locator('#previewContent .plantuml-zoom-label')).toHaveText('110%');
   await expect(page.locator('#outlineToggle')).toHaveClass(/hidden/);
   await expect(page.locator('#backlinksPanel')).not.toHaveClass(/hidden/);
   await expect(page.locator('#backlinksPanel .backlinks-count')).toHaveText('1');
+});
+
+test('preserves manual standalone PlantUML zoom after preview layout sync runs', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.route('**/api/plantuml/render', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        ok: true,
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 400"><text x="40" y="220">manual-standalone-puml</text></svg>',
+      }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
+  await openFile(page, 'sample-plantuml.puml');
+
+  await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+  await expect.poll(async () => {
+    const metrics = await getPlantUmlZoomMetrics(page);
+    return metrics ? metrics.currentLabel === metrics.expectedLabel : false;
+  }).toBeTruthy();
+
+  const initialLabel = await page.locator('#previewContent .plantuml-zoom-label').textContent();
+  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
+  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
+  await expect(page.locator('#previewContent .plantuml-zoom-label')).not.toHaveText(initialLabel || '');
+
+  await expect(page.locator('#previewContent .plantuml-zoom-label')).not.toHaveText(initialLabel || '');
 });
 
 test('refits standalone PlantUML diagrams on maximize, resize, and restore', async ({ page }) => {
@@ -1031,6 +1063,8 @@ test('opens .mmd files with side-by-side Mermaid preview', async ({ page }) => {
 
   await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'split');
   await expect(page.locator('#previewContent .mermaid-frame svg')).toBeVisible();
+  await expect(page.locator('#previewContent .mermaid-zoom-btn[aria-label="Copy image"]')).toBeVisible();
+  await expect(page.locator('#previewContent .mermaid-zoom-btn[aria-label="Download SVG"]')).toBeVisible();
   await expect.poll(async () => {
     const metrics = await getMermaidZoomMetrics(page);
     return metrics ? metrics.currentLabel === metrics.expectedLabel : false;
@@ -1097,7 +1131,6 @@ test('preserves manual Mermaid zoom after preview layout sync runs', async ({ pa
   await page.locator('#previewContent .mermaid-zoom-btn[aria-label="Zoom in"]').click();
   await expect(page.locator('#previewContent .mermaid-zoom-label')).not.toHaveText(initialLabel || '');
 
-  await page.waitForTimeout(1000);
   await expect(page.locator('#previewContent .mermaid-zoom-label')).not.toHaveText(initialLabel || '');
 });
 
@@ -1112,6 +1145,176 @@ test('renders embedded Mermaid files from markdown docs', async ({ page }) => {
   await expect(page.locator('#previewContent .mermaid-frame svg')).toBeVisible();
   await expect(page.locator('#previewContent .mermaid-frame')).toContainText('Start');
   await expect(page.locator('#previewContent .mermaid-shell[data-mermaid-target="sample-mermaid.mmd"]')).toHaveCount(1);
+  await expect(page.locator('#previewContent .mermaid-shell[data-mermaid-target="sample-mermaid.mmd"] .mermaid-zoom-btn[aria-label="Copy image"]')).toBeVisible();
+  await expect(page.locator('#previewContent .mermaid-shell[data-mermaid-target="sample-mermaid.mmd"] .mermaid-zoom-btn[aria-label="Download SVG"]')).toBeVisible();
+});
+
+test('renders embedded PlantUML previews with copy and download actions', async ({ page }) => {
+  await page.route('**/api/plantuml/render', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        ok: true,
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 48"><text x="8" y="28">plantuml-actions</text></svg>',
+      }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, [
+    '# PlantUML Embed',
+    '',
+    '![[sample-plantuml.puml|Embedded sequence]]',
+  ].join('\n'));
+
+  await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+  await expect(page.locator('#previewContent .plantuml-shell[data-plantuml-target="sample-plantuml.puml"] .plantuml-tool-btn[aria-label="Copy image"]')).toBeVisible();
+  await expect(page.locator('#previewContent .plantuml-shell[data-plantuml-target="sample-plantuml.puml"] .plantuml-tool-btn[aria-label="Download SVG"]')).toBeVisible();
+});
+
+test('preserves manual embedded PlantUML zoom after preview layout sync runs', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.route('**/api/plantuml/render', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        ok: true,
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 400"><text x="40" y="220">manual-embedded-puml</text></svg>',
+      }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, [
+    '# PlantUML Embed',
+    '',
+    '![[sample-plantuml.puml|Embedded sequence]]',
+  ].join('\n'));
+
+  await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+  await expect.poll(async () => {
+    const metrics = await getPlantUmlZoomMetrics(page);
+    return metrics ? metrics.currentLabel === metrics.expectedLabel : false;
+  }).toBeTruthy();
+
+  const initialLabel = await page.locator('#previewContent .plantuml-zoom-label').textContent();
+  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
+  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
+  await expect(page.locator('#previewContent .plantuml-zoom-label')).not.toHaveText(initialLabel || '');
+
+  await expect(page.locator('#previewContent .plantuml-zoom-label')).not.toHaveText(initialLabel || '');
+});
+
+test('downloads standalone Mermaid previews as SVG with the diagram file name', async ({ page }) => {
+  await openFile(page, 'sample-mermaid.mmd');
+  await expect(page.locator('#previewContent .mermaid-frame svg')).toBeVisible();
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.locator('#previewContent .mermaid-zoom-btn[aria-label="Download SVG"]').click();
+  const download = await downloadPromise;
+
+  expect(download.suggestedFilename()).toBe('sample-mermaid.svg');
+  const stream = await download.createReadStream();
+  const chunks = [];
+  for await (const chunk of stream) {
+    chunks.push(chunk);
+  }
+  const svgMarkup = Buffer.concat(chunks).toString('utf8');
+  expect(svgMarkup).toContain('Start');
+  expect(svgMarkup).toContain('Review');
+  expect(svgMarkup).toContain('Ship');
+  expect(svgMarkup).not.toContain('foreignObject');
+});
+
+test('PlantUML standalone download saves SVG with the diagram file name', async ({ page }) => {
+  await page.route('**/api/plantuml/render', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        ok: true,
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 48"><text x="8" y="28">standalone-puml-download</text></svg>',
+      }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
+  await openFile(page, 'sample-plantuml.puml');
+  await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Download SVG"]').click();
+  const download = await downloadPromise;
+
+  expect(download.suggestedFilename()).toBe('sample-plantuml.svg');
+});
+
+test('copies standalone Mermaid previews as PNG when image clipboard write succeeds', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openFile(page, 'sample-mermaid.mmd');
+  await expect(page.locator('#previewContent .mermaid-frame svg')).toBeVisible();
+
+  await page.evaluate(() => {
+    window.__diagramClipboardWrites = [];
+    if (typeof ClipboardItem !== 'function') {
+      window.ClipboardItem = class ClipboardItem {
+        constructor(payload) {
+          this.types = Object.keys(payload || {});
+        }
+      };
+    }
+
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        ...(navigator.clipboard || {}),
+        async write(items) {
+          window.__diagramClipboardWrites.push(items.map((item) => Array.from(item.types || [])));
+        },
+      },
+    });
+  });
+
+  await page.locator('#previewContent .mermaid-zoom-btn[aria-label="Copy image"]').click();
+
+  await expect.poll(async () => (
+    page.evaluate(() => window.__diagramClipboardWrites?.[0]?.[0]?.[0] || '')
+  )).toBe('image/png');
+  await expect(page.locator('#toastContainer')).toContainText('Diagram copied');
+});
+
+test('falls back to a PNG download when image clipboard write is unavailable', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openFile(page, 'sample-mermaid.mmd');
+  await expect(page.locator('#previewContent .mermaid-frame svg')).toBeVisible();
+
+  await page.evaluate(() => {
+    if (typeof ClipboardItem !== 'function') {
+      window.ClipboardItem = class ClipboardItem {
+        constructor(payload) {
+          this.types = Object.keys(payload || {});
+        }
+      };
+    }
+
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        ...(navigator.clipboard || {}),
+        async write() {
+          throw new Error('Clipboard blocked');
+        },
+      },
+    });
+  });
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.locator('#previewContent .mermaid-zoom-btn[aria-label="Copy image"]').click();
+  const download = await downloadPromise;
+
+  expect(download.suggestedFilename()).toBe('sample-mermaid.png');
+  await expect(page.locator('#toastContainer')).toContainText('Clipboard image copy is unavailable here. Downloaded PNG instead.');
 });
 
 test('renders historical Mermaid gantt charts without an oversized today marker canvas', async ({ page }) => {

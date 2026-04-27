@@ -1,4 +1,5 @@
 import { PreviewRenderer } from '../application/preview-renderer.js';
+import { ensureQuickSwitcherInstance, toggleQuickSwitcherInstance } from '../application/quick-switcher-loader.js';
 import { WorkspaceRouteController } from '../application/workspace-route-controller.js';
 import { WikiLinkFileController } from '../application/wiki-link-file-controller.js';
 import { WorkspacePreviewController } from '../application/workspace-preview-controller.js';
@@ -100,9 +101,14 @@ export class CollabMdAppShell {
   handleGitCommitSubmit(...args) { return gitFeature.handleGitCommitSubmit.apply(this, args); }
   updateGlobalUsers(...args) { return presenceFeature.updateGlobalUsers.apply(this, args); }
   updateFileAwareness(...args) { return presenceFeature.updateFileAwareness.apply(this, args); }
+  closePresencePanel(...args) { return presenceFeature.closePresencePanel.apply(this, args); }
+  openPresencePanel(...args) { return presenceFeature.openPresencePanel.apply(this, args); }
   renderPresence(...args) { return presenceFeature.renderPresence.apply(this, args); }
   renderAvatars(...args) { return presenceFeature.renderAvatars.apply(this, args); }
+  renderPresencePanel(...args) { return presenceFeature.renderPresencePanel.apply(this, args); }
+  startFollowingUser(...args) { return presenceFeature.startFollowingUser.apply(this, args); }
   toggleFollowUser(...args) { return presenceFeature.toggleFollowUser.apply(this, args); }
+  togglePresencePanel(...args) { return presenceFeature.togglePresencePanel.apply(this, args); }
   stopFollowingUser(...args) { return presenceFeature.stopFollowingUser.apply(this, args); }
   syncFollowedUser(...args) { return presenceFeature.syncFollowedUser.apply(this, args); }
   followUserCursor(...args) { return presenceFeature.followUserCursor.apply(this, args); }
@@ -111,19 +117,27 @@ export class CollabMdAppShell {
   bindEvents(...args) { return uiFeature.bindEvents.apply(this, args); }
   clearInitialFileBootstrap(...args) { return uiFeature.clearInitialFileBootstrap.apply(this, args); }
   closeToolbarOverflowMenu(...args) { return uiFeature.closeToolbarOverflowMenu.apply(this, args); }
+  applyPendingPreviewRouteAnchor(...args) { return uiFeature.applyPendingPreviewRouteAnchor.apply(this, args); }
+  copyPreviewHeadingLink(...args) { return uiFeature.copyPreviewHeadingLink.apply(this, args); }
+  createPreviewHeadingLinkUrl(...args) { return uiFeature.createPreviewHeadingLinkUrl.apply(this, args); }
   getStoredLineWrapping(...args) { return uiFeature.getStoredLineWrapping.apply(this, args); }
   handleConnectionChange(...args) { return uiFeature.handleConnectionChange.apply(this, args); }
+  handleDocumentKeydown(...args) { return uiFeature.handleDocumentKeydown.apply(this, args); }
+  handleDocumentPointerDown(...args) { return uiFeature.handleDocumentPointerDown.apply(this, args); }
   handlePreviewContentClick(...args) { return uiFeature.handlePreviewContentClick.apply(this, args); }
   handleThemeChange(...args) { return uiFeature.handleThemeChange.apply(this, args); }
   hideEditorLoading(...args) { return uiFeature.hideEditorLoading.apply(this, args); }
   initialize(...args) { return uiFeature.initialize.apply(this, args); }
   initializeVisualViewportBinding(...args) { return uiFeature.initializeVisualViewportBinding.apply(this, args); }
   initializeVersionMonitoring(...args) { return uiFeature.initializeVersionMonitoring.apply(this, args); }
+  navigatePreviewHeading(...args) { return uiFeature.navigatePreviewHeading.apply(this, args); }
   promptForVersionReload(...args) { return uiFeature.promptForVersionReload.apply(this, args); }
+  requestPreviewRouteAnchor(...args) { return uiFeature.requestPreviewRouteAnchor.apply(this, args); }
   scheduleBacklinkRefresh(...args) { return uiFeature.scheduleBacklinkRefresh.apply(this, args); }
   setToolbarOverflowOpen(...args) { return uiFeature.setToolbarOverflowOpen.apply(this, args); }
   showEditorLoadError(...args) { return uiFeature.showEditorLoadError.apply(this, args); }
   showEditorLoading(...args) { return uiFeature.showEditorLoading.apply(this, args); }
+  syncPreviewHeadingLinkButtons(...args) { return uiFeature.syncPreviewHeadingLinkButtons.apply(this, args); }
   syncVisualViewportBounds(...args) { return uiFeature.syncVisualViewportBounds.apply(this, args); }
   syncToolbarOverflowVisibility(...args) { return uiFeature.syncToolbarOverflowVisibility.apply(this, args); }
   syncWrapToggle(...args) { return uiFeature.syncWrapToggle.apply(this, args); }
@@ -343,6 +357,8 @@ export class CollabMdAppShell {
         this.excalidrawEmbed.reconcileEmbeds(this.elements.previewContent, { isLargeDocument: stats.isLargeDocument });
         this.excalidrawEmbed.syncLayout();
         this.scrollSyncController.setLargeDocumentMode(stats.isLargeDocument);
+        this.syncPreviewHeadingLinkButtons();
+        this.applyPendingPreviewRouteAnchor({ behavior: 'auto', clearMissing: true });
         this.schedulePreviewLayoutSync({ delayMs: 0 });
         this.refreshCommentUiLayout();
       },
@@ -353,6 +369,7 @@ export class CollabMdAppShell {
       },
       onPreviewLayoutChange: () => {
         this.scrollSyncController.invalidatePreviewBlocks();
+        this.applyPendingPreviewRouteAnchor({ behavior: 'auto', clearMissing: false });
         this.schedulePreviewLayoutSync({ delayMs: 0 });
         this.refreshCommentUiLayout();
       },
@@ -360,6 +377,7 @@ export class CollabMdAppShell {
         this.videoEmbed.syncLayout();
         this.drawioEmbed.syncLayout();
         this.excalidrawEmbed.syncLayout();
+        this.applyPendingPreviewRouteAnchor({ allowExpired: true, behavior: 'auto', clearMissing: true });
         this.schedulePreviewLayoutSync({ delayMs: 0 });
         this.refreshCommentUiLayout();
       },
@@ -367,6 +385,7 @@ export class CollabMdAppShell {
       plantUmlRenderClient: this.plantUmlApiClient,
       previewContainer: this.elements.previewContainer,
       previewElement: this.elements.previewContent,
+      toastController: this.toastController,
     });
     this.themeController = new ThemeController({ onChange: (theme) => this.handleThemeChange(theme) });
     this.layoutController = new LayoutController({
@@ -397,6 +416,9 @@ export class CollabMdAppShell {
       getLocalUser: () => this.lobby.getLocalUser(),
       getTheme: () => this.themeController.getTheme(),
       onOpenFile: (filePath) => filePath && this.navigation.navigateToFile(filePath),
+      onToggleQuickSwitcher: () => {
+        void this.toggleQuickSwitcher();
+      },
       previewContainer: this.elements.previewContainer,
       previewElement: this.elements.previewContent,
       toastController: this.toastController,
@@ -406,6 +428,9 @@ export class CollabMdAppShell {
       getTheme: () => this.themeController.getTheme(),
       onOpenFile: (filePath) => filePath && this.navigation.navigateToFile(filePath),
       onOpenTextFile: (filePath) => filePath && this.navigation.navigateToFile(filePath, { drawioMode: 'text' }),
+      onToggleQuickSwitcher: () => {
+        void this.toggleQuickSwitcher();
+      },
       previewContainer: this.elements.previewContainer,
       previewElement: this.elements.previewContent,
       toastController: this.toastController,
@@ -627,6 +652,7 @@ export class CollabMdAppShell {
       lobby: this.lobby,
       navigation: this.navigation,
       previewRenderer: this.previewRenderer,
+      requestPreviewRouteAnchor: (anchorId, filePath) => this.requestPreviewRouteAnchor(anchorId, filePath),
       renderAvatars: () => this.renderAvatars(),
       renderPresence: () => this.renderPresence(),
       resetPreviewMode: () => this.resetPreviewMode(),
@@ -647,6 +673,7 @@ export class CollabMdAppShell {
         this.sessionLoadToken = value;
       },
       setSidebarTab: (value) => this.setSidebarTab(value),
+      setSidebarVisibility: (showSidebar) => this.setSidebarVisibility(showSidebar),
       showGitCommit: (route) => this.showGitCommit(route),
       showGitDiff: (route) => this.showGitDiff(route),
       showGitFileHistory: (route) => this.showGitFileHistory(route),
@@ -694,6 +721,8 @@ export class CollabMdAppShell {
   set gitRepoAvailable(value) { this.stateStore.set('gitRepoAvailable', value); }
   get activeSidebarTab() { return this.stateStore.get('activeSidebarTab'); }
   set activeSidebarTab(value) { this.stateStore.set('activeSidebarTab', value); }
+  get presencePanelOpen() { return this.stateStore.get('presencePanelOpen'); }
+  set presencePanelOpen(value) { this.stateStore.set('presencePanelOpen', value); }
   get followedUserClientId() { return this.stateStore.get('followedUserClientId'); }
   set followedUserClientId(value) { this.stateStore.set('followedUserClientId', value); }
   get followedCursorSignature() { return this.stateStore.get('followedCursorSignature'); }
@@ -778,29 +807,16 @@ export class CollabMdAppShell {
     this._editorSessionPrewarmHandle = window.setTimeout(runPrewarm, 0);
   }
 
+  loadQuickSwitcherController() {
+    return import('../presentation/quick-switcher-controller.js')
+      .then((module) => module.QuickSwitcherController);
+  }
+
   async ensureQuickSwitcher() {
-    if (this.quickSwitcher) {
-      return this.quickSwitcher;
-    }
-
-    if (!this.quickSwitcherModulePromise) {
-      this.quickSwitcherModulePromise = import('../presentation/quick-switcher-controller.js')
-        .then((module) => module.QuickSwitcherController);
-    }
-
-    const QuickSwitcherController = await this.quickSwitcherModulePromise;
-    if (!this.quickSwitcher) {
-      this.quickSwitcher = new QuickSwitcherController({
-        getFileList: () => this.fileExplorer.flatFiles,
-        onFileSelect: (filePath) => this.handleFileSelection(filePath, { closeSidebarOnMobile: true }),
-      });
-    }
-
-    return this.quickSwitcher;
+    return ensureQuickSwitcherInstance(this);
   }
 
   async toggleQuickSwitcher() {
-    const quickSwitcher = await this.ensureQuickSwitcher();
-    quickSwitcher.toggle();
+    return toggleQuickSwitcherInstance(this);
   }
 }

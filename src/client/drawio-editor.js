@@ -2,6 +2,7 @@ import './styles/surfaces/embedded-editor-base.css';
 import './styles/surfaces/drawio-editor.css';
 
 import { ensureClientAuthenticated } from './infrastructure/auth-client.js';
+import { isPlainQuickSwitcherShortcut } from './domain/keyboard-shortcuts.js';
 import { DrawioLeaseClient } from './infrastructure/drawio-lease-client.js';
 import { getRuntimeConfig } from './infrastructure/runtime-config.js';
 import { vaultApiClient } from './infrastructure/vault-api-client.js';
@@ -74,6 +75,16 @@ function postToParent(type, payload = {}) {
   }
 
   window.parent.postMessage({ source: 'drawio-editor', instanceId, type, ...payload }, parentOrigin);
+}
+
+function handleQuickSwitcherKeyDown(event) {
+  if (!isPlainQuickSwitcherShortcut(event)) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  postToParent('request-toggle-quick-switcher');
 }
 
 function parseMessagePayload(rawValue) {
@@ -417,6 +428,8 @@ async function claimEdit() {
 
   drawioLeaseClient.tryAcquireLease();
 }
+
+window.addEventListener('keydown', handleQuickSwitcherKeyDown, { capture: true });
 
 async function init() {
   setBodyTheme(currentTheme);

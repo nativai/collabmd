@@ -1,6 +1,5 @@
-import { test, expect } from '@playwright/test';
-
 import { startTestServer } from '../node/helpers/test-server.js';
+import { test, expect } from './helpers/app-fixture.js';
 
 const AUTH_PASSWORD = 'playwright-secret';
 

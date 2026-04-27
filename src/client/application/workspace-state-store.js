@@ -17,6 +17,7 @@ export class WorkspaceStateStore {
       gitRepoAvailable: false,
       globalUsers: [],
       isTabActive: false,
+      presencePanelOpen: false,
       sessionLoadToken: 0,
       ...initialState,
     };

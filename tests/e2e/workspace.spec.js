@@ -395,6 +395,21 @@ test('image toolbar uploads a vault attachment and inserts inline markdown', asy
     'src',
     /\/api\/attachment\?path=assets%2Finline-diagram-[^?]+\.webp/,
   );
+
+  const uploadedMarkdown = await page.evaluate(async () => {
+    const response = await fetch('/api/file?path=README.md');
+    const data = await response.json();
+    return data.content || '';
+  });
+  const uploadedPath = uploadedMarkdown.match(/!\[inline diagram\]\((assets\/inline-diagram-[^)]+\.webp)\)/i)?.[1];
+  if (!uploadedPath) {
+    throw new Error('Expected uploaded image markdown to contain an asset path.');
+  }
+
+  await openFile(page, uploadedPath, { waitFor: 'preview' });
+  await expect(page.locator('#previewContent .image-file-preview-image')).toBeVisible();
+  await expect(page.locator('#backlinksPanel')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#backlinksPanel .backlinks-count')).toHaveText('1');
 });
 
 test('image lightbox uses a fullscreen stage with click zoom, reset, and close', async ({ page }) => {
@@ -494,6 +509,53 @@ test('opens a file by clicking the sidebar', async ({ page }) => {
   await waitForEditor(page);
   await expect(page.locator('#previewContent')).toContainText('CollabMD Project');
   await expect(page.locator('#activeFileName')).toContainText('collabmd');
+});
+
+test('quick switcher reveals and scrolls the file tree to the opened file', async ({ page }) => {
+  await openHome(page);
+
+  for (let index = 0; index < 40; index += 1) {
+    const padded = String(index).padStart(2, '0');
+    const response = await page.request.put('/api/file', {
+      data: {
+        content: `# note-${padded}\n`,
+        path: `zz-folder-${padded}/note-${padded}.md`,
+      },
+    });
+    expect(response.ok()).toBe(true);
+  }
+
+  await page.locator('#refreshFilesBtn').click();
+  await expect(page.locator('#fileTree')).toContainText('zz-folder-39');
+
+  const beforeScrollTop = await page.locator('#fileTree').evaluate((element) => element.scrollTop);
+
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
+  await expect(page.locator('#quickSwitcher')).toHaveClass(/visible/);
+  await page.locator('#quickSwitcherInput').fill('note-39');
+  await page.locator('#quickSwitcherResults .qs-result-item').first().click();
+
+  await waitForEditor(page);
+
+  const afterState = await page.locator('#fileTree').evaluate((element) => {
+    const active = element.querySelector('.file-tree-file.active');
+    const activeRect = active?.getBoundingClientRect();
+    const treeRect = element.getBoundingClientRect();
+
+    return {
+      activePath: active?.getAttribute('data-path') ?? null,
+      activeTop: activeRect?.top ?? null,
+      activeBottom: activeRect?.bottom ?? null,
+      scrollTop: element.scrollTop,
+      treeBottom: treeRect.bottom,
+      treeTop: treeRect.top,
+    };
+  });
+
+  expect(afterState.activePath).toBe('zz-folder-39/note-39.md');
+  expect(afterState.scrollTop).toBeGreaterThan(beforeScrollTop);
+  expect(afterState.activeTop).toBeGreaterThanOrEqual(afterState.treeTop);
+  expect(afterState.activeBottom).toBeLessThanOrEqual(afterState.treeBottom + 1);
 });
 
 test('creates files from the sidebar with the custom dialog', async ({ page }) => {
@@ -663,7 +725,16 @@ test('moves files between folders by drag and drop in the sidebar', async ({ pag
       break;
     }
 
-    await page.waitForTimeout(250);
+    try {
+      await expect.poll(async () => page.evaluate(async (pathValue) => {
+        const response = await fetch(`/api/file?path=${encodeURIComponent(pathValue)}`);
+        return response.ok;
+      }, movedFilePath), { timeout: 1250 }).toBeTruthy();
+      moved = true;
+      break;
+    } catch {
+      // Retry the drag; WebKit/Chromium can occasionally miss the first drop event.
+    }
   }
 
   expect(moved).toBe(true);

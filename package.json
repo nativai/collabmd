@@ -1,6 +1,6 @@
 {
   "name": "collabmd",
-  "version": "0.1.34",
+  "version": "0.1.36",
   "type": "module",
   "description": "Collaborative markdown vault — like Obsidian, but online. Serve any directory of markdown files for realtime collaborative editing.",
   "repository": {
@@ -28,7 +28,7 @@
     "prepack": "npm run build",
     "build": "vite build",
     "capture:readme-assets": "node scripts/capture-readme-assets.mjs",
-    "check": "npm run lint && npm run test:guardrails && npm run test:unit && npm run test:browser",
+    "check": "npm run lint && npm run test:guardrails && npm run test:unit && npm run test:integration:prebuilt && npm run test:browser",
     "dev:client": "vite",
     "dev:server": "node bin/collabmd.js --no-tunnel",
     "homebrew:formula": "node scripts/render-homebrew-formula.mjs",
@@ -38,12 +38,15 @@
     "start": "npm run build && node bin/collabmd.js",
     "start:local-plantuml": "npm run build && node bin/collabmd.js --local-plantuml",
     "start:prod": "node bin/collabmd.js",
-    "test": "npm run test:unit && npm run test:browser && npm run test:e2e",
+    "test": "npm run test:guardrails && npm run test:unit && npm run test:integration:prebuilt && npm run test:browser && npm run test:e2e:prebuilt",
     "test:browser": "vitest run --config vitest.config.mjs --browser=chromium",
-    "test:e2e": "playwright test",
-    "test:e2e:headed": "playwright test --headed",
+    "test:e2e": "npm run build && playwright test",
+    "test:e2e:headed": "npm run build && playwright test --headed",
+    "test:e2e:prebuilt": "playwright test",
     "test:guardrails": "node --test tests/node/architecture-boundaries.test.js tests/node/facade-structure.test.js tests/node/style-system-guardrails.test.js",
-    "test:unit": "npm run build && node --test --test-force-exit tests/node/*.test.js",
+    "test:integration": "npm run build && node scripts/run-node-tests.mjs integration",
+    "test:integration:prebuilt": "node scripts/run-node-tests.mjs integration",
+    "test:unit": "npm run build && node scripts/run-node-tests.mjs fast",
     "tunnel": "node scripts/cloudflare-tunnel.mjs"
   },
   "keywords": [
@@ -66,11 +69,11 @@
     "@codemirror/lang-yaml": "^6.1.3",
     "@codemirror/language": "^6.12.3",
     "@codemirror/language-data": "^6.5.2",
-    "@codemirror/search": "^6.6.0",
+    "@codemirror/search": "^6.7.0",
     "@codemirror/state": "^6.6.0",
     "@codemirror/theme-one-dark": "^6.1.3",
-    "@codemirror/view": "^6.41.0",
-    "@excalidraw/excalidraw": "0.18.0-4a5c9e9",
+    "@codemirror/view": "^6.41.1",
+    "@excalidraw/excalidraw": "0.18.0-b1c6bfc",
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@turbodocx/html-to-docx": "^1.20.1",
@@ -81,7 +84,7 @@
     "lit-html": "^3.3.2",
     "markdown-it": "^14.1.1",
     "mermaid": "^11.14.0",
-    "openid-client": "^6.8.2",
+    "openid-client": "^6.8.3",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "sharp": "^0.34.5",
@@ -99,11 +102,11 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.59.1",
-    "@vitest/browser": "^4.1.4",
-    "@vitest/browser-playwright": "^4.1.4",
-    "eslint": "^10.2.0",
-    "globals": "^17.4.0",
-    "vite": "^8.0.8",
-    "vitest": "^4.1.4"
+    "@vitest/browser": "^4.1.5",
+    "@vitest/browser-playwright": "^4.1.5",
+    "eslint": "^10.2.1",
+    "globals": "^17.5.0",
+    "vite": "^8.0.10",
+    "vitest": "^4.1.5"
   }
 }
