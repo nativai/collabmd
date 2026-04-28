@@ -26,6 +26,20 @@ const EXPORT_ASSET_MAX_BYTES = 10 * 1024 * 1024;
 const EXPORT_RENDER_SETTLE_TIMEOUT_MS = 10_000;
 const VIDEO_POSTER_CAPTURE_TIMEOUT_MS = 10_000;
 const VIDEO_POSTER_CAPTURE_SEEK_SECONDS = 1;
+const DOCX_COMPATIBLE_IMAGE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/svg+xml',
+]);
+const DOCX_PNG_VARIANT_IMAGE_MIME_TYPES = new Set([
+  'image/gif',
+  'image/webp',
+]);
+const DOCX_IMAGE_TYPE_LABELS = new Map([
+  ['image/gif', 'GIF'],
+  ['image/webp', 'WebP'],
+]);
 
 let mermaidLoaderPromise = null;
 let assetCounter = 0;
@@ -47,6 +61,16 @@ function createDocumentTitle(filePath, title = '') {
 
 function encodeSvgDataUrl(svgMarkup) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup)}`;
+}
+
+function encodeSvgBase64DataUrl(svgMarkup) {
+  const bytes = new TextEncoder().encode(String(svgMarkup ?? ''));
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return `data:image/svg+xml;base64,${btoa(binary)}`;
 }
 
 function waitForAnimationFrame() {
@@ -144,28 +168,40 @@ function normalizeExportSvgMarkup(svgMarkup, options = {}) {
 }
 
 async function svgMarkupToPngDataUrl(svgMarkup) {
-  const svgDataUrl = encodeSvgDataUrl(svgMarkup);
-  const image = await loadImage(svgDataUrl);
+  const svgBlobUrl = URL.createObjectURL(new Blob([svgMarkup], {
+    type: 'image/svg+xml;charset=utf-8',
+  }));
   const svgProbe = document.createElement('div');
   svgProbe.innerHTML = svgMarkup;
   const svgElement = svgProbe.querySelector('svg');
-  const { width, height } = svgElement ? resolveSvgDimensions(svgElement) : {
-    height: image.naturalHeight || 800,
-    width: image.naturalWidth || 1200,
-  };
 
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.ceil(width));
-  canvas.height = Math.max(1, Math.ceil(height));
-  const context = canvas.getContext('2d');
-  if (!context) {
-    throw new Error('Canvas is unavailable');
+  try {
+    let image;
+    try {
+      image = await loadImage(svgBlobUrl);
+    } catch {
+      image = await loadImage(encodeSvgBase64DataUrl(svgMarkup));
+    }
+    const { width, height } = svgElement ? resolveSvgDimensions(svgElement) : {
+      height: image.naturalHeight || 800,
+      width: image.naturalWidth || 1200,
+    };
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.ceil(width));
+    canvas.height = Math.max(1, Math.ceil(height));
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Canvas is unavailable');
+    }
+
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/png');
+  } finally {
+    URL.revokeObjectURL(svgBlobUrl);
   }
-
-  context.fillStyle = '#ffffff';
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.drawImage(image, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL('image/png');
 }
 
 async function imageDataUrlToPngDataUrl(dataUrl) {
@@ -180,6 +216,33 @@ async function imageDataUrlToPngDataUrl(dataUrl) {
 
   context.drawImage(image, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL('image/png');
+}
+
+function getDataUrlMimeType(dataUrl = '') {
+  const match = String(dataUrl ?? '').match(/^data:([^;,]+)/iu);
+  return match?.[1]?.toLowerCase() || '';
+}
+
+async function createDocxImageDataUrl(dataUrl, {
+  warnings = [],
+} = {}) {
+  const mimeType = getDataUrlMimeType(dataUrl);
+  if (DOCX_COMPATIBLE_IMAGE_MIME_TYPES.has(mimeType)) {
+    return dataUrl;
+  }
+
+  if (!DOCX_PNG_VARIANT_IMAGE_MIME_TYPES.has(mimeType)) {
+    return dataUrl;
+  }
+
+  const imageTypeLabel = DOCX_IMAGE_TYPE_LABELS.get(mimeType) || mimeType;
+  try {
+    return await imageDataUrlToPngDataUrl(dataUrl);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : `Failed to convert ${imageTypeLabel} image for DOCX`;
+    warnings.push(`Failed to convert ${imageTypeLabel} image for DOCX: ${message}`);
+    return dataUrl;
+  }
 }
 
 async function waitForImageElement(image, {
@@ -781,7 +844,7 @@ async function resolveDiagramShell(snapshot, shell, { label, prefix, render }) {
 
   const svgMarkup = await render(source, target);
   const svgDataUrl = encodeSvgDataUrl(svgMarkup);
-  const pngDataUrl = await svgMarkupToPngDataUrl(svgMarkup);
+  const docxDataUrl = await svgMarkupToPngDataUrl(svgMarkup).catch(() => svgDataUrl);
   const assetId = registerAsset(snapshot, {
     dataUrl: svgDataUrl,
     id: createAssetId(prefix),
@@ -789,7 +852,7 @@ async function resolveDiagramShell(snapshot, shell, { label, prefix, render }) {
     mimeType: 'image/svg+xml',
     text: svgMarkup,
     variants: {
-      docx: pngDataUrl,
+      docx: docxDataUrl,
     },
   });
 
@@ -798,7 +861,7 @@ async function resolveDiagramShell(snapshot, shell, { label, prefix, render }) {
     assetId,
     className: `export-diagram--${prefix}`,
     dataUrl: svgDataUrl,
-    docxDataUrl: pngDataUrl,
+    docxDataUrl,
     svgMarkup,
   }));
 }
@@ -811,7 +874,7 @@ async function resolveExcalidrawEmbed(snapshot, placeholder) {
 
   const svgMarkup = await renderExcalidrawToSvgMarkup(target);
   const svgDataUrl = encodeSvgDataUrl(svgMarkup);
-  const pngDataUrl = await svgMarkupToPngDataUrl(svgMarkup);
+  const docxDataUrl = await svgMarkupToPngDataUrl(svgMarkup).catch(() => svgDataUrl);
   const assetId = registerAsset(snapshot, {
     dataUrl: svgDataUrl,
     id: createAssetId('excalidraw'),
@@ -819,7 +882,7 @@ async function resolveExcalidrawEmbed(snapshot, placeholder) {
     mimeType: 'image/svg+xml',
     text: svgMarkup,
     variants: {
-      docx: pngDataUrl,
+      docx: docxDataUrl,
     },
   });
 
@@ -828,7 +891,7 @@ async function resolveExcalidrawEmbed(snapshot, placeholder) {
     assetId,
     className: 'export-diagram--excalidraw',
     dataUrl: svgDataUrl,
-    docxDataUrl: pngDataUrl,
+    docxDataUrl,
     svgMarkup,
   }));
 }
@@ -860,22 +923,33 @@ async function resolveImageAssets(snapshot, container) {
   const imageNodes = Array.from(container.querySelectorAll('img'));
   for (const imageNode of imageNodes) {
     const src = imageNode.getAttribute('src') || '';
-    if (!src || src.startsWith('data:')) {
+    if (!src) {
+      continue;
+    }
+
+    if (src.startsWith('data:')) {
+      const docxDataUrl = await createDocxImageDataUrl(src, {
+        warnings: snapshot.warnings,
+      });
+      imageNode.setAttribute('data-export-docx-src', docxDataUrl);
       continue;
     }
 
     try {
       const imageUrl = new URL(src, window.location.href);
       const dataUrl = await fetchAsDataUrl(imageUrl.toString());
+      const docxDataUrl = await createDocxImageDataUrl(dataUrl, {
+        warnings: snapshot.warnings,
+      });
       const assetId = registerAsset(snapshot, {
         dataUrl,
         id: createAssetId('image'),
         kind: 'image',
-        mimeType: dataUrl.startsWith('data:image/svg+xml') ? 'image/svg+xml' : 'image/png',
+        mimeType: getDataUrlMimeType(dataUrl) || 'application/octet-stream',
       });
       imageNode.src = dataUrl;
       imageNode.setAttribute('data-export-asset-id', assetId);
-      imageNode.setAttribute('data-export-docx-src', dataUrl);
+      imageNode.setAttribute('data-export-docx-src', docxDataUrl);
     } catch (error) {
       const message = error instanceof Error ? error.message : `Failed to inline ${src}`;
       snapshot.warnings.push(message);

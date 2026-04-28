@@ -8,6 +8,15 @@ import {
   waitForRenderedExportContent,
 } from '../../src/client/export/export-pipeline.js';
 
+const TINY_WEBP_BASE64 = 'UklGRi4AAABXRUJQVlA4ICIAAABwAQCdASoCAAIAAUAmJYwCdAFAAAD+++F7O1bH2fCMM6wA';
+const TINY_WEBP_DATA_URL = `data:image/webp;base64,${TINY_WEBP_BASE64}`;
+const TINY_GIF_BASE64 = 'R0lGODlhAQABAPAAAP///wAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==';
+const TINY_GIF_DATA_URL = `data:image/gif;base64,${TINY_GIF_BASE64}`;
+
+function bytesFromBase64(value) {
+  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+}
+
 describe('export pipeline browser helpers', () => {
   const originalFetch = globalThis.fetch;
   const originalOpen = window.open;
@@ -48,6 +57,114 @@ describe('export pipeline browser helpers', () => {
     expect(snapshot.warnings).toHaveLength(0);
   });
 
+  it('creates PNG DOCX variants for fetched WebP images', async () => {
+    const webpBytes = bytesFromBase64(TINY_WEBP_BASE64);
+    globalThis.fetch = vi.fn(async () => new Response(
+      new Blob([webpBytes], { type: 'image/webp' }),
+      {
+        headers: {
+          'Content-Length': String(webpBytes.byteLength),
+        },
+        status: 200,
+      },
+    ));
+
+    const container = document.createElement('div');
+    container.innerHTML = '<p><img src="https://cdn.example.com/photo.webp" alt="Architecture"></p>';
+    const snapshot = {
+      assets: {},
+      warnings: [],
+    };
+
+    await resolveExportAssets(snapshot, { container });
+
+    const image = container.querySelector('img');
+    expect(image).not.toBeNull();
+    expect(image?.getAttribute('src')).toMatch(/^data:image\/webp;base64,/);
+    expect(image?.getAttribute('data-export-docx-src')).toMatch(/^data:image\/png;base64,/);
+    expect(Object.values(snapshot.assets)[0]?.mimeType).toBe('image/webp');
+    expect(snapshot.warnings).toHaveLength(0);
+
+    const docxHtml = buildDocxHtmlDocument({
+      html: container.innerHTML,
+      title: 'README',
+    });
+    expect(docxHtml).toContain('src="data:image/png;base64,');
+    expect(docxHtml).not.toContain('src="data:image/webp;base64,');
+  });
+
+  it('creates PNG DOCX variants for inline WebP data URL images', async () => {
+    const container = document.createElement('div');
+    container.innerHTML = `<p><img src="${TINY_WEBP_DATA_URL}" alt="Inline WebP"></p>`;
+    const snapshot = {
+      assets: {},
+      warnings: [],
+    };
+
+    await resolveExportAssets(snapshot, { container });
+
+    const image = container.querySelector('img');
+    expect(image).not.toBeNull();
+    expect(image?.getAttribute('src')).toBe(TINY_WEBP_DATA_URL);
+    expect(image?.getAttribute('data-export-docx-src')).toMatch(/^data:image\/png;base64,/);
+    expect(Object.keys(snapshot.assets)).toHaveLength(0);
+    expect(snapshot.warnings).toHaveLength(0);
+  });
+
+  it('creates PNG DOCX variants for fetched GIF images', async () => {
+    const gifBytes = bytesFromBase64(TINY_GIF_BASE64);
+    globalThis.fetch = vi.fn(async () => new Response(
+      new Blob([gifBytes], { type: 'image/gif' }),
+      {
+        headers: {
+          'Content-Length': String(gifBytes.byteLength),
+        },
+        status: 200,
+      },
+    ));
+
+    const container = document.createElement('div');
+    container.innerHTML = '<p><img src="https://cdn.example.com/animation.gif" alt="Animation"></p>';
+    const snapshot = {
+      assets: {},
+      warnings: [],
+    };
+
+    await resolveExportAssets(snapshot, { container });
+
+    const image = container.querySelector('img');
+    expect(image).not.toBeNull();
+    expect(image?.getAttribute('src')).toMatch(/^data:image\/gif;base64,/);
+    expect(image?.getAttribute('data-export-docx-src')).toMatch(/^data:image\/png;base64,/);
+    expect(Object.values(snapshot.assets)[0]?.mimeType).toBe('image/gif');
+    expect(snapshot.warnings).toHaveLength(0);
+
+    const docxHtml = buildDocxHtmlDocument({
+      html: container.innerHTML,
+      title: 'README',
+    });
+    expect(docxHtml).toContain('src="data:image/png;base64,');
+    expect(docxHtml).not.toContain('src="data:image/gif;base64,');
+  });
+
+  it('creates PNG DOCX variants for inline GIF data URL images', async () => {
+    const container = document.createElement('div');
+    container.innerHTML = `<p><img src="${TINY_GIF_DATA_URL}" alt="Inline GIF"></p>`;
+    const snapshot = {
+      assets: {},
+      warnings: [],
+    };
+
+    await resolveExportAssets(snapshot, { container });
+
+    const image = container.querySelector('img');
+    expect(image).not.toBeNull();
+    expect(image?.getAttribute('src')).toBe(TINY_GIF_DATA_URL);
+    expect(image?.getAttribute('data-export-docx-src')).toMatch(/^data:image\/png;base64,/);
+    expect(Object.keys(snapshot.assets)).toHaveLength(0);
+    expect(snapshot.warnings).toHaveLength(0);
+  });
+
   it('replaces image nodes with a stable warning when remote inlining fails', async () => {
     globalThis.fetch = vi.fn(async () => {
       throw new TypeError('Failed to fetch');
@@ -69,6 +186,7 @@ describe('export pipeline browser helpers', () => {
   });
 
   it('sanitizes PlantUML SVG before mounting it into the export snapshot', async () => {
+    const createObjectUrlSpy = vi.spyOn(URL, 'createObjectURL');
     globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
       svg: '<svg xmlns="http://www.w3.org/2000/svg" onload="window.__xss = true"><script>alert(1)</script><foreignObject><div>bad</div></foreignObject><rect width="120" height="80" /></svg>',
     }), {
@@ -93,6 +211,59 @@ describe('export pipeline browser helpers', () => {
     expect(container.querySelector('script')).toBeNull();
     expect(container.querySelector('foreignObject')).toBeNull();
     expect(snapshot.warnings).toHaveLength(0);
+    expect(createObjectUrlSpy).toHaveBeenCalledWith(expect.any(Blob));
+    expect(createObjectUrlSpy.mock.calls.at(-1)?.[0]?.type).toBe('image/svg+xml;charset=utf-8');
+  });
+
+  it('keeps SVG as the DOCX diagram source when browser rasterization fails', async () => {
+    const OriginalImage = window.Image;
+    class FailingImage {
+      constructor() {
+        this.decoding = 'async';
+        this.listeners = {};
+      }
+
+      addEventListener(type, listener) {
+        this.listeners[type] = listener;
+      }
+
+      set src(value) {
+        this.currentSrc = value;
+        queueMicrotask(() => this.listeners.error?.(new Event('error')));
+      }
+    }
+    window.Image = FailingImage;
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" /></svg>',
+    }), {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      status: 200,
+    }));
+
+    const container = document.createElement('div');
+    container.innerHTML = '<div class="plantuml-shell" data-plantuml-key="plantuml-fallback"><pre class="plantuml-source">@startuml\nAlice -&gt; Bob: Hello\n@enduml</pre></div>';
+    const snapshot = {
+      assets: {},
+      warnings: [],
+    };
+
+    try {
+      await resolveExportAssets(snapshot, { container });
+    } finally {
+      window.Image = OriginalImage;
+    }
+
+    const figure = container.querySelector('figure.export-diagram');
+    expect(figure?.getAttribute('data-export-docx-src')).toMatch(/^data:image\/svg\+xml;charset=utf-8,/);
+    expect(snapshot.warnings).toHaveLength(0);
+
+    const docxHtml = buildDocxHtmlDocument({
+      html: container.innerHTML,
+      title: 'README',
+    });
+    expect(docxHtml).toContain('src="data:image/svg+xml;charset=utf-8,');
   });
 
   it('renders Mermaid export labels as SVG text instead of foreignObject html labels', async () => {
