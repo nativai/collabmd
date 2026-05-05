@@ -318,6 +318,27 @@ test('compilePreviewDocument normalizes ASCII arrows in preview text', () => {
   assert.match(html, /<code>Inline -&gt; code<\/code>/);
 });
 
+test('compilePreviewDocument marks unresolved wiki-links as creatable by default', () => {
+  const { html } = compilePreviewDocument({
+    fileList: ['README.md'],
+    markdownText: 'See [[missing-note]].',
+  });
+
+  assert.match(html, /class="wiki-link wiki-link-new"/);
+  assert.match(html, /title="Create &quot;missing-note&quot;"/);
+});
+
+test('compilePreviewDocument marks unresolved wiki-links as missing when auto-create is disabled', () => {
+  const { html } = compilePreviewDocument({
+    fileList: ['README.md'],
+    markdownText: 'See [[missing-note]].',
+    wikiLinkAutoCreate: false,
+  });
+
+  assert.match(html, /class="wiki-link wiki-link-new"/);
+  assert.match(html, /title="Missing &quot;missing-note&quot;"/);
+});
+
 test('compilePreviewDocument renders inline br tags without enabling arbitrary html', () => {
   const markdown = [
     '| Name | Description |',

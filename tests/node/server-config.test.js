@@ -18,3 +18,35 @@ test('loadConfig enables perf logging from COLLABMD_PERF_LOGGING', () => {
     }
   }
 });
+
+test('loadConfig enables wiki-link auto-create by default', () => {
+  const previousValue = process.env.COLLABMD_WIKI_LINK_AUTO_CREATE;
+  delete process.env.COLLABMD_WIKI_LINK_AUTO_CREATE;
+
+  try {
+    const config = loadConfig({ vaultDir: process.cwd() });
+    assert.equal(config.wikiLinkAutoCreate, true);
+  } finally {
+    if (previousValue === undefined) {
+      delete process.env.COLLABMD_WIKI_LINK_AUTO_CREATE;
+    } else {
+      process.env.COLLABMD_WIKI_LINK_AUTO_CREATE = previousValue;
+    }
+  }
+});
+
+test('loadConfig disables wiki-link auto-create from COLLABMD_WIKI_LINK_AUTO_CREATE=false', () => {
+  const previousValue = process.env.COLLABMD_WIKI_LINK_AUTO_CREATE;
+  process.env.COLLABMD_WIKI_LINK_AUTO_CREATE = 'false';
+
+  try {
+    const config = loadConfig({ vaultDir: process.cwd() });
+    assert.equal(config.wikiLinkAutoCreate, false);
+  } finally {
+    if (previousValue === undefined) {
+      delete process.env.COLLABMD_WIKI_LINK_AUTO_CREATE;
+    } else {
+      process.env.COLLABMD_WIKI_LINK_AUTO_CREATE = previousValue;
+    }
+  }
+});

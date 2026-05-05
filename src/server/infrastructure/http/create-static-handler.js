@@ -51,6 +51,7 @@ function buildRuntimeConfig({
   gitEnabled,
   nodeEnv,
   publicWsBaseUrl,
+  wikiLinkAutoCreate,
   wsBasePath,
 }) {
   return `window.__COLLABMD_CONFIG__ = ${JSON.stringify({
@@ -61,6 +62,7 @@ function buildRuntimeConfig({
     environment: nodeEnv,
     gitEnabled,
     publicWsBaseUrl,
+    wikiLinkAutoCreate,
     wsBasePath,
   })};\n`;
 }

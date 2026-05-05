@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   createFileRouteHash,
+  getRuntimeConfig,
   getHashRoute,
   isCollabMdHashRoute,
   navigateToGitCommit,
@@ -52,6 +53,20 @@ test('runtime-config parses file history and file preview routes', (t) => {
     path: 'docs/old-name.md',
     type: 'git-commit',
   });
+});
+
+test('runtime-config exposes wiki-link auto-create with a default enabled value', (t) => {
+  const previousWindow = globalThis.window;
+  globalThis.window = createWindowStub();
+
+  t.after(() => {
+    globalThis.window = previousWindow;
+  });
+
+  assert.equal(getRuntimeConfig().wikiLinkAutoCreate, true);
+
+  globalThis.window.__COLLABMD_CONFIG__ = { wikiLinkAutoCreate: false };
+  assert.equal(getRuntimeConfig().wikiLinkAutoCreate, false);
 });
 
 test('runtime-config builds file history and file preview hashes', (t) => {

@@ -337,6 +337,7 @@ export class CollabMdAppShell {
     this.previewRenderer = new PreviewRenderer({
       getContent: () => this.getPreviewSource(),
       getFileList: () => this.fileExplorer.flatDocumentFiles,
+      getWikiLinkAutoCreate: () => this.runtimeConfig.wikiLinkAutoCreate !== false,
       loadFileSource: async (filePath) => {
         const payload = await this.vaultApiClient.readFile(filePath);
         return String(payload?.content ?? '');
@@ -474,6 +475,7 @@ export class CollabMdAppShell {
       refreshExplorer: () => this.fileExplorer.refresh(),
       toastController: this.toastController,
       vaultApiClient: this.vaultApiClient,
+      wikiLinkAutoCreate: this.runtimeConfig.wikiLinkAutoCreate !== false,
     });
     this.gitDiffView = new GitDiffViewController({
       gitApiClient: this.gitApiClient,

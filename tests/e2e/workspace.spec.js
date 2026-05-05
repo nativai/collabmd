@@ -925,6 +925,29 @@ test('creates and opens unresolved wiki-link targets', async ({ page }) => {
   await expect(page.locator('#activeFileName')).toContainText('new-page');
 });
 
+test('does not create unresolved wiki-link targets when auto-create is disabled', async ({ page }) => {
+  await page.route('**/app-config.js', async (route) => {
+    await route.fulfill({
+      body: 'window.__COLLABMD_CONFIG__ = {"wikiLinkAutoCreate":false};\n',
+      contentType: 'text/javascript; charset=utf-8',
+      status: 200,
+    });
+  });
+  await openFile(page, 'README.md');
+
+  await replaceEditorContent(page, '# Wiki Missing\n\nGo to [[notes/hidden-page]]');
+  const missingLink = page.locator('#previewContent .wiki-link-new').first();
+  await expect(missingLink).toHaveAttribute('title', 'Missing "notes/hidden-page"');
+
+  await missingLink.click();
+
+  await expect(page.locator('#toastContainer')).toContainText('Wiki-link target does not exist');
+  await expect(page.locator('#activeFileName')).toContainText('README');
+
+  const response = await page.request.get('/api/file?path=notes%2Fhidden-page.md');
+  expect(response.status()).toBe(404);
+});
+
 test('redundant hashchange events do not reopen the same markdown file into overlapping sessions', async ({ page }) => {
   await openSampleFull(page);
   await waitForHeavyPreviewContent(page);

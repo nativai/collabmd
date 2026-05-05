@@ -69,6 +69,7 @@ config:
   publicWsBaseUrl: ""
   wsBasePath: /ws
   plantumlServerUrl: https://www.plantuml.com/plantuml
+  wikiLinkAutoCreate: true
   httpKeepAliveTimeoutMs: 5000
   httpHeadersTimeoutMs: 60000
   httpRequestTimeoutMs: 30000

@@ -16,6 +16,7 @@ export class PreviewRenderExecutor {
     createWorkerFn = createPreviewWorker,
     getFileList,
     getSourceFilePath = null,
+    getWikiLinkAutoCreate = null,
     idleTimeoutMs = IDLE_RENDER_TIMEOUT_MS,
     requestIdleRenderFn = requestIdleRender,
   } = {}) {
@@ -25,6 +26,7 @@ export class PreviewRenderExecutor {
     this.createWorkerFn = createWorkerFn;
     this.getFileList = getFileList;
     this.getSourceFilePath = getSourceFilePath;
+    this.getWikiLinkAutoCreate = getWikiLinkAutoCreate;
     this.idleTimeoutMs = idleTimeoutMs;
     this.requestIdleRenderFn = requestIdleRenderFn;
     this.worker = null;
@@ -119,6 +121,7 @@ export class PreviewRenderExecutor {
           markdownText,
           renderVersion,
           sourceFilePath: this.getSourceFilePath?.() ?? '',
+          wikiLinkAutoCreate: this.getWikiLinkAutoCreate?.() ?? true,
         });
       });
     }
@@ -131,6 +134,7 @@ export class PreviewRenderExecutor {
       frontmatterInteractive,
       markdownText,
       sourceFilePath: this.getSourceFilePath?.() ?? '',
+      wikiLinkAutoCreate: this.getWikiLinkAutoCreate?.() ?? true,
     });
   }
 

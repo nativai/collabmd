@@ -8,12 +8,14 @@ export class WikiLinkFileController {
     refreshExplorer,
     toastController,
     vaultApiClient,
+    wikiLinkAutoCreate = true,
   }) {
     this.getFileList = getFileList;
     this.navigation = navigation;
     this.refreshExplorer = refreshExplorer;
     this.toastController = toastController;
     this.vaultApiClient = vaultApiClient;
+    this.wikiLinkAutoCreate = wikiLinkAutoCreate;
   }
 
   handleWikiLinkClick(target) {
@@ -21,6 +23,11 @@ export class WikiLinkFileController {
 
     if (match) {
       this.navigation.navigateToFile(match);
+      return;
+    }
+
+    if (!this.wikiLinkAutoCreate) {
+      this.toastController.show('Wiki-link target does not exist');
       return;
     }
 

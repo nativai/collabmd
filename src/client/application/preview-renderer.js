@@ -10,8 +10,9 @@ export class PreviewRenderer {
   constructor({
     getContent,
     getFileList,
-    loadFileSource = null,
     getSourceFilePath,
+    getWikiLinkAutoCreate = null,
+    loadFileSource = null,
     onAfterRenderCommit,
     onBeforeRenderCommit,
     onPreviewLayoutChange,
@@ -24,8 +25,9 @@ export class PreviewRenderer {
   }) {
     this.getContent = getContent;
     this.getFileList = getFileList;
-    this.loadFileSource = loadFileSource;
     this.getSourceFilePath = getSourceFilePath;
+    this.getWikiLinkAutoCreate = getWikiLinkAutoCreate;
+    this.loadFileSource = loadFileSource;
     this.onAfterRenderCommit = onAfterRenderCommit;
     this.onBeforeRenderCommit = onBeforeRenderCommit;
     this.onPreviewLayoutChange = onPreviewLayoutChange;
@@ -96,6 +98,7 @@ export class PreviewRenderer {
       attachmentApiPath: resolveApiUrl('/attachment'),
       getFileList: () => this.getFileList?.() ?? [],
       getSourceFilePath: () => this.getSourceFilePath?.() ?? '',
+      getWikiLinkAutoCreate: () => this.getWikiLinkAutoCreate?.() ?? true,
       idleTimeoutMs: IDLE_RENDER_TIMEOUT_MS,
     });
 

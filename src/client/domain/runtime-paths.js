@@ -79,6 +79,7 @@ export function getClientRuntimeConfig() {
     environment: 'development',
     gitEnabled: true,
     publicWsBaseUrl: '',
+    wikiLinkAutoCreate: true,
     wsBasePath: '/ws',
     ...(window.__COLLABMD_CONFIG__ ?? {}),
   };

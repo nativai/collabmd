@@ -344,6 +344,7 @@ function renderInlineWikiText(content, {
   mermaidEmbedCounts,
   plantUmlEmbedCounts,
   sourceFilePath = '',
+  wikiLinkAutoCreate = true,
 }) {
   const regex = /!\[\[([^\]|#]+\.(?:base|excalidraw|drawio|mmd|mermaid|puml|plantuml))(?:#([^\]|]+))?(?:\|([^\]]+))?\]\]|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/gi;
   let lastIndex = 0;
@@ -408,7 +409,11 @@ function renderInlineWikiText(content, {
       const display = (match[5] || match[4]).trim();
       const resolved = resolveWikiTarget(target, fileList);
       const classes = resolved ? 'wiki-link' : 'wiki-link wiki-link-new';
-      const title = resolved ? normalizePreviewTypography(display) : `Create "${target}"`;
+      const title = resolved
+        ? normalizePreviewTypography(display)
+        : wikiLinkAutoCreate
+          ? `Create "${target}"`
+          : `Missing "${target}"`;
       html += `<a class="${classes}" href="#" data-wiki-target="${escapeHtml(target)}" title="${escapeHtml(title)}">${escapePreviewText(display)}</a>`;
     }
 
@@ -425,6 +430,7 @@ function renderInlineWikiText(content, {
 function createMarkdownRenderer(fileList = [], {
   attachmentApiPath = '/api/attachment',
   sourceFilePath = '',
+  wikiLinkAutoCreate = true,
 } = {}) {
   const markdown = markdownIt({
     highlight(source, language) {
@@ -562,6 +568,7 @@ function createMarkdownRenderer(fileList = [], {
         mermaidEmbedCounts,
         plantUmlEmbedCounts,
         sourceFilePath,
+        wikiLinkAutoCreate,
       })}`;
     }
 
@@ -574,6 +581,7 @@ function createMarkdownRenderer(fileList = [], {
         mermaidEmbedCounts,
         plantUmlEmbedCounts,
         sourceFilePath,
+        wikiLinkAutoCreate,
       })}`;
     }
 
@@ -585,6 +593,7 @@ function createMarkdownRenderer(fileList = [], {
       mermaidEmbedCounts,
       plantUmlEmbedCounts,
       sourceFilePath,
+      wikiLinkAutoCreate,
     });
   };
 
@@ -637,12 +646,14 @@ export function compilePreviewDocument({
   frontmatterInteractive = false,
   markdownText = '',
   sourceFilePath = '',
+  wikiLinkAutoCreate = true,
 } = {}) {
   const normalizedMarkdown = String(markdownText);
   const frontmatter = extractYamlFrontmatter(normalizedMarkdown);
   const renderer = createMarkdownRenderer(fileList, {
     attachmentApiPath,
     sourceFilePath,
+    wikiLinkAutoCreate,
   });
   const renderedMarkdown = frontmatter ? frontmatter.bodyMarkdown : normalizedMarkdown;
   const frontmatterHtml = renderFrontmatterBlock(frontmatter, {
