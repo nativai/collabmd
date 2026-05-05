@@ -38,6 +38,8 @@ Welcome to the test vault.
 
 - [[daily/2026-03-05]]
 - [[projects/collabmd]]
+
+${Array.from({ length: 40 }, (_, index) => `- Follow-up note ${index + 1}`).join('\n')}
 `;
 
 const FRAGMENT_LINK_DOCUMENT = `# My Vault
@@ -306,7 +308,7 @@ test('renders frontmatter as metadata while keeping outline navigation aligned',
 
   await page.locator('#outlineNav .outline-item', { hasText: 'Links' }).click();
 
-  await expect(page.locator('#previewContent h2[data-source-line="13"]')).toBeVisible();
+  await expect.poll(async () => getPreviewHeadingOffset(page, 13), { timeout: 15000 }).toBeLessThan(80);
   await expect(page.locator('#outlineNav .outline-item.active').first()).toHaveText('Links');
 });
 
