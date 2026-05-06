@@ -38,14 +38,15 @@ import {
 } from '@codemirror/view';
 import { yCollab } from 'y-codemirror.next';
 
-import { isBaseFilePath, isPlantUmlFilePath } from '../../domain/file-kind.js';
+import { isBaseFilePath, isMermaidFilePath, isPlantUmlFilePath } from '../../domain/file-kind.js';
 import { normalizeCommentQuote } from '../../domain/comment-threads.js';
 import { createMarkdownToolbarEdit } from '../domain/markdown-formatting.js';
+import { mermaidLanguage, mermaidLanguageDescription } from '../domain/mermaid-language.js';
 import { wikiLinkCompletions } from '../domain/wiki-link-completions.js';
 import { plantUmlLanguage, plantUmlLanguageDescription } from '../domain/plantuml-language.js';
 import { handleImagePasteEvent } from './editor-paste-utils.js';
 
-const markdownCodeLanguages = [...languages, plantUmlLanguageDescription];
+const markdownCodeLanguages = [...languages, mermaidLanguageDescription, plantUmlLanguageDescription];
 const pairedMatchingBracketMark = Decoration.mark({ class: 'cm-matchingBracket cm-matchingBracket-paired' });
 const nonmatchingBracketMark = Decoration.mark({ class: 'cm-nonmatchingBracket' });
 const remoteUpdateMark = Decoration.mark({ class: 'cm-remoteUpdateFlash' });
@@ -299,6 +300,10 @@ function createEditorTheme(theme) {
 }
 
 export function createLanguageExtension(filePath) {
+  if (isMermaidFilePath(filePath)) {
+    return mermaidLanguage;
+  }
+
   if (isPlantUmlFilePath(filePath)) {
     return plantUmlLanguage;
   }
