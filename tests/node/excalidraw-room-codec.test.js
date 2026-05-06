@@ -10,6 +10,7 @@ import {
   migrateLegacyExcalidrawRoomData,
   readLegacyExcalidrawRoomScene,
   replaceExcalidrawRoomScene,
+  serializeExcalidrawRoomScene,
 } from '../../src/domain/excalidraw-room-codec.js';
 
 function createElement(id, {
@@ -104,7 +105,7 @@ test('merges concurrent structured updates for different elements into one valid
   assert.deepEqual(sceneB.elements.map((element) => element.id), ['shape-a', 'shape-b']);
 });
 
-test('keeps the higher element version and versionNonce when concurrent edits target the same element', () => {
+test('keeps the higher element version and lower versionNonce when concurrent edits target the same element', () => {
   const docA = new Y.Doc();
   const docB = new Y.Doc();
   const baseScene = createScene([createElement('shared-shape', { version: 1, versionNonce: 1, x: 0 })]);
@@ -130,6 +131,65 @@ test('keeps the higher element version and versionNonce when concurrent edits ta
   const [winningElement] = buildExcalidrawRoomScene(docA).elements;
   assert.equal(winningElement.id, 'shared-shape');
   assert.equal(winningElement.version, 2);
-  assert.equal(winningElement.versionNonce, 9);
-  assert.equal(winningElement.x, 45);
+  assert.equal(winningElement.versionNonce, 4);
+  assert.equal(winningElement.x, 20);
+});
+
+test('live scene diffs preserve room elements omitted from stale local payloads', () => {
+  const doc = new Y.Doc();
+  replaceExcalidrawRoomScene(doc, createScene([
+    createElement('shape-a', { index: 'a1', x: 10 }),
+    createElement('shape-b', { index: 'a2', x: 30 }),
+  ]));
+
+  applySceneDiffToExcalidrawRoom(doc, createScene([
+    createElement('shape-a', { index: 'a1', version: 2, x: 40 }),
+  ]));
+
+  const scene = buildExcalidrawRoomScene(doc);
+  assert.deepEqual(scene.elements.map((element) => element.id), ['shape-a', 'shape-b']);
+  assert.equal(scene.elements.find((element) => element.id === 'shape-a').x, 40);
+  assert.equal(scene.elements.find((element) => element.id === 'shape-b').x, 30);
+});
+
+test('live scene diffs preserve files omitted from stale local payloads', () => {
+  const doc = new Y.Doc();
+  replaceExcalidrawRoomScene(doc, {
+    ...createScene([createElement('shape-a')]),
+    files: {
+      imageA: { id: 'imageA', dataURL: 'data:image/png;base64,a', mimeType: 'image/png', version: 1 },
+      imageB: { id: 'imageB', dataURL: 'data:image/png;base64,b', mimeType: 'image/png', version: 1 },
+    },
+  });
+
+  applySceneDiffToExcalidrawRoom(doc, {
+    ...createScene([createElement('shape-a', { version: 2 })]),
+    files: {
+      imageA: { id: 'imageA', dataURL: 'data:image/png;base64,a2', mimeType: 'image/png', version: 2 },
+    },
+  });
+
+  const scene = buildExcalidrawRoomScene(doc);
+  assert.deepEqual(Object.keys(scene.files).sort(), ['imageA', 'imageB']);
+  assert.equal(scene.files.imageA.version, 2);
+  assert.equal(scene.files.imageB.version, 1);
+});
+
+test('explicit deleted-element tombstones win live diffs and stay out of persisted content', () => {
+  const doc = new Y.Doc();
+  replaceExcalidrawRoomScene(doc, createScene([
+    createElement('shape-a', { index: 'a1', version: 1 }),
+    createElement('shape-b', { index: 'a2', version: 1 }),
+  ]));
+
+  applySceneDiffToExcalidrawRoom(doc, createScene([
+    createElement('shape-b', { index: 'a2', isDeleted: true, version: 2 }),
+  ]));
+
+  const liveScene = buildExcalidrawRoomScene(doc);
+  assert.deepEqual(liveScene.elements.map((element) => element.id), ['shape-a', 'shape-b']);
+  assert.equal(liveScene.elements.find((element) => element.id === 'shape-b').isDeleted, true);
+
+  const persistedScene = JSON.parse(serializeExcalidrawRoomScene(doc));
+  assert.deepEqual(persistedScene.elements.map((element) => element.id), ['shape-a']);
 });

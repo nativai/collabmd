@@ -85,7 +85,7 @@ function compareElementVersions(left, right) {
   const leftVersionNonce = Number(left?.versionNonce) || 0;
   const rightVersionNonce = Number(right?.versionNonce) || 0;
   if (leftVersionNonce !== rightVersionNonce) {
-    return leftVersionNonce - rightVersionNonce;
+    return rightVersionNonce - leftVersionNonce;
   }
 
   const leftUpdated = Number(left?.updated) || 0;
@@ -348,7 +348,6 @@ export function applySceneDiffToExcalidrawRoom(ydoc, rawScene, {
   const elementsMap = ydoc.getMap(EXCALIDRAW_ELEMENTS_KEY);
   const filesMap = ydoc.getMap(EXCALIDRAW_FILES_KEY);
   const appStateMap = ydoc.getMap(EXCALIDRAW_APP_STATE_KEY);
-  const nextElementIds = new Set();
   let changed = false;
 
   scene.elements.forEach((element) => {
@@ -356,16 +355,8 @@ export function applySceneDiffToExcalidrawRoom(ydoc, rawScene, {
       return;
     }
 
-    nextElementIds.add(element.id);
     const slot = getNestedMapValue(elementsMap, element.id, { create: true });
     changed = writeElementSlot(slot, element, { maxRevisions: maxRevisionsPerElement }) || changed;
-  });
-
-  Array.from(elementsMap.keys()).forEach((key) => {
-    if (!nextElementIds.has(key)) {
-      elementsMap.delete(key);
-      changed = true;
-    }
   });
 
   const nextFiles = scene.files || {};
@@ -378,13 +369,6 @@ export function applySceneDiffToExcalidrawRoom(ydoc, rawScene, {
 
     filesMap.set(key, nextValue);
     changed = true;
-  });
-
-  Array.from(filesMap.keys()).forEach((key) => {
-    if (!(key in nextFiles)) {
-      filesMap.delete(key);
-      changed = true;
-    }
   });
 
   const nextAppState = normalizeAppState(scene.appState);

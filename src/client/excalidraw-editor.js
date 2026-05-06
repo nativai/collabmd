@@ -10,7 +10,9 @@ import {
 import '@excalidraw/excalidraw/index.css';
 
 import {
+  buildRenderableCollaboratorsMap,
   findCollaboratorByPeerId,
+  getCollaboratorsRenderSignature,
   mergeAwarenessUserPatch,
   resolveLocalAwarenessUser,
 } from './domain/excalidraw-collaboration.js';
@@ -24,6 +26,9 @@ import {
   parseSceneJson,
   sceneToInitialData,
 } from './domain/excalidraw-scene.js';
+import {
+  buildReconciledExcalidrawSceneUpdate,
+} from './domain/excalidraw-scene-reconcile.js';
 import {
   normalizeDocumentMode,
 } from './domain/excalidraw-document-switch.js';
@@ -60,6 +65,7 @@ let pendingHostFollowPeerId = null;
 let suppressViewportBroadcast = false;
 let pendingViewportSuppressionReleases = 0;
 let lastAppliedFollowViewportSignature = '';
+let lastRenderedCollaboratorsSignature = '';
 let apiStateCleanupCallbacks = [];
 let collaboratorRenderFrame = 0;
 let queuedCollaborators = null;
@@ -295,16 +301,21 @@ if (isTestMode) {
 
 function applyCollaborators(collaborators) {
   activeCollaborators = collaborators instanceof Map ? collaborators : new Map();
+  const renderableCollaborators = buildRenderableCollaboratorsMap(activeCollaborators);
+  const renderSignature = getCollaboratorsRenderSignature(renderableCollaborators);
 
   if (!excalidrawAPI) {
     pendingCollaborators = activeCollaborators;
     return;
   }
 
-  excalidrawAPI.updateScene({
-    collaborators: activeCollaborators,
-    captureUpdate: CaptureUpdateAction.NEVER,
-  });
+  if (renderSignature !== lastRenderedCollaboratorsSignature) {
+    lastRenderedCollaboratorsSignature = renderSignature;
+    excalidrawAPI.updateScene({
+      collaborators: renderableCollaborators,
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
+  }
 
   if (pendingHostFollowPeerId) {
     applyHostFollowRequest(pendingHostFollowPeerId);
@@ -328,10 +339,29 @@ function queueCollaboratorsRender(collaborators) {
   });
 }
 
-function applySceneFromJson(rawJson) {
+function isEditingTextElement() {
+  return Boolean(excalidrawAPI?.getAppState?.()?.editingTextElement);
+}
+
+function flushPendingRemoteScene() {
+  if (!pendingRemoteSceneJson || !excalidrawAPI || !collabReady || isEditingTextElement()) {
+    return false;
+  }
+
+  const sceneJson = pendingRemoteSceneJson;
+  pendingRemoteSceneJson = '';
+  applySceneFromJson(sceneJson, {
+    force: true,
+  });
+  return true;
+}
+
+function applySceneFromJson(rawJson, {
+  force = false,
+} = {}) {
   const scene = parseSceneJson(rawJson);
   const normalizedJson = JSON.stringify(scene);
-  if (normalizedJson === appliedSceneJson && !pendingRemoteSceneJson) {
+  if (!force && normalizedJson === appliedSceneJson && !pendingRemoteSceneJson) {
     return;
   }
 
@@ -342,9 +372,12 @@ function applySceneFromJson(rawJson) {
     return;
   }
 
-  updateApiScene(scene, {
-    replaceElements: true,
-  });
+  if (!force && isEditingTextElement()) {
+    pendingRemoteSceneJson = normalizedJson;
+    return;
+  }
+
+  updateApiScene(scene);
 }
 
 function releaseOnChangeSuppressionAfterPaint({ trackedSharedSnapshot = false } = {}) {
@@ -376,30 +409,21 @@ function releaseViewportBroadcastSuppressionAfterPaint() {
 
 function buildApiSceneUpdate(scene, {
   appStateOverrides = {},
-  replaceElements = false,
 } = {}) {
   const currentAppState = excalidrawAPI.getAppState();
-  const currentElements = replaceElements
-    ? []
-    : (excalidrawAPI.getSceneElementsIncludingDeleted?.() || excalidrawAPI.getSceneElements());
-  const restoredElements = restoreElements(scene?.elements || [], currentElements, {
-    repairBindings: true,
-  });
-  const restoredAppState = restoreAppState(scene?.appState || {}, currentAppState);
-  const reconciledElements = replaceElements
-    ? restoredElements
-    : reconcileElements(currentElements, restoredElements, currentAppState);
+  const currentElements = excalidrawAPI.getSceneElementsIncludingDeleted?.() || excalidrawAPI.getSceneElements();
 
-  return {
-    appState: {
-      theme: currentTheme,
-      viewBackgroundColor: restoredAppState.viewBackgroundColor ?? '#ffffff',
-      gridSize: restoredAppState.gridSize ?? null,
-      ...getDocumentViewState(),
-      ...appStateOverrides,
-    },
-    elements: reconciledElements,
-  };
+  return buildReconciledExcalidrawSceneUpdate({
+    appStateOverrides,
+    currentAppState,
+    currentElements,
+    documentViewState: getDocumentViewState(),
+    reconcileElementsFn: reconcileElements,
+    restoreAppStateFn: restoreAppState,
+    restoreElementsFn: restoreElements,
+    scene,
+    theme: currentTheme,
+  });
 }
 
 function logFileConflictOnce(conflictingFileIds = []) {
@@ -437,12 +461,10 @@ function requestEditorRemount(scene) {
 function applySceneToMountedApi(scene, {
   appStateOverrides = {},
   captureUpdate = CaptureUpdateAction.NEVER,
-  replaceElements = false,
   trackedSharedSnapshot = false,
 } = {}) {
   const nextSceneUpdate = buildApiSceneUpdate(scene, {
     appStateOverrides,
-    replaceElements,
   });
   let applyResult = null;
 
@@ -484,13 +506,11 @@ function applySceneToMountedApi(scene, {
 function updateApiScene(scene, {
   appStateOverrides = {},
   captureUpdate = CaptureUpdateAction.NEVER,
-  replaceElements = false,
   trackedSharedSnapshot = true,
 } = {}) {
   applySceneToMountedApi(scene, {
     appStateOverrides,
     captureUpdate,
-    replaceElements,
     trackedSharedSnapshot,
   });
 }
@@ -518,6 +538,10 @@ function applyLocalScene(scene, {
 
 function onRoomTextUpdate() {
   applySceneFromJson(roomClient?.getLastSceneJson?.() || '');
+}
+
+function getLiveSceneElementsForSync(fallbackElements = []) {
+  return excalidrawAPI?.getSceneElementsIncludingDeleted?.() || fallbackElements;
 }
 
 function postToParent(type, payload = {}) {
@@ -674,6 +698,7 @@ function resetRealtimeRoomState() {
   suppressViewportBroadcast = false;
   pendingViewportSuppressionReleases = 0;
   lastAppliedFollowViewportSignature = '';
+  lastRenderedCollaboratorsSignature = '';
   if (collaboratorRenderFrame) {
     cancelAnimationFrame(collaboratorRenderFrame);
   }
@@ -799,17 +824,8 @@ function scheduleSyncToRoom(elements, appState, files) {
     return;
   }
 
-  const nextSceneJson = JSON.stringify(normalizeScene({
-    elements,
-    appState,
-    files,
-  }));
-  if (nextSceneJson === appliedSceneJson) {
-    return;
-  }
-
-  appliedSceneJson = nextSceneJson;
-  roomClient.scheduleSceneSync(elements, appState, files);
+  const liveElements = getLiveSceneElementsForSync(elements);
+  roomClient.scheduleSceneSync(liveElements, appState, files);
 }
 
 function initializeEditor(api) {
@@ -828,14 +844,27 @@ function initializeEditor(api) {
 
     setFollowedSocket(null, { force: true });
   }));
+  apiStateCleanupCallbacks.push(api.onStateChange('editingTextElement', (editingTextElement) => {
+    if (!editingTextElement) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          flushPendingRemoteScene();
+        });
+      });
+    }
+  }));
 
   const sceneJson = pendingRemoteSceneJson || roomClient?.getLastSceneJson?.() || '';
+  const initialScene = parseSceneJson(sceneJson);
   pendingRemoteSceneJson = '';
-  updateApiScene(parseSceneJson(sceneJson));
+  appliedSceneJson = JSON.stringify(initialScene);
+  updateApiScene(initialScene);
 
   if (pendingCollaborators) {
+    const renderableCollaborators = buildRenderableCollaboratorsMap(pendingCollaborators);
+    lastRenderedCollaboratorsSignature = getCollaboratorsRenderSignature(renderableCollaborators);
     excalidrawAPI.updateScene({
-      collaborators: pendingCollaborators,
+      collaborators: renderableCollaborators,
       captureUpdate: CaptureUpdateAction.NEVER,
     });
     pendingCollaborators = null;
