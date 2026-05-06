@@ -428,15 +428,31 @@ async function getSceneElementCount(page) {
 }
 
 async function getViewportElementCenter(page, elementId) {
-  const bounds = await page.evaluate((id) => window.__COLLABMD_EXCALIDRAW_TEST__.getElementBounds(id), elementId);
-  if (!bounds) {
+  const center = await page.evaluate((id) => {
+    const bounds = window.__COLLABMD_EXCALIDRAW_TEST__.getElementBounds(id);
+    if (!bounds) {
+      return null;
+    }
+
+    const viewport = window.__COLLABMD_EXCALIDRAW_TEST__.getViewport() || {};
+    const zoom = Number(viewport.zoom) > 0 ? Number(viewport.zoom) : 1;
+    const sceneX = bounds.centerX ?? (bounds.x + (bounds.width / 2));
+    const sceneY = bounds.centerY ?? (bounds.y + (bounds.height / 2));
+
+    return {
+      sceneX,
+      sceneY,
+      viewportX: (sceneX * zoom) + Number(viewport.scrollX || 0),
+      viewportY: (sceneY * zoom) + Number(viewport.scrollY || 0),
+      zoom,
+    };
+  }, elementId);
+
+  if (!center) {
     throw new Error(`Missing bounds for element ${elementId}`);
   }
 
-  return {
-    x: bounds.centerX ?? (bounds.x + (bounds.width / 2)),
-    y: bounds.centerY ?? (bounds.y + (bounds.height / 2)),
-  };
+  return center;
 }
 
 async function readExcalidrawFile(page, filePath) {
@@ -883,9 +899,9 @@ test('keeps multiplayer Excalidraw scenes stable while one user drags and anothe
   await expect.poll(async () => getSceneElementCount(pageB)).toBe(expectedIds.length);
 
   const dragStart = await getViewportElementCenter(pageA, 'table-shell');
-  await pageA.mouse.move(dragStart.x, dragStart.y);
+  await pageA.mouse.move(dragStart.viewportX, dragStart.viewportY);
   await pageA.mouse.down();
-  await pageA.mouse.move(dragStart.x + 160, dragStart.y + 90, { steps: 8 });
+  await pageA.mouse.move(dragStart.viewportX + 160, dragStart.viewportY + 90, { steps: 8 });
 
   await pageB.evaluate(() => {
     const scene = JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson());
@@ -909,6 +925,25 @@ test('keeps multiplayer Excalidraw scenes stable while one user drags and anothe
   });
 
   await pageA.mouse.up();
+
+  await expect.poll(async () => {
+    const [centerA, centerB] = await Promise.all([
+      getViewportElementCenter(pageA, 'table-shell'),
+      getViewportElementCenter(pageB, 'table-shell'),
+    ]);
+    const minimumSceneDeltaX = 80 / dragStart.zoom;
+    const minimumSceneDeltaY = 40 / dragStart.zoom;
+
+    return {
+      movedOnA: centerA.sceneX > dragStart.sceneX + minimumSceneDeltaX
+        && centerA.sceneY > dragStart.sceneY + minimumSceneDeltaY,
+      movedOnB: centerB.sceneX > dragStart.sceneX + minimumSceneDeltaX
+        && centerB.sceneY > dragStart.sceneY + minimumSceneDeltaY,
+    };
+  }).toEqual({
+    movedOnA: true,
+    movedOnB: true,
+  });
 
   await expect.poll(async () => (
     pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
