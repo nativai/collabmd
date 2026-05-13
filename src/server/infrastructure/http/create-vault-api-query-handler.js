@@ -428,6 +428,39 @@ async function handleBacklinks(req, res, requestUrl, { backlinkIndex }) {
   }
 }
 
+async function handleSearch(req, res, requestUrl, { searchService }) {
+  if (!searchService?.search) {
+    jsonResponse(req, res, 503, {
+      error: 'Global text search is unavailable',
+      ok: false,
+      search: {
+        available: false,
+        backend: 'ripgrep',
+      },
+    });
+    return;
+  }
+
+  try {
+    const result = await searchService.search({
+      limit: requestUrl.searchParams.get('limit') || '',
+      query: requestUrl.searchParams.get('q') || '',
+    });
+    jsonResponse(req, res, 200, result);
+  } catch (error) {
+    const statusCode = Number(error?.statusCode) || 500;
+    console.error('[api] Failed to search vault:', error.message);
+    jsonResponse(req, res, statusCode, {
+      error: error.message || 'Failed to search vault',
+      ok: false,
+      search: error.search ?? searchService?.getClientConfig?.() ?? {
+        available: false,
+        backend: 'ripgrep',
+      },
+    });
+  }
+}
+
 // --- Route table ---
 
 function createRouteTable(context) {
@@ -442,6 +475,7 @@ function createRouteTable(context) {
     { method: 'GET', path: '/api/download/directory', handler: handleDirectoryDownload },
     { method: 'GET', path: '/api/attachment', handler: handleAttachmentRead },
     { method: 'GET', path: '/api/backlinks', handler: handleBacklinks },
+    { method: 'GET', path: '/api/search', handler: handleSearch },
   ].map((route) => ({
     ...route,
     handler: (req, res, requestUrl) => route.handler(req, res, requestUrl, context),
@@ -452,6 +486,7 @@ export function createVaultApiQueryHandler({
   baseQueryService = null,
   backlinkIndex,
   config = {},
+  searchService = null,
   vaultFileStore,
   workspaceMutationCoordinator = null,
 }) {
@@ -459,6 +494,7 @@ export function createVaultApiQueryHandler({
     baseQueryService,
     backlinkIndex,
     config,
+    searchService,
     vaultFileStore,
     workspaceMutationCoordinator,
   };

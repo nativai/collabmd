@@ -22,10 +22,24 @@ export async function ensureQuickSwitcherInstance(host) {
   if (!host.quickSwitcher) {
     host.quickSwitcher = new QuickSwitcherController({
       getFileList: () => host.fileExplorer.flatFiles,
+      getSearchConfig: () => host.runtimeConfig.search ?? {},
       onFileSelect: (filePath) => host.handleFileSelection(filePath, {
         closeSidebarOnMobile: true,
         revealInTree: true,
       }),
+      onTextMatchSelect: (match) => {
+        if (!match?.file) {
+          return;
+        }
+
+        host.navigation.navigateToFile(match.file, {
+          column: match.column,
+          drawioMode: match.kind === 'drawio' ? 'text' : null,
+          line: match.line,
+          matchLength: match.matchLength,
+        });
+      },
+      searchText: (payload) => host.vaultApiClient.searchText(payload),
     });
   }
 

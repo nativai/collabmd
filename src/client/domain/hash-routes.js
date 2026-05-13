@@ -34,7 +34,13 @@ export function isCollabMdHashRoute(hash = '') {
   return Object.values(HASH_ROUTE_KEYS).some((key) => params.has(key));
 }
 
-export function createFileRouteHash(filePath, { drawioMode = null, anchor = null } = {}) {
+export function createFileRouteHash(filePath, {
+  anchor = null,
+  column = null,
+  drawioMode = null,
+  line = null,
+  matchLength = null,
+} = {}) {
   const params = new URLSearchParams();
   if (filePath) {
     params.set(HASH_ROUTE_KEYS.file, filePath);
@@ -44,6 +50,15 @@ export function createFileRouteHash(filePath, { drawioMode = null, anchor = null
   }
   if (anchor) {
     params.set('anchor', String(anchor).trim());
+  }
+  if (line != null) {
+    params.set('line', String(Math.max(1, Math.round(Number(line) || 1))));
+  }
+  if (column != null) {
+    params.set('column', String(Math.max(1, Math.round(Number(column) || 1))));
+  }
+  if (matchLength != null) {
+    params.set('matchLength', String(Math.max(0, Math.round(Number(matchLength) || 0))));
   }
   return params.toString();
 }

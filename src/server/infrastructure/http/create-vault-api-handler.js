@@ -9,6 +9,7 @@ export function createVaultApiHandler({
   docxExporter = null,
   plantUmlRenderer = null,
   roomRegistry = null,
+  searchService = null,
   vaultFileStore,
   workspaceMutationCoordinator = null,
 }) {
@@ -16,6 +17,7 @@ export function createVaultApiHandler({
     baseQueryService,
     backlinkIndex,
     config,
+    searchService,
     vaultFileStore,
     workspaceMutationCoordinator,
   });

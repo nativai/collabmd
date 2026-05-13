@@ -218,6 +218,10 @@ export class EditorSession {
     return this.viewAdapter.scrollToLine(lineNumber, viewportRatio);
   }
 
+  revealSearchMatch(match) {
+    return this.viewAdapter.revealSearchMatch(match);
+  }
+
   getUserCursor(clientId) {
     return this.collaborationClient.getUserCursor(
       clientId,

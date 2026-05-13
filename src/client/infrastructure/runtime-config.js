@@ -76,8 +76,11 @@ export function getHashRoute() {
   if (params.has(HASH_ROUTE_KEYS.file)) {
     return {
       anchor: params.get('anchor') || null,
+      column: params.has('column') ? Number(params.get('column')) || null : null,
       drawioMode: params.get('drawio') || null,
       filePath: params.get(HASH_ROUTE_KEYS.file),
+      line: params.has('line') ? Number(params.get('line')) || null : null,
+      matchLength: params.has('matchLength') ? Number(params.get('matchLength')) || null : null,
       type: 'file',
     };
   }
@@ -85,8 +88,20 @@ export function getHashRoute() {
   return { type: 'empty' };
 }
 
-export function navigateToFile(filePath, { drawioMode = null, anchor = null } = {}) {
-  window.location.hash = createFileRouteHash(filePath, { drawioMode, anchor });
+export function navigateToFile(filePath, {
+  anchor = null,
+  column = null,
+  drawioMode = null,
+  line = null,
+  matchLength = null,
+} = {}) {
+  window.location.hash = createFileRouteHash(filePath, {
+    anchor,
+    column,
+    drawioMode,
+    line,
+    matchLength,
+  });
 }
 
 export function navigateToGitDiff({ filePath = null, scope = 'all' } = {}) {

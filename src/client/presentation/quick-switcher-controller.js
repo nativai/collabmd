@@ -2,6 +2,8 @@ import { stripVaultFileExtension } from '../../domain/file-kind.js';
 import { escapeHtml } from '../domain/vault-utils.js';
 
 const MAX_VISIBLE_RESULTS = 12;
+const DEFAULT_SEARCH_DEBOUNCE_MS = 220;
+const TEXT_RESULT_LIMIT = 50;
 
 function stripDisplayExtension(filePath) {
   return stripVaultFileExtension(filePath);
@@ -21,21 +23,71 @@ function createCorpusEntry(filePath) {
   };
 }
 
+function getFileName(filePath) {
+  return stripDisplayExtension(filePath).split('/').pop() || stripDisplayExtension(filePath);
+}
+
+function getDirPath(filePath) {
+  const displayName = stripDisplayExtension(filePath);
+  return displayName.includes('/') ? displayName.substring(0, displayName.lastIndexOf('/')) : '';
+}
+
+function formatMatchCount(count = 0) {
+  const normalized = Number(count) || 0;
+  return `${normalized} ${normalized === 1 ? 'match' : 'matches'}`;
+}
+
+function flattenTextResults(payload = {}) {
+  const flattened = [];
+  (payload.files ?? []).forEach((fileGroup) => {
+    (fileGroup.snippets ?? []).forEach((snippet) => {
+      flattened.push({
+        column: snippet.column,
+        file: fileGroup.file,
+        kind: fileGroup.kind,
+        line: snippet.line,
+        matchLength: Math.max((snippet.matchEnd ?? 0) - (snippet.matchStart ?? 0), 0),
+        snippet,
+      });
+    });
+  });
+  return flattened;
+}
+
 export class QuickSwitcherController {
-  constructor({ getFileList, onFileSelect }) {
+  constructor({
+    getFileList,
+    getSearchConfig = () => ({}),
+    onFileSelect,
+    onTextMatchSelect = null,
+    searchDebounceMs = DEFAULT_SEARCH_DEBOUNCE_MS,
+    searchText = null,
+  }) {
     this.getFileList = getFileList;
+    this.getSearchConfig = getSearchConfig;
     this.onFileSelect = onFileSelect;
+    this.onTextMatchSelect = onTextMatchSelect;
+    this.searchDebounceMs = searchDebounceMs;
+    this.searchText = searchText;
 
     this.overlay = document.getElementById('quickSwitcher');
     this.input = document.getElementById('quickSwitcherInput');
     this.resultsList = document.getElementById('quickSwitcherResults');
     this.hint = document.getElementById('quickSwitcherHint');
+    this.modeTabs = Array.from(document.querySelectorAll?.('[data-qs-mode]') ?? []);
 
     this.filteredFiles = [];
     this.fileCorpus = [];
     this.lastFileListRef = null;
     this.selectedIndex = 0;
+    this.selectedTextIndex = 0;
     this.isOpen = false;
+    this.mode = 'files';
+    this.textResults = null;
+    this.textResultItems = [];
+    this.textSearchController = null;
+    this.textSearchTimer = null;
+    this.textSearchToken = 0;
 
     this.bindEvents();
   }
@@ -45,8 +97,14 @@ export class QuickSwitcherController {
       if (e.target === this.overlay) this.close();
     });
 
+    this.modeTabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        this.setMode(tab.dataset.qsMode === 'text' ? 'text' : 'files', { preserveInput: true });
+      });
+    });
+
     this.input?.addEventListener('input', () => {
-      this.filterFiles();
+      this.handleInput();
     });
 
     this.input?.addEventListener('keydown', (e) => {
@@ -69,7 +127,11 @@ export class QuickSwitcherController {
           break;
         case 'Tab':
           e.preventDefault();
-          this.moveSelection(e.shiftKey ? -1 : 1);
+          if (this.modeTabs.length > 1 && !e.shiftKey) {
+            this.setMode(this.mode === 'files' ? 'text' : 'files', { preserveInput: true });
+          } else {
+            this.moveSelection(e.shiftKey ? -1 : 1);
+          }
           break;
       }
     });
@@ -81,8 +143,9 @@ export class QuickSwitcherController {
     this.isOpen = true;
     this.input.value = '';
     this.selectedIndex = 0;
+    this.selectedTextIndex = 0;
     this.overlay.classList.add('visible');
-    this.filterFiles();
+    this.setMode('files', { preserveInput: true });
 
     // The overlay transitions visibility hidden→visible over 120ms.
     // Browsers ignore .focus() while the element is still visibility:hidden,
@@ -92,19 +155,16 @@ export class QuickSwitcherController {
 
   /** Focus the input once the overlay visibility transition finishes. */
   _focusAfterTransition() {
-    // Clean up any previous pending focus attempt
     this._cancelPendingFocus();
 
     const tryFocus = () => {
       this._focusCleanup = null;
       this.input?.focus();
-      // Verify focus actually landed — if not, try once more
       if (this.isOpen && this.input && document.activeElement !== this.input) {
         setTimeout(() => this.input?.focus(), 50);
       }
     };
 
-    // Primary: listen for transitionend on the overlay
     const onEnd = (e) => {
       if (e.propertyName === 'visibility' || e.propertyName === 'opacity') {
         this.overlay.removeEventListener('transitionend', onEnd);
@@ -114,8 +174,6 @@ export class QuickSwitcherController {
     };
     this.overlay.addEventListener('transitionend', onEnd);
 
-    // Fallback: if transitionend never fires (e.g. transition skipped),
-    // focus after a delay that exceeds the 120ms CSS transition.
     const fallbackTimer = setTimeout(() => {
       this.overlay.removeEventListener('transitionend', onEnd);
       tryFocus();
@@ -138,6 +196,7 @@ export class QuickSwitcherController {
     if (!this.overlay) return;
 
     this._cancelPendingFocus();
+    this.abortTextSearch();
     this.isOpen = false;
     this.overlay.classList.remove('visible');
     this.input.value = '';
@@ -150,6 +209,41 @@ export class QuickSwitcherController {
     } else {
       this.open();
     }
+  }
+
+  setMode(mode = 'files', { preserveInput = false } = {}) {
+    const normalizedMode = mode === 'text' ? 'text' : 'files';
+    this.mode = normalizedMode;
+    this.selectedIndex = 0;
+    this.selectedTextIndex = 0;
+
+    if (!preserveInput && this.input) {
+      this.input.value = '';
+    }
+
+    this.modeTabs.forEach((tab) => {
+      const isActive = tab.dataset.qsMode === normalizedMode;
+      tab.classList.toggle('active', isActive);
+      tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+
+    if (this.input) {
+      this.input.placeholder = normalizedMode === 'text'
+        ? 'Search text in files...'
+        : 'Search files...';
+    }
+
+    this.handleInput();
+  }
+
+  handleInput() {
+    if (this.mode === 'text') {
+      this.scheduleTextSearch();
+      return;
+    }
+
+    this.abortTextSearch();
+    this.filterFiles();
   }
 
   filterFiles() {
@@ -203,13 +297,9 @@ export class QuickSwitcherController {
     const name = entry.lowerDisplayName;
     const nameOnly = entry.lowerFileName;
 
-    // Exact substring match in filename gets highest score
     if (nameOnly.includes(query)) return 100 + (1 / nameOnly.length);
-
-    // Exact substring in full path
     if (name.includes(query)) return 50 + (1 / name.length);
 
-    // Fuzzy character-by-character match
     let queryIndex = 0;
     let score = 0;
     let consecutiveBonus = 0;
@@ -220,7 +310,6 @@ export class QuickSwitcherController {
         consecutiveBonus += 1;
         score += consecutiveBonus;
 
-        // Bonus for matching at word boundaries
         if (i === 0 || name[i - 1] === '/' || name[i - 1] === '-' || name[i - 1] === '_' || name[i - 1] === ' ') {
           score += 5;
         }
@@ -259,9 +348,8 @@ export class QuickSwitcherController {
       }
       item.dataset.index = String(index);
 
-      const displayName = stripDisplayExtension(filePath);
-      const fileName = displayName.split('/').pop();
-      const dirPath = displayName.includes('/') ? displayName.substring(0, displayName.lastIndexOf('/')) : '';
+      const fileName = getFileName(filePath);
+      const dirPath = getDirPath(filePath);
 
       item.innerHTML = `
         <svg class="qs-result-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -298,7 +386,6 @@ export class QuickSwitcherController {
       return `${escapeHtml(before)}<mark>${escapeHtml(match)}</mark>${escapeHtml(after)}`;
     }
 
-    // Fuzzy highlight
     let result = '';
     let queryIdx = 0;
     for (let i = 0; i < text.length; i++) {
@@ -312,7 +399,177 @@ export class QuickSwitcherController {
     return result;
   }
 
+  abortTextSearch({ invalidate = true } = {}) {
+    clearTimeout(this.textSearchTimer);
+    this.textSearchTimer = null;
+    if (invalidate) {
+      this.textSearchToken += 1;
+    }
+    this.textSearchController?.abort();
+    this.textSearchController = null;
+  }
+
+  scheduleTextSearch() {
+    const query = this.input?.value.trim() ?? '';
+    const searchConfig = this.getSearchConfig?.() ?? {};
+    const minQueryLength = Math.max(Number(searchConfig.minQueryLength) || 2, 1);
+
+    this.abortTextSearch();
+    this.textResults = null;
+    this.textResultItems = [];
+
+    if (!searchConfig.available) {
+      this.renderTextState('Global text search requires ripgrep on the server.');
+      return;
+    }
+
+    if (!this.searchText) {
+      this.renderTextState('Global text search is unavailable.');
+      return;
+    }
+
+    if (query.length < minQueryLength) {
+      this.renderTextState(`Type at least ${minQueryLength} characters to search file text.`);
+      return;
+    }
+
+    this.renderTextState('Searching...');
+    this.textSearchTimer = setTimeout(() => {
+      void this.runTextSearch(query);
+    }, this.searchDebounceMs);
+  }
+
+  async runTextSearch(query) {
+    const token = this.textSearchToken + 1;
+    this.textSearchToken = token;
+    const controller = new AbortController();
+    this.textSearchController = controller;
+    const isCurrentTextSearch = () => (
+      this.isOpen
+      && this.mode === 'text'
+      && token === this.textSearchToken
+      && this.textSearchController === controller
+    );
+
+    try {
+      const result = await this.searchText({
+        limit: TEXT_RESULT_LIMIT,
+        query,
+        signal: controller.signal,
+      });
+      if (!isCurrentTextSearch()) {
+        return;
+      }
+
+      this.textResults = result;
+      this.textResultItems = flattenTextResults(result);
+      this.selectedTextIndex = 0;
+      this.renderTextResults(query);
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        return;
+      }
+
+      if (!isCurrentTextSearch()) {
+        return;
+      }
+
+      const message = error?.body?.error || error?.message || 'Failed to search file text.';
+      this.renderTextState(message);
+    } finally {
+      if (this.textSearchController === controller) {
+        this.textSearchController = null;
+      }
+    }
+  }
+
+  renderTextState(message) {
+    if (!this.resultsList) return;
+    this.resultsList.innerHTML = '';
+    if (this.hint) {
+      this.hint.textContent = message;
+      this.hint.classList.remove('hidden');
+    }
+  }
+
+  renderTextResults(query = '') {
+    if (!this.resultsList) return;
+    this.resultsList.innerHTML = '';
+
+    if (!this.textResults?.files?.length || this.textResultItems.length === 0) {
+      this.renderTextState(query ? 'No text matches found' : 'Type to search file text');
+      return;
+    }
+
+    if (this.hint) {
+      this.hint.classList.toggle('hidden', !this.textResults.truncated);
+      this.hint.textContent = this.textResults.truncated
+        ? 'Showing the first matches. Refine the query to narrow results.'
+        : '';
+    }
+
+    const fragment = document.createDocumentFragment();
+    let flatIndex = 0;
+
+    this.textResults.files.forEach((fileGroup) => {
+      const group = document.createElement('section');
+      group.className = 'qs-text-group';
+
+      const header = document.createElement('div');
+      header.className = 'qs-text-group-header';
+      header.innerHTML = `
+        <span class="qs-text-file-name">${escapeHtml(getFileName(fileGroup.file))}</span>
+        <span class="qs-text-file-meta">${escapeHtml(getDirPath(fileGroup.file))}</span>
+        <span class="qs-text-count">${escapeHtml(formatMatchCount(fileGroup.matchCount))}</span>
+      `;
+      group.appendChild(header);
+
+      (fileGroup.snippets ?? []).forEach((snippet) => {
+        const itemIndex = flatIndex;
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'qs-text-item';
+        if (itemIndex === this.selectedTextIndex) {
+          item.classList.add('selected');
+        }
+        item.dataset.textIndex = String(itemIndex);
+        item.innerHTML = `
+          <span class="qs-text-line">L${escapeHtml(String(snippet.line ?? 1))}</span>
+          <span class="qs-text-snippet">${this.highlightSnippet(snippet)}</span>
+        `;
+        item.addEventListener('click', () => {
+          this.selectedTextIndex = itemIndex;
+          this.confirmSelection();
+        });
+        item.addEventListener('mouseenter', () => {
+          this.selectedTextIndex = itemIndex;
+          this.updateSelection();
+        });
+        group.appendChild(item);
+        flatIndex += 1;
+      });
+
+      fragment.appendChild(group);
+    });
+
+    this.resultsList.appendChild(fragment);
+  }
+
+  highlightSnippet(snippet = {}) {
+    const text = String(snippet.text ?? '');
+    const start = Math.min(Math.max(Number(snippet.matchStart) || 0, 0), text.length);
+    const end = Math.min(Math.max(Number(snippet.matchEnd) || start, start), text.length);
+    return `${escapeHtml(text.slice(0, start))}<mark>${escapeHtml(text.slice(start, end))}</mark>${escapeHtml(text.slice(end))}`;
+  }
+
   moveSelection(delta) {
+    if (this.mode === 'text') {
+      if (this.textResultItems.length === 0) return;
+      this.selectedTextIndex = (this.selectedTextIndex + delta + this.textResultItems.length) % this.textResultItems.length;
+      this.updateSelection();
+      return;
+    }
+
     if (this.filteredFiles.length === 0) return;
     this.selectedIndex = (this.selectedIndex + delta + this.filteredFiles.length) % this.filteredFiles.length;
     this.updateSelection();
@@ -321,17 +578,33 @@ export class QuickSwitcherController {
   updateSelection() {
     if (!this.resultsList) return;
 
+    if (this.mode === 'text') {
+      const items = this.resultsList.querySelectorAll('.qs-text-item');
+      items.forEach((item, i) => {
+        item.classList.toggle('selected', i === this.selectedTextIndex);
+      });
+      items[this.selectedTextIndex]?.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+
     const items = this.resultsList.querySelectorAll('.qs-result-item');
     items.forEach((item, i) => {
       item.classList.toggle('selected', i === this.selectedIndex);
     });
 
-    // Scroll selected item into view
-    const selectedItem = items[this.selectedIndex];
-    selectedItem?.scrollIntoView({ block: 'nearest' });
+    items[this.selectedIndex]?.scrollIntoView({ block: 'nearest' });
   }
 
   confirmSelection() {
+    if (this.mode === 'text') {
+      const match = this.textResultItems[this.selectedTextIndex];
+      if (match) {
+        this.close();
+        this.onTextMatchSelect?.(match);
+      }
+      return;
+    }
+
     const filePath = this.filteredFiles[this.selectedIndex];
     if (filePath) {
       this.close();

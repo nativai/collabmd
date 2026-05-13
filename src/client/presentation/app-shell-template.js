@@ -618,6 +618,10 @@ export function appShellTemplate() {
 
     <div class="qs-overlay" id="quickSwitcher">
       <div class="qs-modal">
+        <div class="qs-mode-tabs" role="tablist" aria-label="Search mode">
+          <button class="qs-mode-tab active" type="button" role="tab" aria-selected="true" data-qs-mode="files">Files</button>
+          <button class="qs-mode-tab" type="button" role="tab" aria-selected="false" data-qs-mode="text">Text</button>
+        </div>
         <div class="qs-input-wrap">
           <svg class="qs-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <circle cx="11" cy="11" r="8"></circle>

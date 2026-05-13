@@ -127,6 +127,7 @@ export class WorkspaceRouteController {
 
     this.setSidebarTab('files');
     await this.openFile(route.filePath, { drawioMode: route.drawioMode || null });
+    this.revealEditorMatch(route);
     this.requestPreviewRouteAnchor?.(route.anchor ?? null, route.filePath);
   }
 
@@ -309,6 +310,19 @@ export class WorkspaceRouteController {
     this.setSidebarTab('files');
     this.setSidebarVisibility(true);
     this.fileExplorer.revealFile?.(filePath, { clearSearch });
+  }
+
+  revealEditorMatch(route = {}) {
+    if (!Number.isFinite(route.line)) {
+      return false;
+    }
+
+    const session = this.workspaceCoordinator.getSession?.();
+    return session?.revealSearchMatch?.({
+      column: route.column,
+      length: route.matchLength,
+      line: route.line,
+    }) ?? session?.scrollToLine?.(route.line, 0.2) ?? false;
   }
 
   resetPreviewSurface() {

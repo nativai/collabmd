@@ -79,6 +79,13 @@ export function getClientRuntimeConfig() {
     environment: 'development',
     gitEnabled: true,
     publicWsBaseUrl: '',
+    search: {
+      available: false,
+      backend: 'ripgrep',
+      minQueryLength: 2,
+      unavailableReason: 'ripgrep search is unavailable',
+      version: '',
+    },
     wikiLinkAutoCreate: true,
     wsBasePath: '/ws',
     ...(window.__COLLABMD_CONFIG__ ?? {}),

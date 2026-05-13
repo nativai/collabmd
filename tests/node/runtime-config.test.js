@@ -111,8 +111,11 @@ test('runtime-config parses and builds drawio text fallback routes', (t) => {
 
   assert.deepEqual(getHashRoute(), {
     anchor: null,
+    column: null,
     drawioMode: 'text',
     filePath: 'diagrams/architecture.drawio',
+    line: null,
+    matchLength: null,
     type: 'file',
   });
 
@@ -130,8 +133,11 @@ test('runtime-config parses and builds file anchor routes', (t) => {
 
   assert.deepEqual(getHashRoute(), {
     anchor: 'approach-b-pros',
+    column: null,
     drawioMode: null,
     filePath: 'MongoDB/migration-plan.md',
+    line: null,
+    matchLength: null,
     type: 'file',
   });
 
@@ -142,6 +148,28 @@ test('runtime-config parses and builds file anchor routes', (t) => {
 
   navigateToFile('MongoDB/migration-plan.md', { anchor: 'approach-b-pros' });
   assert.equal(globalThis.window.location.hash, 'file=MongoDB%2Fmigration-plan.md&anchor=approach-b-pros');
+});
+
+test('runtime-config parses and builds file text match routes', (t) => {
+  const previousWindow = globalThis.window;
+  globalThis.window = createWindowStub('#file=docs%2Fguide.md&line=7&column=11&matchLength=6');
+
+  t.after(() => {
+    globalThis.window = previousWindow;
+  });
+
+  assert.deepEqual(getHashRoute(), {
+    anchor: null,
+    column: 11,
+    drawioMode: null,
+    filePath: 'docs/guide.md',
+    line: 7,
+    matchLength: 6,
+    type: 'file',
+  });
+
+  navigateToFile('docs/guide.md', { column: 11, line: 7, matchLength: 6 });
+  assert.equal(globalThis.window.location.hash, 'file=docs%2Fguide.md&line=7&column=11&matchLength=6');
 });
 
 test('runtime-config distinguishes app-owned hash routes from document fragments', () => {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { readdir } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
 const mode = process.argv[2] || 'fast';
@@ -28,6 +28,29 @@ const guardrailTests = new Set([
 if (!['fast', 'integration'].includes(mode)) {
   console.error(`Unknown node test mode "${mode}". Expected "fast" or "integration".`);
   process.exit(1);
+}
+
+function requireIntegrationCommand(command, args, installHint) {
+  const result = spawnSync(command, args, {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  if (result.status === 0) {
+    return;
+  }
+
+  console.error(`${command} is required for CollabMD integration tests.`);
+  console.error(installHint);
+  process.exit(1);
+}
+
+if (mode === 'integration') {
+  requireIntegrationCommand(
+    'rg',
+    ['--version'],
+    'Install ripgrep first, for example: brew install ripgrep, apt install ripgrep, or apk add ripgrep.',
+  );
 }
 
 const testFiles = (await readdir(nodeTestDir))

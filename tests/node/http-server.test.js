@@ -257,6 +257,45 @@ test('HTTP server compresses large JSON API responses without changing payloads'
   assert.equal(payload.content, largeContent);
 });
 
+test('HTTP server searches vault text with ripgrep-backed API', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  await mkdir(join(app.vaultDir, 'docs'), { recursive: true });
+  await writeFile(join(app.vaultDir, 'docs', 'guide.md'), '# Guide\n\nFind the search needle here.\n', 'utf8');
+  await writeFile(join(app.vaultDir, 'diagram.drawio'), '<mxfile>needle in drawio text</mxfile>\n', 'utf8');
+  await writeFile(join(app.vaultDir, 'sketch.excalidraw'), '{"text":"needle should not be searched"}\n', 'utf8');
+
+  const response = await httpRequest(`${app.baseUrl}/api/search?q=needle&limit=10`);
+  assert.equal(response.statusCode, 200);
+  const payload = JSON.parse(response.body);
+
+  assert.equal(payload.ok, true);
+  assert.equal(payload.search.backend, 'ripgrep');
+  assert.equal(payload.files.some((entry) => entry.file === 'docs/guide.md'), true);
+  assert.equal(payload.files.some((entry) => entry.file === 'diagram.drawio'), true);
+  assert.equal(payload.files.some((entry) => entry.file === 'sketch.excalidraw'), false);
+
+  const guide = payload.files.find((entry) => entry.file === 'docs/guide.md');
+  assert.equal(guide.snippets[0].line, 3);
+  assert.match(guide.snippets[0].text, /needle/);
+});
+
+test('HTTP server reports unavailable global text search when ripgrep is missing', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  app.server.searchService.available = false;
+  app.server.searchService.unavailableReason = 'ripgrep is not installed on the server';
+
+  const response = await httpRequest(`${app.baseUrl}/api/search?q=needle`);
+  assert.equal(response.statusCode, 503);
+  const payload = JSON.parse(response.body);
+  assert.equal(payload.ok, false);
+  assert.equal(payload.search.available, false);
+  assert.match(payload.error, /requires ripgrep/i);
+});
+
 test('HTTP server queries and exports Obsidian base results', async (t) => {
   const app = await startTestServer();
   t.after(() => app.close());

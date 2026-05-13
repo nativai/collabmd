@@ -11,6 +11,7 @@ import { DocxExporter } from './domain/docx-exporter.js';
 import { GitService } from './infrastructure/git/git-service.js';
 import { PlantUmlRenderer } from './infrastructure/plantuml/plantuml-renderer.js';
 import { RoomRegistry } from './domain/collaboration/room-registry.js';
+import { RipgrepSearchService } from './domain/ripgrep-search-service.js';
 import { createRequestHandler } from './infrastructure/http/create-request-handler.js';
 import { VaultFileStore } from './infrastructure/persistence/vault-file-store.js';
 import { attachCollaborationGateway } from './infrastructure/websocket/attach-collaboration-gateway.js';
@@ -91,6 +92,10 @@ export function createAppServer(config = loadConfig()) {
     enabled: config.gitEnabled,
     vaultDir: config.vaultDir,
   });
+  const searchService = new RipgrepSearchService({
+    perfLoggingEnabled: config.perfLoggingEnabled,
+    vaultDir: config.vaultDir,
+  });
   const testControls = {
     wsRoomHydrateDelayMs: Math.max(0, Number(config.testWsRoomHydrateDelayMs || 0)),
   };
@@ -143,6 +148,7 @@ export function createAppServer(config = loadConfig()) {
     roomRegistry,
     plantUmlRenderer,
     gitService,
+    searchService,
     testControls,
     workspaceMutationCoordinator,
     fileSystemSyncService,
@@ -174,6 +180,14 @@ export function createAppServer(config = loadConfig()) {
 
   async function listen() {
     const startupStartedAt = Date.now();
+
+    const searchCapabilityStartedAt = Date.now();
+    config.search = await searchService.initialize();
+    logPerfEvent(config.perfLoggingEnabled, 'startup', {
+      available: config.search.available,
+      durationMs: Date.now() - searchCapabilityStartedAt,
+      phase: 'search-capability',
+    });
 
     const initialWorkspaceScanStartedAt = Date.now();
     const initialWorkspaceSnapshot = await vaultFileStore.scanWorkspaceState();
@@ -286,6 +300,7 @@ export function createAppServer(config = loadConfig()) {
     backlinkIndex,
     fileSystemSyncService,
     gitService,
+    searchService,
     setTestHydrateDelayMs(delayMs = 0) {
       testControls.wsRoomHydrateDelayMs = Math.max(0, Number(delayMs) || 0);
     },

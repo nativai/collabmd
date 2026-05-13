@@ -851,6 +851,36 @@ export class EditorViewAdapter {
     return true;
   }
 
+  revealSearchMatch({ column = 1, length = 0, line = 1 } = {}) {
+    const state = this.editorView?.state;
+    if (!state || !this.editorView) {
+      return false;
+    }
+
+    const targetLineNumber = Math.min(
+      Math.max(Math.round(Number(line) || 1), 1),
+      state.doc.lines,
+    );
+    const targetLine = state.doc.line(targetLineNumber);
+    const columnOffset = Math.min(
+      Math.max(Math.round(Number(column) || 1) - 1, 0),
+      targetLine.length,
+    );
+    const from = targetLine.from + columnOffset;
+    const to = Math.min(
+      from + Math.max(Math.round(Number(length) || 0), 0),
+      targetLine.to,
+    );
+
+    this.editorView.dispatch({
+      scrollIntoView: true,
+      selection: EditorSelection.range(from, Math.max(to, from)),
+    });
+    this.editorView.focus();
+    this.scrollToLine(targetLineNumber, 0.2);
+    return true;
+  }
+
   scrollToPosition(position, alignment = 'center') {
     const state = this.editorView?.state;
     const scroller = this.editorView?.scrollDOM;
