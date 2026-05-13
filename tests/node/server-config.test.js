@@ -50,3 +50,19 @@ test('loadConfig disables wiki-link auto-create from COLLABMD_WIKI_LINK_AUTO_CRE
     }
   }
 });
+
+test('loadConfig disables file watcher from COLLABMD_FILE_WATCHER_ENABLED=false', () => {
+  const previousValue = process.env.COLLABMD_FILE_WATCHER_ENABLED;
+  process.env.COLLABMD_FILE_WATCHER_ENABLED = 'false';
+
+  try {
+    const config = loadConfig({ vaultDir: process.cwd() });
+    assert.equal(config.fileWatcherEnabled, false);
+  } finally {
+    if (previousValue === undefined) {
+      delete process.env.COLLABMD_FILE_WATCHER_ENABLED;
+    } else {
+      process.env.COLLABMD_FILE_WATCHER_ENABLED = previousValue;
+    }
+  }
+});

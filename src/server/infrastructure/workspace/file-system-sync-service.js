@@ -288,6 +288,10 @@ export class FileSystemSyncService {
     });
   }
 
+  initializeFromSnapshot({ snapshot = null } = {}) {
+    this.lastState = snapshot ?? this.mutationCoordinator.workspaceState ?? null;
+  }
+
   handleWatchEvent(eventType, filename) {
     if (Date.now() <= this.suspendWatchEventsUntil) {
       return;

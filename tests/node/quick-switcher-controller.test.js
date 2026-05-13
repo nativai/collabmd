@@ -189,3 +189,60 @@ test('QuickSwitcherController ignores text search results after close', async (t
 
   assert.equal(rendered, false);
 });
+
+test('QuickSwitcherController confirms text search matches with navigation payload', async (t) => {
+  const elements = installDocumentStub(t);
+  let selectedMatch = null;
+
+  const controller = new QuickSwitcherController({
+    getFileList: () => ['README.md'],
+    getSearchConfig: () => ({ available: true, minQueryLength: 2 }),
+    onFileSelect() {},
+    onTextMatchSelect(match) {
+      selectedMatch = match;
+    },
+    searchDebounceMs: 0,
+    searchText: async () => ({
+      files: [{
+        file: 'diagram.drawio',
+        kind: 'drawio',
+        matchCount: 1,
+        snippets: [{
+          column: 4,
+          line: 7,
+          matchEnd: 9,
+          matchStart: 3,
+          text: 'abcneedle',
+        }],
+      }],
+    }),
+  });
+
+  controller.input = elements.get('quickSwitcherInput');
+  controller.hint = elements.get('quickSwitcherHint');
+  controller.overlay = elements.get('quickSwitcher');
+  controller.resultsList = elements.get('quickSwitcherResults');
+
+  controller.isOpen = true;
+  controller.input.value = 'needle';
+  controller.setMode('text', { preserveInput: true });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  controller.confirmSelection();
+
+  assert.deepEqual(selectedMatch, {
+    column: 4,
+    file: 'diagram.drawio',
+    kind: 'drawio',
+    line: 7,
+    matchLength: 6,
+    snippet: {
+      column: 4,
+      line: 7,
+      matchEnd: 9,
+      matchStart: 3,
+      text: 'abcneedle',
+    },
+  });
+});

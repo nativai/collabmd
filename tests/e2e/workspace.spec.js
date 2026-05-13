@@ -554,6 +554,66 @@ test('quick switcher reveals the opened file in the file tree', async ({ page })
   expect(afterState.activeBottom).toBeLessThanOrEqual(afterState.treeBottom + 1);
 });
 
+test('quick switcher text search opens a grouped match at the matching line', async ({ page }) => {
+  await openHome(page);
+
+  const alphaLines = [
+    '# Global Search Alpha',
+    '',
+    'Context before the target.',
+    'Another ordinary line.',
+    'Needle-E2E appears in alpha line.',
+    'Context after the target.',
+  ];
+  const betaLines = [
+    '# Global Search Beta',
+    '',
+    'Needle-E2E appears in beta line.',
+  ];
+  const files = [
+    {
+      content: `${alphaLines.join('\n')}\n`,
+      path: 'search/global-search-alpha.md',
+    },
+    {
+      content: `${betaLines.join('\n')}\n`,
+      path: 'search/global-search-beta.md',
+    },
+    {
+      content: '{"type":"excalidraw","elements":[{"text":"Needle-E2E should stay ignored"}]}\n',
+      path: 'search/ignored-search-sketch.excalidraw',
+    },
+  ];
+
+  for (const file of files) {
+    const response = await page.request.put('/api/file', { data: file });
+    expect(response.ok()).toBe(true);
+  }
+
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
+  await expect(page.locator('#quickSwitcher')).toHaveClass(/visible/);
+  await page.locator('[data-qs-mode="text"]').click();
+  await page.locator('#quickSwitcherInput').fill('needle-e2e');
+
+  const results = page.locator('#quickSwitcherResults');
+  const alphaGroup = results.locator('.qs-text-group', { hasText: 'global-search-alpha' });
+  const betaGroup = results.locator('.qs-text-group', { hasText: 'global-search-beta' });
+  await expect(alphaGroup).toBeVisible();
+  await expect(betaGroup).toBeVisible();
+  await expect(results).not.toContainText('ignored-search-sketch');
+
+  await alphaGroup.locator('.qs-text-item', { hasText: 'Needle-E2E appears in alpha line.' }).click();
+
+  await waitForEditor(page);
+  await expect(page.locator('#activeFileName')).toContainText('global-search-alpha');
+  await expect(page.locator('.cm-content').first()).toContainText('Needle-E2E appears in alpha line.');
+  await expect(page.locator('#lineInfo')).toContainText('Ln 5');
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('file=search%2Fglobal-search-alpha.md');
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('line=5');
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('column=1');
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('matchLength=10');
+});
+
 test('creates files from the sidebar with the custom dialog', async ({ page }) => {
   await openHome(page);
 

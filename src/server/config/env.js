@@ -316,6 +316,7 @@ export function loadConfig(overrides = {}) {
     basePath,
     build,
     drawioBaseUrl: resolveDrawioBaseUrl(process.env.COLLABMD_DRAWIO_BASE_URL || process.env.DRAWIO_BASE_URL),
+    fileWatcherEnabled: overrides.fileWatcherEnabled ?? process.env.COLLABMD_FILE_WATCHER_ENABLED !== 'false',
     host: process.env.HOST || getDefaultHost(nodeEnv),
     httpHeadersTimeoutMs: parsePositiveInt(process.env.HTTP_HEADERS_TIMEOUT_MS, 60_000),
     httpKeepAliveTimeoutMs: parsePositiveInt(process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS, 5_000),

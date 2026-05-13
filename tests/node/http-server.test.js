@@ -258,7 +258,7 @@ test('HTTP server compresses large JSON API responses without changing payloads'
 });
 
 test('HTTP server searches vault text with ripgrep-backed API', async (t) => {
-  const app = await startTestServer();
+  const app = await startTestServer({ fileWatcherEnabled: false });
   t.after(() => app.close());
 
   await mkdir(join(app.vaultDir, 'docs'), { recursive: true });
@@ -448,7 +448,7 @@ test('HTTP server returns base metadata, property values, and transformed source
 });
 
 test('HTTP base queries flush pending external file changes before serving cached snapshots', async (t) => {
-  const app = await startTestServer();
+  const app = await startTestServer({ fileWatcherEnabled: false });
   t.after(() => app.close());
 
   await writeFile(join(app.vaultDir, 'notes.md'), [

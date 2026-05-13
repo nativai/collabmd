@@ -111,6 +111,12 @@ function createRipgrepArgs(query, {
     '!.git/**',
     '--glob',
     '!.collabmd/**',
+    '--glob',
+    '!node_modules/**',
+    '--glob',
+    '!.obsidian/**',
+    '--glob',
+    '!.trash/**',
   ];
 
   TEXT_SEARCH_GLOBS.forEach((glob) => {

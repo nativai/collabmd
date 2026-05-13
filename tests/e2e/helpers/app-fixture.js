@@ -43,6 +43,7 @@ export const test = base.extend({
       env: {
         ...process.env,
         COLLABMD_E2E_WORKER_ID: workerId,
+        COLLABMD_FILE_WATCHER_ENABLED: 'false',
         NODE_ENV: 'test',
         WS_ROOM_IDLE_GRACE_MS: '1',
       },

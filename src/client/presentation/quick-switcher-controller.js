@@ -1,9 +1,13 @@
 import { stripVaultFileExtension } from '../../domain/file-kind.js';
 import { escapeHtml } from '../domain/vault-utils.js';
+import {
+  DEFAULT_SEARCH_DEBOUNCE_MS,
+  QuickSwitcherTextSearchRunner,
+  flattenTextResults,
+  formatMatchCount,
+} from './quick-switcher-text-search.js';
 
 const MAX_VISIBLE_RESULTS = 12;
-const DEFAULT_SEARCH_DEBOUNCE_MS = 220;
-const TEXT_RESULT_LIMIT = 50;
 
 function stripDisplayExtension(filePath) {
   return stripVaultFileExtension(filePath);
@@ -30,28 +34,6 @@ function getFileName(filePath) {
 function getDirPath(filePath) {
   const displayName = stripDisplayExtension(filePath);
   return displayName.includes('/') ? displayName.substring(0, displayName.lastIndexOf('/')) : '';
-}
-
-function formatMatchCount(count = 0) {
-  const normalized = Number(count) || 0;
-  return `${normalized} ${normalized === 1 ? 'match' : 'matches'}`;
-}
-
-function flattenTextResults(payload = {}) {
-  const flattened = [];
-  (payload.files ?? []).forEach((fileGroup) => {
-    (fileGroup.snippets ?? []).forEach((snippet) => {
-      flattened.push({
-        column: snippet.column,
-        file: fileGroup.file,
-        kind: fileGroup.kind,
-        line: snippet.line,
-        matchLength: Math.max((snippet.matchEnd ?? 0) - (snippet.matchStart ?? 0), 0),
-        snippet,
-      });
-    });
-  });
-  return flattened;
 }
 
 export class QuickSwitcherController {
@@ -85,9 +67,9 @@ export class QuickSwitcherController {
     this.mode = 'files';
     this.textResults = null;
     this.textResultItems = [];
-    this.textSearchController = null;
-    this.textSearchTimer = null;
-    this.textSearchToken = 0;
+    this.textSearchRunner = new QuickSwitcherTextSearchRunner({
+      debounceMs: this.searchDebounceMs,
+    });
 
     this.bindEvents();
   }
@@ -400,87 +382,28 @@ export class QuickSwitcherController {
   }
 
   abortTextSearch({ invalidate = true } = {}) {
-    clearTimeout(this.textSearchTimer);
-    this.textSearchTimer = null;
-    if (invalidate) {
-      this.textSearchToken += 1;
-    }
-    this.textSearchController?.abort();
-    this.textSearchController = null;
+    this.textSearchRunner.abort({ invalidate });
   }
 
   scheduleTextSearch() {
     const query = this.input?.value.trim() ?? '';
     const searchConfig = this.getSearchConfig?.() ?? {};
-    const minQueryLength = Math.max(Number(searchConfig.minQueryLength) || 2, 1);
 
-    this.abortTextSearch();
     this.textResults = null;
     this.textResultItems = [];
-
-    if (!searchConfig.available) {
-      this.renderTextState('Global text search requires ripgrep on the server.');
-      return;
-    }
-
-    if (!this.searchText) {
-      this.renderTextState('Global text search is unavailable.');
-      return;
-    }
-
-    if (query.length < minQueryLength) {
-      this.renderTextState(`Type at least ${minQueryLength} characters to search file text.`);
-      return;
-    }
-
-    this.renderTextState('Searching...');
-    this.textSearchTimer = setTimeout(() => {
-      void this.runTextSearch(query);
-    }, this.searchDebounceMs);
-  }
-
-  async runTextSearch(query) {
-    const token = this.textSearchToken + 1;
-    this.textSearchToken = token;
-    const controller = new AbortController();
-    this.textSearchController = controller;
-    const isCurrentTextSearch = () => (
-      this.isOpen
-      && this.mode === 'text'
-      && token === this.textSearchToken
-      && this.textSearchController === controller
-    );
-
-    try {
-      const result = await this.searchText({
-        limit: TEXT_RESULT_LIMIT,
-        query,
-        signal: controller.signal,
-      });
-      if (!isCurrentTextSearch()) {
-        return;
-      }
-
-      this.textResults = result;
-      this.textResultItems = flattenTextResults(result);
-      this.selectedTextIndex = 0;
-      this.renderTextResults(query);
-    } catch (error) {
-      if (error?.name === 'AbortError') {
-        return;
-      }
-
-      if (!isCurrentTextSearch()) {
-        return;
-      }
-
-      const message = error?.body?.error || error?.message || 'Failed to search file text.';
-      this.renderTextState(message);
-    } finally {
-      if (this.textSearchController === controller) {
-        this.textSearchController = null;
-      }
-    }
+    this.textSearchRunner.schedule({
+      isActive: () => this.isOpen && this.mode === 'text',
+      onResults: (result, searchedQuery) => {
+        this.textResults = result;
+        this.textResultItems = flattenTextResults(result);
+        this.selectedTextIndex = 0;
+        this.renderTextResults(searchedQuery);
+      },
+      onState: (message) => this.renderTextState(message),
+      query,
+      searchConfig,
+      searchText: this.searchText,
+    });
   }
 
   renderTextState(message) {

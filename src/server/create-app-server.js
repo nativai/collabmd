@@ -234,12 +234,20 @@ export function createAppServer(config = loadConfig()) {
       phase: 'workspace-init',
     });
 
-    const watcherStartStartedAt = Date.now();
-    await fileSystemSyncService.start({ snapshot: liveWorkspaceSnapshot });
-    logPerfEvent(config.perfLoggingEnabled, 'startup', {
-      durationMs: Date.now() - watcherStartStartedAt,
-      phase: 'watcher-start',
-    });
+    if (config.fileWatcherEnabled !== false) {
+      const watcherStartStartedAt = Date.now();
+      await fileSystemSyncService.start({ snapshot: liveWorkspaceSnapshot });
+      logPerfEvent(config.perfLoggingEnabled, 'startup', {
+        durationMs: Date.now() - watcherStartStartedAt,
+        phase: 'watcher-start',
+      });
+    } else {
+      fileSystemSyncService.initializeFromSnapshot({ snapshot: liveWorkspaceSnapshot });
+      logPerfEvent(config.perfLoggingEnabled, 'startup', {
+        durationMs: 0,
+        phase: 'watcher-skipped',
+      });
+    }
 
     return new Promise((resolve, reject) => {
       const listenStartedAt = Date.now();
