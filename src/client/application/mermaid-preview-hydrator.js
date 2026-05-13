@@ -188,8 +188,10 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
   configureMermaid(mermaid) {
     mermaid.initialize({
       startOnLoad: false,
+      htmlLabels: false,
       flowchart: {
         defaultRenderer: 'dagre-wrapper',
+        htmlLabels: false,
         useMaxWidth: true,
       },
       class: {
@@ -259,6 +261,18 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     console.warn('[preview] Mermaid runtime failed to load:', error);
   }
 
+  createRenderHost() {
+    const renderHost = document.createElement('div');
+    renderHost.style.position = 'fixed';
+    renderHost.style.left = '-10000px';
+    renderHost.style.top = '0';
+    renderHost.style.width = '1200px';
+    renderHost.style.visibility = 'hidden';
+    renderHost.style.pointerEvents = 'none';
+    document.body.appendChild(renderHost);
+    return renderHost;
+  }
+
   async hydrateShell(shell, mermaid) {
     if (!mermaid || !shell?.isConnected || this.isShellHydrated(shell)) {
       return;
@@ -302,15 +316,20 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
         diagram.setAttribute('data-source-line-end', sourceLineEnd);
       }
       diagram.textContent = source;
-      shell.appendChild(diagram);
 
-      await mermaid.run({ nodes: [diagram] });
-      if (!diagram.isConnected || shell !== diagram.parentElement) {
-        return;
+      const renderHost = this.createRenderHost();
+      try {
+        renderHost.appendChild(diagram);
+        await mermaid.run({ nodes: [diagram] });
+        if (!diagram.isConnected || diagram.parentElement !== renderHost || !shell.isConnected) {
+          return;
+        }
+
+        this.enhanceDiagram(shell, diagram);
+        this.markShellHydrated(shell);
+      } finally {
+        renderHost.remove();
       }
-
-      this.enhanceDiagram(shell, diagram);
-      this.markShellHydrated(shell);
     } catch (error) {
       console.warn('[preview] Mermaid render failed:', error);
       shell.querySelector(':scope > .mermaid-toolbar')?.remove();
@@ -443,7 +462,6 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
       renderedDiagram.remove();
       return;
     }
-
     const toolbar = document.createElement('div');
     toolbar.className = 'mermaid-toolbar diagram-preview-toolbar';
     const leftGroup = document.createElement('div');

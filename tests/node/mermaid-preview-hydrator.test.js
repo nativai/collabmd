@@ -42,3 +42,37 @@ test('MermaidPreviewHydrator loads embedded Mermaid file sources through the inj
   assert.equal(second, first);
   assert.deepEqual(loaderCalls, ['docs/flow.mmd']);
 });
+
+test('MermaidPreviewHydrator configures embedded renders with SVG text labels', (t) => {
+  const originalDocument = globalThis.document;
+  globalThis.document = {
+    body: {
+      classList: {
+        add() {},
+        remove() {},
+      },
+      querySelector() {
+        return null;
+      },
+    },
+    documentElement: {
+      dataset: {},
+    },
+  };
+  t.after(() => {
+    globalThis.document = originalDocument;
+  });
+
+  let initializedConfig = null;
+  const hydrator = new MermaidPreviewHydrator({
+    previewElement: null,
+  });
+  hydrator.configureMermaid({
+    initialize(config) {
+      initializedConfig = config;
+    },
+  });
+
+  assert.equal(initializedConfig.htmlLabels, false);
+  assert.equal(initializedConfig.flowchart.htmlLabels, false);
+});
