@@ -276,6 +276,17 @@
   margin-right: auto;
 }
 
+.drawio-embed-overlay-root {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.drawio-embed-placeholder.is-hydrated {
+  visibility: hidden;
+}
+
 .drawio-maximized-root {
   position: fixed;
   inset: 0;

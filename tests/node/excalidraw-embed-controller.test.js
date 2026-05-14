@@ -3,6 +3,21 @@ import assert from 'node:assert/strict';
 
 import { ExcalidrawEmbedController } from '../../src/client/presentation/excalidraw-embed-controller.js';
 
+function createClassList() {
+  const values = new Set();
+  return {
+    add(value) {
+      values.add(value);
+    },
+    contains(value) {
+      return values.has(value);
+    },
+    remove(value) {
+      values.delete(value);
+    },
+  };
+}
+
 test('replays a queued follow target after the Excalidraw iframe reports ready', async () => {
   const originalWindow = globalThis.window;
   const posts = [];
@@ -242,6 +257,145 @@ test('does not reload again while the iframe is already booting the desired file
   }, entry);
 
   assert.equal(needsReload, false);
+});
+
+test('does not hard reload a ready Excalidraw iframe for unchanged file and mode', () => {
+  const entry = {
+    filePath: 'sample-next.excalidraw',
+    iframe: { contentWindow: {} },
+    isReady: true,
+    key: 'sample-next.excalidraw#file-preview',
+    loadedFilePath: 'sample-next.excalidraw',
+    loadedMode: 'edit',
+    wrapper: {},
+  };
+
+  const needsReload = ExcalidrawEmbedController.prototype._entryNeedsHardReload.call({
+    _getEntryMode: ExcalidrawEmbedController.prototype._getEntryMode,
+    _isFilePreviewEntry: ExcalidrawEmbedController.prototype._isFilePreviewEntry,
+  }, entry);
+
+  assert.equal(needsReload, false);
+});
+
+test('Excalidraw layout sync preserves iframe src while updating placeholder geometry', () => {
+  let srcWrites = 0;
+  const iframe = {
+    offsetHeight: 500,
+    style: { height: '500px' },
+  };
+  Object.defineProperty(iframe, 'src', {
+    get() {
+      return 'http://localhost:4173/excalidraw-editor.html?file=diagram.excalidraw';
+    },
+    set() {
+      srcWrites += 1;
+    },
+  });
+
+  const placeholder = {
+    classList: createClassList(),
+    dataset: {},
+    isConnected: true,
+    offsetLeft: 30,
+    offsetTop: 18,
+    offsetWidth: 720,
+    style: {},
+  };
+  const wrapper = {
+    classList: createClassList(),
+    querySelector(selector) {
+      if (selector === '.excalidraw-embed-header') {
+        return { offsetHeight: 44 };
+      }
+      if (selector === '.excalidraw-embed-resizer') {
+        return { offsetHeight: 6 };
+      }
+      return null;
+    },
+    style: {},
+  };
+  const entry = {
+    filePath: 'diagram.excalidraw',
+    iframe,
+    key: 'diagram.excalidraw#0',
+    placeholder,
+    wrapper,
+  };
+  const controller = {
+    embedEntries: new Map([[entry.key, entry]]),
+    previewElement: { querySelector: () => null },
+    _isFilePreviewEntry: ExcalidrawEmbedController.prototype._isFilePreviewEntry,
+    _shouldInlineFilePreview: ExcalidrawEmbedController.prototype._shouldInlineFilePreview,
+    _syncEntryLayout: ExcalidrawEmbedController.prototype._syncEntryLayout,
+  };
+
+  ExcalidrawEmbedController.prototype.syncLayout.call(controller);
+
+  assert.equal(srcWrites, 0);
+  assert.equal(placeholder.style.height, '550px');
+  assert.equal(wrapper.style.position, 'absolute');
+  assert.equal(wrapper.style.width, '720px');
+});
+
+test('Excalidraw embedded height resize updates height without recreating iframe', () => {
+  const originalDocument = globalThis.document;
+  const listeners = new Map();
+  let resizeEndCalls = 0;
+  let srcWrites = 0;
+  const resizer = {
+    addEventListener(type, handler) {
+      listeners.set(type, handler);
+    },
+  };
+  const iframe = {
+    offsetHeight: 420,
+    style: {},
+  };
+  Object.defineProperty(iframe, 'src', {
+    get() {
+      return 'http://localhost:4173/excalidraw-editor.html?file=diagram.excalidraw';
+    },
+    set() {
+      srcWrites += 1;
+    },
+  });
+
+  globalThis.document = {
+    addEventListener(type, handler) {
+      listeners.set(type, handler);
+    },
+    removeEventListener(type, handler) {
+      if (listeners.get(type) === handler) {
+        listeners.delete(type);
+      }
+    },
+  };
+
+  try {
+    ExcalidrawEmbedController.prototype._setupResizer.call(
+      {},
+      resizer,
+      iframe,
+      () => {
+        resizeEndCalls += 1;
+      },
+    );
+
+    listeners.get('pointerdown')({
+      clientY: 100,
+      preventDefault() {},
+    });
+    listeners.get('pointermove')({ clientY: 150 });
+    listeners.get('pointerup')();
+
+    assert.equal(srcWrites, 0);
+    assert.equal(iframe.style.height, '470px');
+    assert.equal(iframe.style.pointerEvents, '');
+    assert.equal(resizeEndCalls, 1);
+  } finally {
+    globalThis.document = originalDocument;
+  }
 });
 
 test('hydrate reloads a reused direct-preview iframe when switching files', async () => {

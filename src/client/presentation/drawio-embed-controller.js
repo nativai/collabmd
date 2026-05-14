@@ -118,6 +118,7 @@ export class DrawioEmbedController {
     this.instanceCounter = 0;
     this.maximizedEntry = null;
     this.maximizedRoot = null;
+    this.overlayRoot = null;
 
     this._onMessage = this._onMessage.bind(this);
     this._onKeyDown = this._onKeyDown.bind(this);
@@ -139,6 +140,8 @@ export class DrawioEmbedController {
     document.body.classList.remove('drawio-maximized-open');
     this.embedEntries.forEach((entry) => entry.wrapper?.remove());
     this.embedEntries.clear();
+    this.overlayRoot?.remove();
+    this.overlayRoot = null;
     this.maximizedRoot?.remove();
     this.maximizedRoot = null;
   }
@@ -147,7 +150,15 @@ export class DrawioEmbedController {
     cancelIdleRender(this.hydrationIdleId);
     this.hydrationIdleId = null;
     this.hydrationQueue = [];
+    this._exitMaximizedEntry();
+    if (this.overlayRoot) {
+      this.overlayRoot.hidden = true;
+    }
+    if (this.maximizedRoot) {
+      this.maximizedRoot.hidden = true;
+    }
     this.embedEntries.forEach((entry) => {
+      entry.queued = false;
       entry.placeholder = null;
     });
   }
@@ -173,23 +184,25 @@ export class DrawioEmbedController {
     const nextEntries = new Map();
     descriptors.forEach((descriptor) => {
       const existingEntry = this.embedEntries.get(descriptor.key) || null;
-      const nextEntry = existingEntry
-        ? { ...existingEntry, ...descriptor }
-        : {
-          ...descriptor,
-          iframe: null,
-          imageElement: null,
-          instanceId: '',
-          queued: false,
-          viewerElement: null,
-          wrapper: null,
-        };
+      const nextEntry = existingEntry && this.entryMatchesDescriptor(existingEntry, descriptor)
+        ? existingEntry
+        : this.createEntry(descriptor);
+
+      if (existingEntry && existingEntry !== nextEntry) {
+        this.destroyEntry(existingEntry);
+      }
+
+      nextEntry.filePath = descriptor.filePath;
+      nextEntry.key = descriptor.key;
+      nextEntry.label = descriptor.label;
+      nextEntry.mode = descriptor.mode;
+      nextEntry.placeholder = descriptor.placeholder;
       nextEntries.set(descriptor.key, nextEntry);
     });
 
     this.embedEntries.forEach((entry, key) => {
       if (!nextEntries.has(key)) {
-        entry.wrapper?.remove();
+        this.destroyEntry(entry);
       }
     });
 
@@ -197,7 +210,7 @@ export class DrawioEmbedController {
 
     this.embedEntries.forEach((entry) => {
       if (entry.wrapper) {
-        entry.placeholder?.replaceWith(entry.wrapper);
+        this.attachWrapper(entry);
       } else {
         entry.queued = false;
       }
@@ -206,6 +219,29 @@ export class DrawioEmbedController {
     if (!this.hydrationPaused) {
       this.hydrateVisibleEmbeds();
     }
+
+    this.syncLayout();
+  }
+
+  createEntry(descriptor) {
+    return {
+      ...descriptor,
+      iframe: null,
+      imageElement: null,
+      inlineHeightPx: null,
+      instanceId: '',
+      queued: false,
+      viewerElement: null,
+      wrapper: null,
+    };
+  }
+
+  entryMatchesDescriptor(entry, descriptor) {
+    return Boolean(
+      entry
+        && entry.filePath === descriptor.filePath
+        && entry.mode === descriptor.mode
+    );
   }
 
   hydrateVisibleEmbeds() {
@@ -293,7 +329,7 @@ export class DrawioEmbedController {
     wrapper.append(header, iframe);
     entry.iframe = iframe;
     entry.wrapper = wrapper;
-    entry.placeholder.replaceWith(wrapper);
+    this.attachWrapper(entry);
   }
 
   async hydrateViewerEntry(entry) {
@@ -333,12 +369,14 @@ export class DrawioEmbedController {
     entry.iframe = null;
     entry.wrapper = wrapper;
     entry.viewerElement = viewerShell;
-    entry.placeholder.replaceWith(wrapper);
+    this.attachWrapper(entry);
 
     try {
       await this.renderViewerEntry(entry);
+      this.syncEntryLayout(entry);
     } catch (error) {
       this.renderViewerFallback(entry, error instanceof Error ? error.message : 'Failed to render draw.io preview');
+      this.syncEntryLayout(entry);
     }
   }
 
@@ -435,7 +473,156 @@ export class DrawioEmbedController {
 
   updateLocalUser() {}
 
-  syncLayout() {}
+  syncLayout() {
+    this.embedEntries.forEach((entry) => {
+      if (entry.wrapper && !this.shouldInlineEntry(entry)) {
+        this.syncEntryLayout(entry);
+      }
+    });
+  }
+
+  attachWrapper(entry) {
+    const placeholder = entry.placeholder?.isConnected
+      ? entry.placeholder
+      : this.findPlaceholder(entry);
+
+    if (!placeholder) {
+      return;
+    }
+
+    entry.placeholder = placeholder;
+    this.syncMountedEntryMetadata(entry);
+
+    if (this.shouldInlineEntry(entry)) {
+      entry.wrapper.style.position = '';
+      entry.wrapper.style.top = '';
+      entry.wrapper.style.left = '';
+      entry.wrapper.style.width = '';
+      entry.wrapper.style.margin = '';
+      entry.wrapper.style.pointerEvents = 'auto';
+      placeholder.replaceWith(entry.wrapper);
+      entry.placeholder = null;
+      return;
+    }
+
+    const overlayRoot = this.ensureOverlayRoot();
+    overlayRoot.hidden = false;
+    if (entry.wrapper?.parentElement !== overlayRoot) {
+      overlayRoot.appendChild(entry.wrapper);
+    }
+
+    this.syncEntryLayout(entry);
+  }
+
+  destroyEntry(entry) {
+    if (this.maximizedEntry?.key === entry?.key) {
+      this._exitMaximizedEntry();
+    }
+
+    this.resetPlaceholderLayout(entry);
+    entry?.wrapper?.remove();
+    if (entry) {
+      entry.placeholder = null;
+      entry.wrapper = null;
+      entry.iframe = null;
+      entry.viewerElement = null;
+    }
+  }
+
+  findPlaceholder(entry) {
+    return this.previewElement?.querySelector?.(`.drawio-embed-placeholder[data-drawio-key="${entry.key}"]`) ?? null;
+  }
+
+  ensureOverlayRoot() {
+    if (this.overlayRoot?.isConnected && this.overlayRoot.parentElement === this.previewElement) {
+      return this.overlayRoot;
+    }
+
+    let overlayRoot = this.previewElement?.querySelector?.('[data-drawio-overlay-root="true"]');
+    if (!overlayRoot) {
+      overlayRoot = document.createElement('div');
+      overlayRoot.dataset.drawioOverlayRoot = 'true';
+      overlayRoot.className = 'drawio-embed-overlay-root';
+      this.previewElement?.appendChild(overlayRoot);
+    }
+
+    this.overlayRoot = overlayRoot;
+    return overlayRoot;
+  }
+
+  shouldInlineEntry(entry) {
+    return entry?.key === `${entry?.filePath}#file-preview`;
+  }
+
+  syncMountedEntryMetadata(entry) {
+    if (entry.wrapper) {
+      entry.wrapper.dataset.drawioKey = entry.key;
+      entry.wrapper.dataset.file = entry.filePath;
+      entry.wrapper.classList.toggle('is-direct-file', this.shouldInlineEntry(entry));
+    }
+
+    if (entry.iframe) {
+      entry.iframe.title = `draw.io: ${entry.filePath}`;
+    }
+  }
+
+  resetPlaceholderLayout(entry) {
+    if (!entry?.placeholder?.isConnected || this.shouldInlineEntry(entry)) {
+      return;
+    }
+
+    entry.placeholder.classList.remove('is-hydrated');
+    entry.placeholder.removeAttribute('data-drawio-hydrated');
+    entry.placeholder.style.height = '';
+    entry.placeholder.style.pointerEvents = '';
+  }
+
+  syncEntryLayout(entry) {
+    if (!entry?.wrapper || this.shouldInlineEntry(entry)) {
+      return;
+    }
+
+    const placeholder = entry.placeholder?.isConnected
+      ? entry.placeholder
+      : this.findPlaceholder(entry);
+
+    if (!placeholder) {
+      return;
+    }
+
+    entry.placeholder = placeholder;
+    placeholder.classList.add('is-hydrated');
+    placeholder.dataset.drawioHydrated = 'true';
+    placeholder.style.pointerEvents = 'none';
+
+    const isMaximized = entry.wrapper.classList.contains('is-maximized');
+    const wrapperHeight = entry.wrapper.offsetHeight
+      || Math.ceil(entry.wrapper.getBoundingClientRect?.().height || 0)
+      || entry.inlineHeightPx
+      || 420;
+
+    if (!isMaximized) {
+      entry.inlineHeightPx = wrapperHeight;
+    }
+
+    placeholder.style.height = `${Math.ceil(entry.inlineHeightPx || wrapperHeight)}px`;
+    entry.wrapper.style.pointerEvents = 'auto';
+
+    if (isMaximized) {
+      entry.wrapper.style.position = '';
+      entry.wrapper.style.top = '';
+      entry.wrapper.style.left = '';
+      entry.wrapper.style.width = '';
+      entry.wrapper.style.margin = '';
+      return;
+    }
+
+    entry.wrapper.style.position = 'absolute';
+    entry.wrapper.style.top = `${placeholder.offsetTop}px`;
+    entry.wrapper.style.left = `${placeholder.offsetLeft}px`;
+    entry.wrapper.style.width = `${placeholder.offsetWidth}px`;
+    entry.wrapper.style.margin = '0';
+  }
 
   createOpenButton(entry) {
     const button = document.createElement('button');
@@ -530,6 +717,7 @@ export class DrawioEmbedController {
     entry.wrapper.classList.add('is-maximized');
     document.body.classList.add('drawio-maximized-open');
     this.maximizedEntry = entry;
+    this.syncEntryLayout(entry);
   }
 
   _exitMaximizedEntry() {
@@ -561,6 +749,7 @@ export class DrawioEmbedController {
     if (this.maximizedRoot && this.maximizedRoot.childElementCount === 0) {
       this.maximizedRoot.hidden = true;
     }
+    this.syncEntryLayout(entry);
   }
 
   _syncMaximizeButtons() {

@@ -353,6 +353,108 @@ test('embedded drawio uses the shared diagram preview header chrome', async ({ p
   await expect(embed.locator('.drawio-embed-btn').filter({ hasText: 'Open' })).toHaveCount(0);
 });
 
+test('preserves embedded drawio preview instances across unrelated preview rerenders', async ({ page }) => {
+  await openHome(page);
+  await writeVaultFileAndResetCollab(page, {
+    path: 'sample-drawio.drawio',
+    content: [
+      '<mxfile host="app.diagrams.net" modified="2026-01-01T00:00:00.000Z" agent="CollabMD" version="24.7.17">',
+      '  <diagram id="page-1" name="Page-1">',
+      '    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">',
+      '      <root>',
+      '        <mxCell id="0" />',
+      '        <mxCell id="1" parent="0" />',
+      '      </root>',
+      '    </mxGraphModel>',
+      '  </diagram>',
+      '</mxfile>',
+      '',
+    ].join('\n'),
+  });
+
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, [
+    '# Drawio Preserve',
+    '',
+    '![[sample-drawio.drawio]]',
+  ].join('\n'));
+
+  await expect(page.locator('#previewContent .drawio-embed').first()).toBeVisible();
+  await page.evaluate(() => {
+    const embed = document.querySelector('#previewContent .drawio-embed');
+    if (embed) {
+      embed.__collabmdPreserveProbe = 'alive';
+    }
+  });
+
+  const editor = page.locator('.cm-content').first();
+  await editor.click();
+  await page.keyboard.insertText(' ');
+  await page.keyboard.press('Backspace');
+
+  await expect.poll(async () => (
+    page.evaluate(() => document.querySelector('#previewContent .drawio-embed')?.__collabmdPreserveProbe || '')
+  ), { timeout: 60000 }).toBe('alive');
+  await expect(page.locator('#previewContent .drawio-embed-placeholder.is-hydrated').first()).toBeAttached();
+});
+
+test('embedded drawio maximize clears inline overlay geometry', async ({ page }) => {
+  await openHome(page);
+  await writeVaultFileAndResetCollab(page, {
+    path: 'sample-drawio.drawio',
+    content: [
+      '<mxfile host="app.diagrams.net" modified="2026-01-01T00:00:00.000Z" agent="CollabMD" version="24.7.17">',
+      '  <diagram id="page-1" name="Page-1">',
+      '    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">',
+      '      <root>',
+      '        <mxCell id="0" />',
+      '        <mxCell id="1" parent="0" />',
+      '      </root>',
+      '    </mxGraphModel>',
+      '  </diagram>',
+      '</mxfile>',
+      '',
+    ].join('\n'),
+  });
+
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, [
+    '# Drawio Maximize',
+    '',
+    '![[sample-drawio.drawio]]',
+  ].join('\n'));
+
+  await expect(page.locator('#previewContent .drawio-embed').first()).toBeVisible();
+  await page.locator('#previewContent .drawio-embed-btn[aria-label="Maximize diagram"]').first().click();
+  await expect(page.locator(`${ACTIVE_MAXIMIZED_DRAWIO_SELECTOR} .drawio-embed-btn[aria-label="Restore diagram size"]`).first()).toBeVisible();
+
+  const bounds = await page.evaluate(() => {
+    const embed = document.querySelector('[data-drawio-maximized-root="true"] .drawio-embed.is-maximized');
+    if (!(embed instanceof HTMLElement)) {
+      return null;
+    }
+
+    const rect = embed.getBoundingClientRect();
+    const style = window.getComputedStyle(embed);
+    return {
+      height: rect.height,
+      left: rect.left,
+      position: style.position,
+      top: rect.top,
+      width: rect.width,
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+    };
+  });
+
+  expect(bounds).not.toBeNull();
+  expect(bounds.position).toBe('fixed');
+  expect(bounds.width).toBeGreaterThan(bounds.viewportWidth - 64);
+  expect(bounds.height).toBeGreaterThan(bounds.viewportHeight - 64);
+  expect(bounds.left).toBeLessThanOrEqual(24);
+  expect(bounds.top).toBeLessThanOrEqual(24);
+});
+
 test('markdown excalidraw embeds use preview mode with an edit button', async ({ page }) => {
   test.slow();
 
@@ -456,6 +558,51 @@ test('preserves excalidraw iframe instances across unrelated preview rerenders',
       return iframe?.contentWindow?.__collabmdPreserveProbe || '';
     })
   ), { timeout: 60000 }).toBe('alive');
+});
+
+test('embedded excalidraw height resize preserves the iframe instance', async ({ page }) => {
+  test.slow();
+
+  await openSampleFull(page);
+  await expect.poll(async () => (
+    page.locator('#previewContent .excalidraw-embed iframe').count()
+  ), { timeout: 60000 }).toBeGreaterThan(0);
+
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const iframe = document.querySelector('#previewContent .excalidraw-embed iframe');
+      return iframe?.contentWindow?.location?.pathname || '';
+    })
+  ), { timeout: 60000 }).toBe('/excalidraw-editor.html');
+
+  await page.evaluate(() => {
+    const iframe = document.querySelector('#previewContent .excalidraw-embed iframe');
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.__collabmdResizeProbe = 'alive';
+    }
+  });
+
+  const firstInstanceId = await page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('data-instance-id');
+  const firstSrc = await page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('src');
+  const resizerBox = await page.locator('#previewContent .excalidraw-embed-resizer').first().boundingBox();
+  expect(resizerBox).not.toBeNull();
+
+  await page.mouse.move(resizerBox.x + (resizerBox.width / 2), resizerBox.y + (resizerBox.height / 2));
+  await page.mouse.down();
+  await page.mouse.move(resizerBox.x + (resizerBox.width / 2), resizerBox.y + 80, { steps: 6 });
+  await page.mouse.up();
+
+  await expect.poll(async () => (
+    page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('data-instance-id')
+  ), { timeout: 60000 }).toBe(firstInstanceId);
+  await expect(page.locator('#previewContent .excalidraw-embed iframe').first()).toHaveAttribute('src', firstSrc);
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const iframe = document.querySelector('#previewContent .excalidraw-embed iframe');
+      return iframe?.contentWindow?.__collabmdResizeProbe || '';
+    })
+  ), { timeout: 60000 }).toBe('alive');
+  await expect(page.locator('#previewContent .excalidraw-embed.is-loading')).toHaveCount(0);
 });
 
 test('opening an embedded excalidraw file directly promotes the same iframe into editable mode', async ({ page }) => {
