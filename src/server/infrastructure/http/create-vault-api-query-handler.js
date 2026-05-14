@@ -1,4 +1,4 @@
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import { readdir } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { join } from 'node:path';
@@ -87,7 +87,7 @@ async function streamDirectoryArchive(req, res, {
   rootAbsolutePath = '',
   rootName = 'archive',
 } = {}) {
-  const archive = archiver('zip', {
+  const archive = new ZipArchive({
     zlib: {
       level: 6,
     },
