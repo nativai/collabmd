@@ -70,6 +70,7 @@ let apiStateCleanupCallbacks = [];
 let collaboratorRenderFrame = 0;
 let queuedCollaborators = null;
 let initialViewportFitPending = true;
+let previewViewportFitTimerId = 0;
 let roomClient = null;
 let roomClientGeneration = 0;
 let reactRoot = null;
@@ -83,6 +84,10 @@ function getDocumentViewState(mode = currentDocument.mode) {
     viewModeEnabled: normalizedMode === 'preview',
     zenModeEnabled: normalizedMode === 'preview',
   };
+}
+
+function applyDocumentMode(mode = currentDocument.mode) {
+  document.body.dataset.documentMode = normalizeDocumentMode(mode);
 }
 
 function createRoomClient(filePath) {
@@ -565,8 +570,17 @@ function getSceneElementsForPreviewFit() {
   );
 }
 
-function scheduleInitialViewportFit() {
-  if (!initialViewportFitPending || !excalidrawAPI) {
+function scheduleViewportFit({
+  delayMs = 0,
+  forcePreview = false,
+  consumeInitialFit = false,
+} = {}) {
+  const normalizedMode = normalizeDocumentMode(currentDocument.mode);
+  if (!excalidrawAPI || (forcePreview && normalizedMode !== 'preview')) {
+    return;
+  }
+
+  if (!forcePreview && !initialViewportFitPending) {
     return;
   }
 
@@ -574,22 +588,55 @@ function scheduleInitialViewportFit() {
   if (elements.length === 0) {
     return;
   }
-  initialViewportFitPending = false;
+  if (consumeInitialFit) {
+    initialViewportFitPending = false;
+  }
 
-  requestAnimationFrame(() => {
+  if (previewViewportFitTimerId) {
+    window.clearTimeout(previewViewportFitTimerId);
+  }
+
+  previewViewportFitTimerId = window.setTimeout(() => {
+    previewViewportFitTimerId = 0;
     requestAnimationFrame(() => {
-      if (!excalidrawAPI) {
-        return;
-      }
+      requestAnimationFrame(() => {
+        if (!excalidrawAPI) {
+          return;
+        }
 
-      excalidrawAPI.scrollToContent(elements, {
-        animate: false,
-        fitToViewport: true,
-        maxZoom: 2,
-        viewportZoomFactor: normalizeDocumentMode(currentDocument.mode) === 'preview' ? 0.92 : 0.88,
+        const latestElements = getSceneElementsForPreviewFit();
+        if (latestElements.length === 0) {
+          return;
+        }
+
+        if (forcePreview) {
+          suppressViewportBroadcast = true;
+        }
+
+        excalidrawAPI.scrollToContent(latestElements, {
+          animate: false,
+          fitToViewport: true,
+          maxZoom: 2,
+          viewportZoomFactor: normalizedMode === 'preview' ? 0.92 : 0.88,
+        });
+
+        if (forcePreview) {
+          releaseViewportBroadcastSuppressionAfterPaint();
+        }
       });
     });
-  });
+  }, delayMs);
+}
+
+function scheduleInitialViewportFit() {
+  scheduleViewportFit({ consumeInitialFit: true });
+}
+
+function schedulePreviewViewportFit() {
+  scheduleViewportFit({ forcePreview: true, delayMs: 80 });
+  window.setTimeout(() => {
+    scheduleViewportFit({ forcePreview: true });
+  }, 240);
 }
 
 function syncLocalViewportToRoom() {
@@ -801,6 +848,11 @@ window.addEventListener('message', (event) => {
     return;
   }
 
+  if (message.type === 'fit-preview-viewport') {
+    schedulePreviewViewportFit();
+    return;
+  }
+
   if (message.type === 'prepare-disconnect') {
     void (async () => {
       await prepareRealtimeRoomDisconnect();
@@ -892,6 +944,7 @@ async function init() {
 
   try {
     applySurfaceTheme(currentTheme);
+    applyDocumentMode();
     await ensureClientAuthenticated();
     const initialScene = await connectDocumentClient(currentDocument.filePath);
     if (!initialScene) {

@@ -346,11 +346,14 @@
 }
 
 .preview-content.is-excalidraw-file-preview .excalidraw-embed.is-maximized {
-  position: absolute;
+  position: fixed;
   inset: var(--space-3);
-  z-index: 2;
+  z-index: 172;
   box-sizing: border-box;
-  max-width: calc(100% - (var(--space-3) * 2));
+  width: auto !important;
+  height: auto !important;
+  min-height: 0;
+  max-width: none;
   margin: 0;
 }
 

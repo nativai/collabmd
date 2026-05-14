@@ -362,11 +362,10 @@ body.drawio-maximized-open .drawio-embed.is-maximized {
   pointer-events: none;
 }
 
-.excalidraw-maximized-root {
+.excalidraw-embed-overlay-root.has-maximized-entry {
   position: fixed;
   inset: 0;
   z-index: 171;
-  pointer-events: none;
 }
 
 .excalidraw-warm-cache-root {
@@ -384,16 +383,7 @@ body.excalidraw-maximized-open {
 }
 
 body.excalidraw-maximized-open::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 170;
-  background: var(--surface-scrim);
-  backdrop-filter: blur(2px);
-}
-
-body.excalidraw-maximized-open .excalidraw-maximized-root {
-  z-index: 171;
+  content: none;
 }
 
 body.excalidraw-maximized-open .resizer {
@@ -471,7 +461,12 @@ body.excalidraw-maximized-open .resizer {
   margin: 0;
   box-sizing: border-box;
   border-radius: var(--radius-lg-plus);
-  box-shadow: var(--shadow-media-modal);
+  box-shadow: 0 0 0 9999px var(--surface-scrim), var(--shadow-media-modal);
+}
+
+.excalidraw-maximize-spacer {
+  pointer-events: none;
+  visibility: hidden;
 }
 
 .excalidraw-embed.is-maximized .excalidraw-embed-header {

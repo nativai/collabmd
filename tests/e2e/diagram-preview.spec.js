@@ -240,7 +240,7 @@ test('opens excalidraw files with a direct iframe preview', async ({ page }) => 
 
   const maximizedWidths = await page.evaluate(() => {
     const container = document.getElementById('previewContainer');
-    const embed = document.querySelector('[data-excalidraw-maximized-root="true"] .excalidraw-embed.is-maximized');
+    const embed = document.querySelector('.excalidraw-embed.is-maximized[data-excalidraw-maximized="true"]');
     if (!container || !embed) {
       return null;
     }
@@ -249,12 +249,14 @@ test('opens excalidraw files with a direct iframe preview', async ({ page }) => 
     return {
       containerWidth: container.getBoundingClientRect().width,
       embedWidth: rect.width,
+      position: window.getComputedStyle(embed).position,
       left: rect.left,
       right: rect.right,
       innerWidth: window.innerWidth,
     };
   });
   expect(maximizedWidths).not.toBeNull();
+  expect(maximizedWidths.position).toBe('fixed');
   expect(maximizedWidths.embedWidth).toBeGreaterThan(maximizedWidths.containerWidth - 48);
   expect(maximizedWidths.left).toBeGreaterThanOrEqual(0);
   expect(maximizedWidths.right).toBeLessThanOrEqual(maximizedWidths.innerWidth);
@@ -611,6 +613,25 @@ test('markdown excalidraw embeds use preview mode with an edit button', async ({
   const iframe = page.locator('#previewContent .excalidraw-embed iframe').first();
   await expect(iframe).toHaveAttribute('src', /mode=preview/);
   await expect(page.locator('#previewContent .excalidraw-embed-btn[aria-label="Edit in Excalidraw"]').first()).toBeVisible();
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const iframeElement = document.querySelector('#previewContent .excalidraw-embed iframe');
+      const iframeDocument = iframeElement?.contentDocument;
+      if (!iframeDocument || iframeDocument.body?.dataset.documentMode !== 'preview') {
+        return 'loading';
+      }
+
+      const hasVisibleButton = Array.from(iframeDocument.querySelectorAll('.disable-view-mode')).some((button) => {
+        if (!(button instanceof HTMLElement)) {
+          return false;
+        }
+
+        const style = iframeElement.contentWindow.getComputedStyle(button);
+        return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+      });
+      return hasVisibleButton ? 'visible' : 'hidden';
+    })
+  ), { timeout: 60000 }).toBe('hidden');
 });
 
 test('embedded excalidraw edit button navigates to the diagram file', async ({ page }) => {
@@ -999,11 +1020,28 @@ test('embedded excalidraw maximize preserves layout and modal sizing', async ({ 
 
   await expect(page.locator('#previewContent .excalidraw-embed-btn[aria-label="Expand diagram"]')).toHaveCount(0);
 
+  await page.evaluate(() => {
+    const iframe = document.querySelector('#previewContent .excalidraw-embed iframe');
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.__collabmdMaximizeProbe = 'alive';
+    }
+  });
+  const firstInstanceId = await page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('data-instance-id');
+  const firstSrc = await page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('src');
+
   await page.locator('#previewContent .excalidraw-embed-btn[aria-label="Maximize diagram"]').first().click();
   await expect(page.locator(`${ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR} .excalidraw-embed-btn[aria-label="Restore diagram size"]`).first()).toBeVisible();
+  await expect(page.locator(`${ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR} iframe`).first()).toHaveAttribute('data-instance-id', firstInstanceId);
+  await expect(page.locator(`${ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR} iframe`).first()).toHaveAttribute('src', firstSrc);
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const iframe = document.querySelector('.excalidraw-embed.is-maximized[data-excalidraw-maximized="true"] iframe');
+      return iframe?.contentWindow?.__collabmdMaximizeProbe || '';
+    })
+  ), { timeout: 60000 }).toBe('alive');
 
   const afterMaximize = await page.evaluate(() => {
-    const embed = document.querySelector('[data-excalidraw-maximized-root="true"] .excalidraw-embed.is-maximized');
+    const embed = document.querySelector('.excalidraw-embed.is-maximized[data-excalidraw-maximized="true"]');
     const previewContainer = document.getElementById('previewContainer');
     const resizer = document.getElementById('resizer');
     if (!embed || !previewContainer) {
@@ -1039,6 +1077,16 @@ test('embedded excalidraw maximize preserves layout and modal sizing', async ({ 
   expect(afterMaximize.resizerOpacity).toBe('0');
   expect(afterMaximize.resizerPointerEvents).toBe('none');
   expect(afterMaximize.hitMaximizedEmbed).toBeTruthy();
+
+  await page.locator(`${ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR} .excalidraw-embed-btn[aria-label="Restore diagram size"]`).first().click();
+  await expect(page.locator('#previewContent .excalidraw-embed iframe').first()).toHaveAttribute('data-instance-id', firstInstanceId);
+  await expect(page.locator('#previewContent .excalidraw-embed iframe').first()).toHaveAttribute('src', firstSrc);
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const iframe = document.querySelector('#previewContent .excalidraw-embed iframe');
+      return iframe?.contentWindow?.__collabmdMaximizeProbe || '';
+    })
+  ), { timeout: 60000 }).toBe('alive');
 });
 
 test('embedded excalidraw matches mermaid width in preview-only view', async ({ page }) => {

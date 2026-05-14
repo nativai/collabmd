@@ -2,6 +2,10 @@ body[data-surface='excalidraw-editor'] {
   background: transparent;
 }
 
+body[data-surface='excalidraw-editor'][data-document-mode='preview'] .disable-view-mode {
+  display: none !important;
+}
+
 .loading-state {
   display: flex;
   align-items: center;
