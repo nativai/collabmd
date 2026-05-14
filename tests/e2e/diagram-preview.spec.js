@@ -292,7 +292,7 @@ test('opens drawio files with a maximizable direct preview', async ({ page }) =>
 
   const maximizedBounds = await page.evaluate(() => {
     const container = document.getElementById('previewContainer');
-    const embed = document.querySelector('[data-drawio-maximized-root="true"] .drawio-embed.is-maximized');
+    const embed = document.querySelector('.drawio-embed.is-maximized[data-drawio-maximized="true"]');
     if (!container || !embed) {
       return null;
     }
@@ -318,6 +318,96 @@ test('opens drawio files with a maximizable direct preview', async ({ page }) =>
   expect(maximizedBounds.top).toBeGreaterThanOrEqual(0);
   expect(maximizedBounds.left).toBeGreaterThanOrEqual(0);
   expect(maximizedBounds.right).toBeLessThanOrEqual(maximizedBounds.innerWidth);
+});
+
+test('direct drawio preview ignores duplicate frame init events during resize', async ({ page }) => {
+  let frameDocumentRequests = 0;
+  await page.route('https://embed.diagrams.net/**', async (route) => {
+    frameDocumentRequests += 1;
+    await route.fulfill({
+      body: `
+        <!doctype html>
+        <html>
+          <body data-load-count="0">
+            <script>
+              function emit(event) {
+                parent.postMessage(JSON.stringify({ event }), '*');
+              }
+              window.__emitDrawioInit = () => emit('init');
+              window.addEventListener('message', (event) => {
+                const payload = JSON.parse(event.data || '{}');
+                if (payload.action === 'load') {
+                  document.body.dataset.loadCount = String(Number(document.body.dataset.loadCount || '0') + 1);
+                }
+              });
+              emit('init');
+            </script>
+          </body>
+        </html>
+      `,
+      contentType: 'text/html',
+      status: 200,
+    });
+  });
+
+  await openHome(page);
+  await writeVaultFileAndResetCollab(page, {
+    path: 'sample-drawio.drawio',
+    content: [
+      '<mxfile host="app.diagrams.net" modified="2026-01-01T00:00:00.000Z" agent="CollabMD" version="24.7.17">',
+      '  <diagram id="page-1" name="Page-1">',
+      '    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">',
+      '      <root>',
+      '        <mxCell id="0" />',
+      '        <mxCell id="1" parent="0" />',
+      '      </root>',
+      '    </mxGraphModel>',
+      '  </diagram>',
+      '</mxfile>',
+      '',
+    ].join('\n'),
+  });
+
+  await openFile(page, 'sample-drawio.drawio', { waitFor: 'preview' });
+  const iframe = page.locator('#previewContent .drawio-embed-iframe').first();
+  await expect(iframe).toBeVisible();
+  const initialSrc = await iframe.getAttribute('src');
+  await page.evaluate(() => {
+    const frame = document.querySelector('#previewContent .drawio-embed-iframe');
+    if (frame) {
+      frame.dataset.resizeProbe = 'alive';
+    }
+  });
+
+  const getFakeDrawioFrame = () => page.frames().find((frame) => frame.url().startsWith('https://embed.diagrams.net/'));
+  await expect.poll(async () => {
+    const frame = getFakeDrawioFrame();
+    return frame?.evaluate(() => document.body.dataset.loadCount || '0').catch(() => '0') ?? '0';
+  }, { timeout: 60000 }).toBe('1');
+  expect(frameDocumentRequests).toBe(1);
+
+  await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+  await getFakeDrawioFrame()?.evaluate(() => window.__emitDrawioInit());
+
+  await expect.poll(async () => {
+    const frame = getFakeDrawioFrame();
+    return frame?.evaluate(() => document.body.dataset.loadCount || '0').catch(() => '0') ?? '0';
+  }, { timeout: 60000 }).toBe('1');
+  await expect(iframe).toHaveAttribute('src', initialSrc);
+  await expect.poll(async () => (
+    page.evaluate(() => document.querySelector('#previewContent .drawio-embed-iframe')?.dataset.resizeProbe || '')
+  ), { timeout: 60000 }).toBe('alive');
+  await expect(page.locator('#previewContent')).not.toContainText('Loading draw.io preview…');
+
+  await page.locator('#previewContent .drawio-embed-btn[aria-label="Maximize diagram"]').click();
+  await expect(page.locator(`${ACTIVE_MAXIMIZED_DRAWIO_SELECTOR} .drawio-embed-btn[aria-label="Restore diagram size"]`)).toBeVisible();
+  await page.locator(`${ACTIVE_MAXIMIZED_DRAWIO_SELECTOR} .drawio-embed-btn[aria-label="Restore diagram size"]`).click();
+  await expect(page.locator('#previewContent .drawio-embed-btn[aria-label="Maximize diagram"]')).toBeVisible();
+  expect(frameDocumentRequests).toBe(1);
+  await expect(iframe).toHaveAttribute('src', initialSrc);
+  await expect.poll(async () => (
+    page.evaluate(() => document.querySelector('#previewContent .drawio-embed-iframe')?.dataset.resizeProbe || '')
+  ), { timeout: 60000 }).toBe('alive');
 });
 
 test('embedded drawio uses the shared diagram preview header chrome', async ({ page }) => {
@@ -399,6 +489,37 @@ test('preserves embedded drawio preview instances across unrelated preview reren
 });
 
 test('embedded drawio maximize clears inline overlay geometry', async ({ page }) => {
+  await page.addInitScript(() => {
+    const renderViewerFrame = (element) => {
+      element.style.position = 'relative';
+      element.style.overflow = 'auto';
+      element.style.width = '281px';
+      element.style.height = '242px';
+      element.replaceChildren();
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 281 242');
+      svg.style.display = 'block';
+      svg.style.width = '100%';
+      svg.style.height = '100%';
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', '80');
+      rect.setAttribute('y', '60');
+      rect.setAttribute('width', '120');
+      rect.setAttribute('height', '60');
+      rect.setAttribute('fill', 'none');
+      rect.setAttribute('stroke', 'currentColor');
+      svg.appendChild(rect);
+      element.appendChild(svg);
+    };
+
+    window.GraphViewer = {
+      createViewerForElement: renderViewerFrame,
+      processElements: () => {
+        document.querySelectorAll('.mxgraph').forEach(renderViewerFrame);
+      },
+    };
+  });
+
   await openHome(page);
   await writeVaultFileAndResetCollab(page, {
     path: 'sample-drawio.drawio',
@@ -424,12 +545,13 @@ test('embedded drawio maximize clears inline overlay geometry', async ({ page })
     '![[sample-drawio.drawio]]',
   ].join('\n'));
 
-  await expect(page.locator('#previewContent .drawio-embed').first()).toBeVisible();
-  await page.locator('#previewContent .drawio-embed-btn[aria-label="Maximize diagram"]').first().click();
+  const staticPreview = page.locator('#previewContent .drawio-embed.is-static-preview').first();
+  await expect(staticPreview.locator('.drawio-viewer-frame')).toBeVisible({ timeout: 60000 });
+  await staticPreview.locator('.drawio-embed-btn[aria-label="Maximize diagram"]').click();
   await expect(page.locator(`${ACTIVE_MAXIMIZED_DRAWIO_SELECTOR} .drawio-embed-btn[aria-label="Restore diagram size"]`).first()).toBeVisible();
 
   const bounds = await page.evaluate(() => {
-    const embed = document.querySelector('[data-drawio-maximized-root="true"] .drawio-embed.is-maximized');
+    const embed = document.querySelector('.drawio-embed.is-maximized[data-drawio-maximized="true"]');
     if (!(embed instanceof HTMLElement)) {
       return null;
     }
@@ -453,6 +575,29 @@ test('embedded drawio maximize clears inline overlay geometry', async ({ page })
   expect(bounds.height).toBeGreaterThan(bounds.viewportHeight - 64);
   expect(bounds.left).toBeLessThanOrEqual(24);
   expect(bounds.top).toBeLessThanOrEqual(24);
+
+  const viewerAlignment = await page.evaluate(() => {
+    const shell = document.querySelector('.drawio-embed.is-maximized .drawio-viewer-shell');
+    const frame = document.querySelector('.drawio-embed.is-maximized .drawio-viewer-frame');
+    if (!(shell instanceof HTMLElement) || !(frame instanceof HTMLElement)) {
+      return null;
+    }
+
+    const shellRect = shell.getBoundingClientRect();
+    const frameRect = frame.getBoundingClientRect();
+    return {
+      deltaX: Math.abs((frameRect.left + frameRect.width / 2) - (shellRect.left + shellRect.width / 2)),
+      deltaY: Math.abs((frameRect.top + frameRect.height / 2) - (shellRect.top + shellRect.height / 2)),
+      frameHeight: frameRect.height,
+      frameWidth: frameRect.width,
+    };
+  });
+
+  expect(viewerAlignment).not.toBeNull();
+  expect(viewerAlignment.frameWidth).toBeGreaterThan(0);
+  expect(viewerAlignment.frameHeight).toBeGreaterThan(0);
+  expect(viewerAlignment.deltaX).toBeLessThanOrEqual(4);
+  expect(viewerAlignment.deltaY).toBeLessThanOrEqual(4);
 });
 
 test('markdown excalidraw embeds use preview mode with an edit button', async ({ page }) => {

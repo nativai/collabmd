@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 import { getRuntimeVaultDir, resetE2EVaultSnapshot, templateVaultDir } from './vault-snapshot.js';
 
 export const E2E_USER_NAME = 'E2E User';
-export const ACTIVE_MAXIMIZED_DRAWIO_SELECTOR = '[data-drawio-maximized-root="true"] .drawio-embed.is-maximized';
+export const ACTIVE_MAXIMIZED_DRAWIO_SELECTOR = '.drawio-embed.is-maximized[data-drawio-maximized="true"]';
 export const ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR = '[data-excalidraw-maximized-root="true"] .excalidraw-embed.is-maximized';
 export const ACTIVE_MAXIMIZED_MERMAID_SELECTOR = '[data-mermaid-maximized-root="true"] .mermaid-shell.is-maximized';
 export const ACTIVE_MAXIMIZED_PLANTUML_SELECTOR = '[data-plantuml-maximized-root="true"] .plantuml-shell.is-maximized';

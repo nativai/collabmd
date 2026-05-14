@@ -87,6 +87,7 @@ function createController(overrides = {}) {
     syncEntryLayout: DrawioEmbedController.prototype.syncEntryLayout,
     syncLayout: DrawioEmbedController.prototype.syncLayout,
     syncMountedEntryMetadata: DrawioEmbedController.prototype.syncMountedEntryMetadata,
+    _enterMaximizedEntry: DrawioEmbedController.prototype._enterMaximizedEntry,
     _exitMaximizedEntry: () => {},
     ...overrides,
   };
@@ -255,9 +256,82 @@ test('draw.io layout sync clears overlay geometry while maximized', () => {
   assert.equal(wrapper.style.position, '');
   assert.equal(wrapper.style.top, '');
   assert.equal(wrapper.style.left, '');
-  assert.equal(wrapper.style.width, '');
+  assert.equal(wrapper.style.width, 'auto');
+  assert.equal(wrapper.style.height, 'auto');
+  assert.equal(wrapper.style.minHeight, '0');
   assert.equal(wrapper.style.margin, '');
   assert.equal(placeholder.style.height, '512px');
+});
+
+test('draw.io maximize keeps iframe wrapper in the same parent', () => {
+  const originalDocument = globalThis.document;
+  const originalBody = globalThis.document?.body;
+  const originalWindow = globalThis.window;
+  const wrapper = createWrapper({ height: 512 });
+  const parent = {
+    isConnected: true,
+    insertBefore(node, nextSibling) {
+      assert.equal(nextSibling, wrapper);
+      node.parentElement = parent;
+    },
+  };
+  wrapper.parentElement = parent;
+  const entry = {
+    filePath: 'diagram.drawio',
+    iframe: {},
+    key: 'diagram.drawio#0',
+    mode: 'view',
+    wrapper,
+  };
+  let bodyAppendCalls = 0;
+
+  globalThis.document = {
+    body: {
+      appendChild() {
+        bodyAppendCalls += 1;
+      },
+      classList: createClassList(),
+      querySelector() {
+        return null;
+      },
+    },
+    createElement() {
+      return {
+        className: '',
+        parentElement: null,
+        remove() {
+          this.parentElement = null;
+        },
+        style: {},
+      };
+    },
+  };
+  globalThis.window = { document: globalThis.document };
+
+  try {
+    const controller = createController({
+      embedEntries: new Map([[entry.key, entry]]),
+      maximizedEntry: null,
+      overlayRoot: null,
+    });
+
+    DrawioEmbedController.prototype._enterMaximizedEntry.call(controller, entry, wrapper);
+
+    assert.equal(wrapper.parentElement, parent);
+    assert.equal(bodyAppendCalls, 0);
+    assert.equal(wrapper.dataset.drawioMaximized, 'true');
+
+    DrawioEmbedController.prototype._exitMaximizedEntry.call(controller);
+
+    assert.equal(wrapper.parentElement, parent);
+    assert.equal(wrapper.dataset.drawioMaximized, undefined);
+  } finally {
+    globalThis.document = originalDocument;
+    if (originalDocument && originalBody) {
+      globalThis.document.body = originalBody;
+    }
+    globalThis.window = originalWindow;
+  }
 });
 
 test('reconcile removes draw.io entries whose descriptors disappeared', () => {
@@ -301,7 +375,6 @@ test('detachForCommit hides preserved draw.io overlay roots during preview swaps
     embedEntries: new Map([['diagram.drawio#0', entry]]),
     hydrationIdleId: null,
     hydrationQueue: ['diagram.drawio#0'],
-    maximizedRoot: { hidden: false },
     overlayRoot: { hidden: false },
     _exitMaximizedEntry: () => {
       exitCalls += 1;
@@ -313,7 +386,6 @@ test('detachForCommit hides preserved draw.io overlay roots during preview swaps
   assert.equal(exitCalls, 1);
   assert.deepEqual(controller.hydrationQueue, []);
   assert.equal(controller.overlayRoot.hidden, true);
-  assert.equal(controller.maximizedRoot.hidden, true);
   assert.equal(entry.queued, false);
   assert.equal(entry.placeholder, null);
 });

@@ -1,6 +1,10 @@
 import './styles/surfaces/embedded-editor-base.css';
 import './styles/surfaces/drawio-editor.css';
 
+import {
+  createDrawioFrameLoadPayload,
+  createDrawioFrameLoadSignature,
+} from './domain/drawio-frame-load.js';
 import { ensureClientAuthenticated } from './infrastructure/auth-client.js';
 import { isPlainQuickSwitcherShortcut } from './domain/keyboard-shortcuts.js';
 import { DrawioLeaseClient } from './infrastructure/drawio-lease-client.js';
@@ -30,6 +34,7 @@ let drawioFrameBootTimer = null;
 let drawioMessageHandler = null;
 let saveTimer = null;
 let pendingSaveXml = null;
+let lastFrameLoadSignature = '';
 let lastSavedVersion = 0;
 let hasPostedReadyToParent = false;
 let exportRequested = false;
@@ -144,6 +149,7 @@ function teardownDrawioFrame() {
   drawioFrame?.remove();
   drawioFrame = null;
   drawioFrameReady = false;
+  lastFrameLoadSignature = '';
   hasPostedReadyToParent = false;
   exportRequested = false;
 }
@@ -161,26 +167,33 @@ function buildDrawioFrameUrl() {
 
 function postAction(action, payload = {}) {
   if (!drawioFrame?.contentWindow) {
-    return;
+    return false;
   }
 
   drawioFrame.contentWindow.postMessage(JSON.stringify({
     action,
     ...payload,
   }), '*');
+  return true;
 }
 
 function loadDiagramIntoFrame() {
-  postAction('load', {
-    autosave: state.isEditor && !isExportImageMode ? 1 : 0,
-    dark: currentTheme === 'dark' ? 1 : 0,
-    modified: 'unsavedChanges',
-    noExitBtn: isExportImageMode ? 1 : 1,
-    noSaveBtn: isExportImageMode ? 1 : (state.isEditor ? 0 : 1),
-    saveAndExit: isExportImageMode ? 0 : 0,
-    theme: currentTheme === 'light' ? 'simple' : 'dark',
-    xml: currentXml || '',
+  const payload = createDrawioFrameLoadPayload({
+    currentTheme,
+    currentXml,
+    isEditor: state.isEditor,
+    isExportImageMode,
   });
+  const signature = createDrawioFrameLoadSignature(payload);
+  if (signature === lastFrameLoadSignature) {
+    return false;
+  }
+
+  const posted = postAction('load', payload);
+  if (posted) {
+    lastFrameLoadSignature = signature;
+  }
+  return posted;
 }
 
 function updateFrameMode() {

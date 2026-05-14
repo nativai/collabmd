@@ -287,11 +287,10 @@
   visibility: hidden;
 }
 
-.drawio-maximized-root {
+.drawio-embed-overlay-root.has-maximized-entry {
   position: fixed;
   inset: 0;
   z-index: 171;
-  pointer-events: none;
 }
 
 body.drawio-maximized-open {
@@ -299,15 +298,10 @@ body.drawio-maximized-open {
 }
 
 body.drawio-maximized-open::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 170;
-  background: var(--surface-scrim);
-  backdrop-filter: blur(2px);
+  content: none;
 }
 
-.drawio-maximized-root .drawio-embed.is-maximized {
+body.drawio-maximized-open .drawio-embed.is-maximized {
   pointer-events: auto;
 }
 
@@ -322,7 +316,13 @@ body.drawio-maximized-open::before {
   margin: 0;
   box-sizing: border-box;
   border-radius: var(--radius-lg-plus);
-  box-shadow: var(--shadow-media-modal);
+  box-shadow: 0 0 0 9999px var(--surface-scrim), var(--shadow-media-modal);
+}
+
+.preview-content.is-drawio-file-preview .drawio-embed.is-maximized {
+  width: auto !important;
+  height: auto !important;
+  min-height: 0;
 }
 
 .drawio-embed.is-maximized .drawio-embed-header {
@@ -339,6 +339,20 @@ body.drawio-maximized-open::before {
 
 .drawio-embed.is-maximized .drawio-viewer-shell {
   align-items: stretch;
+}
+
+.drawio-embed.is-maximized.is-static-preview .drawio-viewer-shell {
+  align-items: center;
+  justify-content: center;
+}
+
+.drawio-embed.is-maximized.is-static-preview .drawio-viewer-frame {
+  flex: 0 0 auto !important;
+  width: auto;
+  height: auto;
+  margin: auto !important;
+  max-width: 100%;
+  max-height: 100%;
 }
 
 .excalidraw-embed-overlay-root {

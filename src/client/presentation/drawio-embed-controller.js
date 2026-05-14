@@ -117,7 +117,6 @@ export class DrawioEmbedController {
     this.hydrationPaused = false;
     this.instanceCounter = 0;
     this.maximizedEntry = null;
-    this.maximizedRoot = null;
     this.overlayRoot = null;
 
     this._onMessage = this._onMessage.bind(this);
@@ -142,8 +141,6 @@ export class DrawioEmbedController {
     this.embedEntries.clear();
     this.overlayRoot?.remove();
     this.overlayRoot = null;
-    this.maximizedRoot?.remove();
-    this.maximizedRoot = null;
   }
 
   detachForCommit() {
@@ -153,9 +150,6 @@ export class DrawioEmbedController {
     this._exitMaximizedEntry();
     if (this.overlayRoot) {
       this.overlayRoot.hidden = true;
-    }
-    if (this.maximizedRoot) {
-      this.maximizedRoot.hidden = true;
     }
     this.embedEntries.forEach((entry) => {
       entry.queued = false;
@@ -420,13 +414,19 @@ export class DrawioEmbedController {
       lightbox: false,
       nav: false,
       resize: false,
-      toolbar: '',
       tooltips: false,
       xml: String(content ?? ''),
     });
 
-    entry.viewerElement.replaceChildren(graphElement);
+    const viewerHost = entry.wrapper.querySelector('.drawio-viewer-shell') ?? entry.viewerElement;
+    viewerHost.replaceChildren(graphElement);
     entry.viewerElement = graphElement;
+
+    if (typeof viewer.createViewerForElement === 'function') {
+      viewer.createViewerForElement(graphElement);
+      return;
+    }
+
     viewer.processElements();
   }
 
@@ -612,7 +612,9 @@ export class DrawioEmbedController {
       entry.wrapper.style.position = '';
       entry.wrapper.style.top = '';
       entry.wrapper.style.left = '';
-      entry.wrapper.style.width = '';
+      entry.wrapper.style.width = 'auto';
+      entry.wrapper.style.height = 'auto';
+      entry.wrapper.style.minHeight = '0';
       entry.wrapper.style.margin = '';
       return;
     }
@@ -669,23 +671,6 @@ export class DrawioEmbedController {
     return button;
   }
 
-  _ensureMaximizedRoot() {
-    if (this.maximizedRoot?.isConnected && this.maximizedRoot.parentElement === document.body) {
-      return this.maximizedRoot;
-    }
-
-    let maximizedRoot = document.body.querySelector('[data-drawio-maximized-root="true"]');
-    if (!maximizedRoot) {
-      maximizedRoot = document.createElement('div');
-      maximizedRoot.dataset.drawioMaximizedRoot = 'true';
-      maximizedRoot.className = 'drawio-maximized-root';
-      document.body.appendChild(maximizedRoot);
-    }
-
-    this.maximizedRoot = maximizedRoot;
-    return maximizedRoot;
-  }
-
   _enterMaximizedEntry(entry, wrapper = entry?.wrapper) {
     if (!entry?.wrapper || entry.wrapper !== wrapper) {
       return;
@@ -697,26 +682,22 @@ export class DrawioEmbedController {
 
     this._exitMaximizedEntry();
 
-    const maximizedRoot = this._ensureMaximizedRoot();
-    const parent = entry.wrapper.parentElement;
-    if (!parent) {
-      return;
+    if (entry.wrapper.parentElement) {
+      const spacer = document.createElement('div');
+      spacer.className = 'drawio-maximize-spacer';
+      spacer.style.height = `${Math.ceil(entry.wrapper.getBoundingClientRect().height)}px`;
+      entry.maximizeSpacer = spacer;
+      entry.wrapper.parentElement.insertBefore(spacer, entry.wrapper);
     }
 
-    const spacer = document.createElement('div');
-    spacer.className = 'drawio-maximize-spacer';
-    spacer.style.height = `${Math.ceil(entry.wrapper.getBoundingClientRect().height)}px`;
-
-    entry.maximizeSpacer = spacer;
-    entry.restoreParent = parent;
-    entry.restoreNextSibling = entry.wrapper.nextSibling || null;
-    parent.insertBefore(spacer, entry.wrapper);
-
-    maximizedRoot.hidden = false;
-    maximizedRoot.appendChild(entry.wrapper);
     entry.wrapper.classList.add('is-maximized');
+    entry.wrapper.dataset.drawioMaximized = 'true';
+    entry.wrapper.style.width = 'auto';
+    entry.wrapper.style.height = 'auto';
+    entry.wrapper.style.minHeight = '0';
     document.body.classList.add('drawio-maximized-open');
     this.maximizedEntry = entry;
+    this.overlayRoot?.classList.add('has-maximized-entry');
     this.syncEntryLayout(entry);
   }
 
@@ -728,17 +709,15 @@ export class DrawioEmbedController {
       return;
     }
 
-    const { maximizeSpacer, restoreNextSibling, restoreParent } = entry;
+    const { maximizeSpacer } = entry;
     entry.wrapper.classList.remove('is-maximized');
+    delete entry.wrapper.dataset.drawioMaximized;
+    entry.wrapper.style.width = '';
+    entry.wrapper.style.height = '';
+    entry.wrapper.style.minHeight = '';
 
     if (maximizeSpacer?.parentElement) {
-      maximizeSpacer.replaceWith(entry.wrapper);
-    } else if (restoreParent?.isConnected) {
-      if (restoreNextSibling?.parentElement === restoreParent) {
-        restoreParent.insertBefore(entry.wrapper, restoreNextSibling);
-      } else {
-        restoreParent.appendChild(entry.wrapper);
-      }
+      maximizeSpacer.remove();
     }
 
     entry.maximizeSpacer = null;
@@ -746,9 +725,7 @@ export class DrawioEmbedController {
     entry.restoreNextSibling = null;
     this.maximizedEntry = null;
     document.body.classList.remove('drawio-maximized-open');
-    if (this.maximizedRoot && this.maximizedRoot.childElementCount === 0) {
-      this.maximizedRoot.hidden = true;
-    }
+    this.overlayRoot?.classList.remove('has-maximized-entry');
     this.syncEntryLayout(entry);
   }
 
