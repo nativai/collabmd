@@ -10,8 +10,9 @@ export class PreviewRenderer {
   constructor({
     getContent,
     getFileList,
-    loadFileSource = null,
     getSourceFilePath,
+    getWikiLinkAutoCreate = null,
+    loadFileSource = null,
     onAfterRenderCommit,
     onBeforeRenderCommit,
     onPreviewLayoutChange,
@@ -20,11 +21,13 @@ export class PreviewRenderer {
     plantUmlRenderClient = null,
     previewContainer,
     previewElement,
+    toastController = null,
   }) {
     this.getContent = getContent;
     this.getFileList = getFileList;
-    this.loadFileSource = loadFileSource;
     this.getSourceFilePath = getSourceFilePath;
+    this.getWikiLinkAutoCreate = getWikiLinkAutoCreate;
+    this.loadFileSource = loadFileSource;
     this.onAfterRenderCommit = onAfterRenderCommit;
     this.onBeforeRenderCommit = onBeforeRenderCommit;
     this.onPreviewLayoutChange = onPreviewLayoutChange;
@@ -33,6 +36,7 @@ export class PreviewRenderer {
     this.plantUmlRenderClient = plantUmlRenderClient;
     this.previewContainer = previewContainer;
     this.previewElement = previewElement;
+    this.toastController = toastController;
     this.renderHost = null;
 
     this.pendingRenderVersion = 0;
@@ -94,6 +98,7 @@ export class PreviewRenderer {
       attachmentApiPath: resolveApiUrl('/attachment'),
       getFileList: () => this.getFileList?.() ?? [],
       getSourceFilePath: () => this.getSourceFilePath?.() ?? '',
+      getWikiLinkAutoCreate: () => this.getWikiLinkAutoCreate?.() ?? true,
       idleTimeoutMs: IDLE_RENDER_TIMEOUT_MS,
     });
 
@@ -128,7 +133,12 @@ export class PreviewRenderer {
     }
 
     Array.from(this.previewElement.children).forEach((child) => {
-      if (child === renderHost || child.dataset.excalidrawOverlayRoot === 'true' || child.dataset.videoOverlayRoot === 'true') {
+      if (
+        child === renderHost
+        || child.dataset.drawioOverlayRoot === 'true'
+        || child.dataset.excalidrawOverlayRoot === 'true'
+        || child.dataset.videoOverlayRoot === 'true'
+      ) {
         return;
       }
 

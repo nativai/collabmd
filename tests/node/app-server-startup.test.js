@@ -80,10 +80,9 @@ test('createAppServer rescans before workspace init and watcher startup', async 
   };
 
   let watcherSnapshot = null;
-  const originalStart = server.fileSystemSyncService.start.bind(server.fileSystemSyncService);
   server.fileSystemSyncService.start = async ({ snapshot = null } = {}) => {
     watcherSnapshot = snapshot;
-    return originalStart({ snapshot });
+    await server.fileSystemSyncService.resetForExternalStateChange({ snapshot });
   };
 
   const listenInfo = await server.listen();
@@ -140,6 +139,10 @@ test('createAppServer rebuilds backlinks if the workspace changes during startup
   server.backlinkIndex.build = async ({ workspaceState = null } = {}) => {
     backlinkSnapshots.push(workspaceState);
     return originalBuild({ workspaceState });
+  };
+
+  server.fileSystemSyncService.start = async ({ snapshot = null } = {}) => {
+    await server.fileSystemSyncService.resetForExternalStateChange({ snapshot });
   };
 
   await server.listen();

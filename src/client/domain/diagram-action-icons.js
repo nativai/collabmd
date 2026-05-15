@@ -1,8 +1,27 @@
 const DIAGRAM_ACTION_ICONS = {
+  copy: `
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M5.5 5.5h6.8v8h-6.8z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4"/>
+      <path d="M3.7 10.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v.7" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4"/>
+    </svg>
+  `,
+  download: `
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M8 2.2v7.2" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4"/>
+      <path d="M5.3 7.2 8 10l2.7-2.8" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4"/>
+      <path d="M3 12.8h10" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4"/>
+    </svg>
+  `,
   edit: `
     <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
       <path d="M11.8 1.8a1.5 1.5 0 0 1 2.1 2.1l-7.2 7.2-3.2.9.9-3.2z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4"/>
       <path d="M10.7 2.9l2.4 2.4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4"/>
+    </svg>
+  `,
+  fit: `
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M5.5 6.2V3H2.3M10.5 6.2V3h3.2M10.5 9.8V13h3.2M5.5 9.8V13H2.3" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4"/>
+      <path d="M5.5 6.2h5M5.5 9.8h5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4"/>
     </svg>
   `,
   maximize: `
@@ -32,10 +51,12 @@ export function setDiagramActionButtonIcon(button, iconName) {
   const markup = DIAGRAM_ACTION_ICONS[iconName];
   if (!markup) {
     button.classList.remove('is-icon-only');
+    button.classList.remove('ui-preview-action--icon-only');
     return;
   }
 
   button.classList.add('is-icon-only');
+  button.classList.add('ui-preview-action--icon-only');
   button.dataset.icon = iconName;
   button.innerHTML = markup.trim();
 }

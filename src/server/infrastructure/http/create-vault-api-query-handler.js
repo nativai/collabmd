@@ -1,5 +1,7 @@
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
+import { readdir } from 'node:fs/promises';
 import { basename } from 'node:path';
+import { join } from 'node:path';
 
 import {
   isBaseFilePath,
@@ -9,11 +11,14 @@ import {
   isMermaidFilePath,
   isPlantUmlFilePath,
 } from '../../../domain/file-kind.js';
+import { isIgnoredVaultEntry } from '../persistence/path-utils.js';
 import { parseJsonBody } from './request-body.js';
 import { jsonResponse, sendResponse, sendStreamResponse } from './http-response.js';
 
 const SVG_MIME_TYPE = 'image/svg+xml';
 const SVG_ATTACHMENT_CSP = "default-src 'none'; img-src 'self' data: blob:; style-src 'unsafe-inline'; sandbox";
+const DEFAULT_MAX_ARCHIVE_ENTRIES = 10_000;
+const DEFAULT_MAX_DOWNLOAD_FILE_BYTES = 268_435_456;
 
 function encodeContentDispositionFilename(fileName) {
   return encodeURIComponent(String(fileName ?? ''))
@@ -78,10 +83,11 @@ function selectReadOperation(vaultFileStore, filePath) {
 }
 
 async function streamDirectoryArchive(req, res, {
-  entries = [],
+  maxEntries = 10_000,
+  rootAbsolutePath = '',
   rootName = 'archive',
 } = {}) {
-  const archive = archiver('zip', {
+  const archive = new ZipArchive({
     zlib: {
       level: 6,
     },
@@ -99,22 +105,62 @@ async function streamDirectoryArchive(req, res, {
     stream: archive,
   });
 
-  for (const entry of entries) {
-    if (entry.type === 'directory') {
-      const directoryName = entry.path
-        ? `${rootName}/${entry.path}/`
-        : `${rootName}/`;
-      archive.append('', { name: directoryName });
-      continue;
+  let entryCount = 0;
+  const appendEntry = () => {
+    entryCount += 1;
+    if (entryCount > maxEntries) {
+      throw new Error(`Directory archive exceeds ${maxEntries} entries`);
     }
+  };
 
-    archive.file(entry.absolutePath, {
-      name: `${rootName}/${entry.path}`,
-    });
+  try {
+    const visitDirectory = async (directoryAbsolutePath, relativeDirectoryPath = '') => {
+      const dirEntries = (await readdir(directoryAbsolutePath, { withFileTypes: true }))
+        .filter((entry) => !isIgnoredVaultEntry(entry.name))
+        .sort((left, right) => {
+          if (left.isDirectory() && !right.isDirectory()) return -1;
+          if (!left.isDirectory() && right.isDirectory()) return 1;
+          return left.name.localeCompare(right.name, undefined, { sensitivity: 'base' });
+        });
+
+      if (dirEntries.length === 0) {
+        appendEntry();
+        archive.append('', {
+          name: relativeDirectoryPath ? `${rootName}/${relativeDirectoryPath}/` : `${rootName}/`,
+        });
+        return;
+      }
+
+      for (const entry of dirEntries) {
+        const childAbsolutePath = join(directoryAbsolutePath, entry.name);
+        const childRelativePath = relativeDirectoryPath
+          ? `${relativeDirectoryPath}/${entry.name}`
+          : entry.name;
+
+        if (entry.isDirectory()) {
+          await visitDirectory(childAbsolutePath, childRelativePath);
+          continue;
+        }
+
+        if (!entry.isFile()) {
+          continue;
+        }
+
+        appendEntry();
+        archive.file(childAbsolutePath, {
+          name: `${rootName}/${childRelativePath}`,
+        });
+      }
+    };
+
+    await visitDirectory(rootAbsolutePath);
+    await archive.finalize();
+    await responsePromise;
+  } catch (error) {
+    archive.destroy(error);
+    await responsePromise.catch(() => {});
+    throw error;
   }
-
-  await archive.finalize();
-  await responsePromise;
 }
 
 // --- Route handlers ---
@@ -257,7 +303,7 @@ async function handleFileRead(req, res, requestUrl, { vaultFileStore }) {
   }
 }
 
-async function handleFileDownload(req, res, requestUrl, { vaultFileStore }) {
+async function handleFileDownload(req, res, requestUrl, { config, vaultFileStore }) {
   const filePath = requestUrl.searchParams.get('path');
   if (!filePath) {
     jsonResponse(req, res, 400, { error: 'Missing path parameter' });
@@ -265,19 +311,25 @@ async function handleFileDownload(req, res, requestUrl, { vaultFileStore }) {
   }
 
   try {
-    const download = await vaultFileStore.readDownloadFile(filePath);
+    const download = await vaultFileStore.openDownloadFileStream(filePath, {
+      maxBytes: config.maxDownloadFileBytes ?? DEFAULT_MAX_DOWNLOAD_FILE_BYTES,
+    });
     if (!download) {
       jsonResponse(req, res, 404, { error: 'File not found' });
       return;
     }
+    if (download.error) {
+      jsonResponse(req, res, download.statusCode || 400, { error: download.error });
+      return;
+    }
 
-    sendResponse(req, res, {
-      body: download.content,
+    await sendStreamResponse(req, res, {
       headers: createDownloadHeaders(
         basename(String(download.path ?? 'download')),
         download.mimeType || 'application/octet-stream',
       ),
       statusCode: 200,
+      stream: download.stream,
     });
   } catch (error) {
     console.error('[api] Failed to download file:', error.message);
@@ -285,7 +337,7 @@ async function handleFileDownload(req, res, requestUrl, { vaultFileStore }) {
   }
 }
 
-async function handleDirectoryDownload(req, res, requestUrl, { vaultFileStore }) {
+async function handleDirectoryDownload(req, res, requestUrl, { config, vaultFileStore }) {
   const directoryPath = requestUrl.searchParams.get('path');
   if (!directoryPath) {
     jsonResponse(req, res, 400, { error: 'Missing path parameter' });
@@ -293,14 +345,23 @@ async function handleDirectoryDownload(req, res, requestUrl, { vaultFileStore })
   }
 
   try {
-    const result = await vaultFileStore.listDirectoryEntriesForDownload(directoryPath);
+    const result = await vaultFileStore.resolveDirectoryDownloadRoot(directoryPath);
     if (!result.ok) {
       jsonResponse(req, res, result.error === 'Directory not found' ? 404 : 400, { error: result.error });
       return;
     }
+    const maxArchiveEntries = config.maxArchiveEntries ?? DEFAULT_MAX_ARCHIVE_ENTRIES;
+    const entryCount = await vaultFileStore.countDirectoryDownloadEntries(result.absolute, {
+      maxEntries: maxArchiveEntries,
+    });
+    if (!entryCount.withinLimit) {
+      jsonResponse(req, res, 413, { error: `Directory archive exceeds ${maxArchiveEntries} entries` });
+      return;
+    }
 
     await streamDirectoryArchive(req, res, {
-      entries: result.entries,
+      maxEntries: maxArchiveEntries,
+      rootAbsolutePath: result.absolute,
       rootName: result.rootName || 'archive',
     });
   } catch (error) {
@@ -313,7 +374,7 @@ async function handleDirectoryDownload(req, res, requestUrl, { vaultFileStore })
   }
 }
 
-async function handleAttachmentRead(req, res, requestUrl, { vaultFileStore }) {
+async function handleAttachmentRead(req, res, requestUrl, { config, vaultFileStore }) {
   const filePath = requestUrl.searchParams.get('path');
   if (!filePath) {
     jsonResponse(req, res, 400, { error: 'Missing path parameter' });
@@ -326,16 +387,22 @@ async function handleAttachmentRead(req, res, requestUrl, { vaultFileStore }) {
   }
 
   try {
-    const attachment = await vaultFileStore.readImageAttachmentFile(filePath);
+    const attachment = await vaultFileStore.openImageAttachmentReadStream(filePath, {
+      maxBytes: config.maxDownloadFileBytes ?? DEFAULT_MAX_DOWNLOAD_FILE_BYTES,
+    });
     if (!attachment) {
       jsonResponse(req, res, 404, { error: 'Attachment not found' });
       return;
     }
+    if (attachment.error) {
+      jsonResponse(req, res, attachment.statusCode || 400, { error: attachment.error });
+      return;
+    }
 
-    sendResponse(req, res, {
-      body: attachment.content,
+    await sendStreamResponse(req, res, {
       headers: createAttachmentHeaders(attachment),
       statusCode: 200,
+      stream: attachment.stream,
     });
   } catch (error) {
     console.error('[api] Failed to read attachment:', error.message);
@@ -361,6 +428,39 @@ async function handleBacklinks(req, res, requestUrl, { backlinkIndex }) {
   }
 }
 
+async function handleSearch(req, res, requestUrl, { searchService }) {
+  if (!searchService?.search) {
+    jsonResponse(req, res, 503, {
+      error: 'Global text search is unavailable',
+      ok: false,
+      search: {
+        available: false,
+        backend: 'ripgrep',
+      },
+    });
+    return;
+  }
+
+  try {
+    const result = await searchService.search({
+      limit: requestUrl.searchParams.get('limit') || '',
+      query: requestUrl.searchParams.get('q') || '',
+    });
+    jsonResponse(req, res, 200, result);
+  } catch (error) {
+    const statusCode = Number(error?.statusCode) || 500;
+    console.error('[api] Failed to search vault:', error.message);
+    jsonResponse(req, res, statusCode, {
+      error: error.message || 'Failed to search vault',
+      ok: false,
+      search: error.search ?? searchService?.getClientConfig?.() ?? {
+        available: false,
+        backend: 'ripgrep',
+      },
+    });
+  }
+}
+
 // --- Route table ---
 
 function createRouteTable(context) {
@@ -375,6 +475,7 @@ function createRouteTable(context) {
     { method: 'GET', path: '/api/download/directory', handler: handleDirectoryDownload },
     { method: 'GET', path: '/api/attachment', handler: handleAttachmentRead },
     { method: 'GET', path: '/api/backlinks', handler: handleBacklinks },
+    { method: 'GET', path: '/api/search', handler: handleSearch },
   ].map((route) => ({
     ...route,
     handler: (req, res, requestUrl) => route.handler(req, res, requestUrl, context),
@@ -384,10 +485,19 @@ function createRouteTable(context) {
 export function createVaultApiQueryHandler({
   baseQueryService = null,
   backlinkIndex,
+  config = {},
+  searchService = null,
   vaultFileStore,
   workspaceMutationCoordinator = null,
 }) {
-  const context = { baseQueryService, backlinkIndex, vaultFileStore, workspaceMutationCoordinator };
+  const context = {
+    baseQueryService,
+    backlinkIndex,
+    config,
+    searchService,
+    vaultFileStore,
+    workspaceMutationCoordinator,
+  };
   const routes = createRouteTable(context);
 
   return async function handleVaultApiQuery(req, res, requestUrl) {

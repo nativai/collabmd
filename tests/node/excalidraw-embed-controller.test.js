@@ -3,6 +3,21 @@ import assert from 'node:assert/strict';
 
 import { ExcalidrawEmbedController } from '../../src/client/presentation/excalidraw-embed-controller.js';
 
+function createClassList() {
+  const values = new Set();
+  return {
+    add(value) {
+      values.add(value);
+    },
+    contains(value) {
+      return values.has(value);
+    },
+    remove(value) {
+      values.delete(value);
+    },
+  };
+}
+
 test('replays a queued follow target after the Excalidraw iframe reports ready', async () => {
   const originalWindow = globalThis.window;
   const posts = [];
@@ -73,6 +88,42 @@ test('replays a queued follow target after the Excalidraw iframe reports ready',
   }
 });
 
+test('forwards Excalidraw quick switcher requests from known same-origin iframe', () => {
+  const originalWindow = globalThis.window;
+  const iframeWindow = {};
+  let toggleCalls = 0;
+
+  globalThis.window = {
+    location: { origin: 'http://localhost:4173' },
+  };
+
+  try {
+    const controller = {
+      embedEntries: new Map([['sample-excalidraw.excalidraw#0', {
+        filePath: 'sample-excalidraw.excalidraw',
+        iframe: { contentWindow: iframeWindow },
+      }]]),
+      _findEntryByContentWindow: ExcalidrawEmbedController.prototype._findEntryByContentWindow,
+      onToggleQuickSwitcher: () => {
+        toggleCalls += 1;
+      },
+    };
+
+    ExcalidrawEmbedController.prototype._onMessage.call(controller, {
+      data: {
+        source: 'excalidraw-editor',
+        type: 'request-toggle-quick-switcher',
+      },
+      origin: 'http://localhost:4173',
+      source: iframeWindow,
+    });
+
+    assert.equal(toggleCalls, 1);
+  } finally {
+    globalThis.window = originalWindow;
+  }
+});
+
 test('persists follow intent even before the embed entry exists', async () => {
   const controller = {
     embedEntries: new Map(),
@@ -101,7 +152,6 @@ test('detachForCommit exits maximized mode before hiding overlay roots', () => {
     hydrationIdleId: null,
     hydrationInProgress: true,
     hydrationQueue: ['sample-excalidraw.excalidraw#0'],
-    maximizedRoot: { hidden: false },
     overlayRoot: { hidden: false },
   };
 
@@ -111,7 +161,6 @@ test('detachForCommit exits maximized mode before hiding overlay roots', () => {
   assert.equal(controller.hydrationInProgress, false);
   assert.deepEqual(controller.hydrationQueue, []);
   assert.equal(controller.overlayRoot.hidden, true);
-  assert.equal(controller.maximizedRoot.hidden, true);
   assert.equal(controller.embedEntries.get('sample-excalidraw.excalidraw#0').queued, false);
   assert.equal(controller.embedEntries.get('sample-excalidraw.excalidraw#0').placeholder, null);
 });
@@ -206,6 +255,287 @@ test('does not reload again while the iframe is already booting the desired file
   }, entry);
 
   assert.equal(needsReload, false);
+});
+
+test('does not hard reload a ready Excalidraw iframe for unchanged file and mode', () => {
+  const entry = {
+    filePath: 'sample-next.excalidraw',
+    iframe: { contentWindow: {} },
+    isReady: true,
+    key: 'sample-next.excalidraw#file-preview',
+    loadedFilePath: 'sample-next.excalidraw',
+    loadedMode: 'edit',
+    wrapper: {},
+  };
+
+  const needsReload = ExcalidrawEmbedController.prototype._entryNeedsHardReload.call({
+    _getEntryMode: ExcalidrawEmbedController.prototype._getEntryMode,
+    _isFilePreviewEntry: ExcalidrawEmbedController.prototype._isFilePreviewEntry,
+  }, entry);
+
+  assert.equal(needsReload, false);
+});
+
+test('Excalidraw layout sync preserves iframe src while updating placeholder geometry', () => {
+  let srcWrites = 0;
+  const iframe = {
+    offsetHeight: 500,
+    style: { height: '500px' },
+  };
+  Object.defineProperty(iframe, 'src', {
+    get() {
+      return 'http://localhost:4173/excalidraw-editor.html?file=diagram.excalidraw';
+    },
+    set() {
+      srcWrites += 1;
+    },
+  });
+
+  const placeholder = {
+    classList: createClassList(),
+    dataset: {},
+    isConnected: true,
+    offsetLeft: 30,
+    offsetTop: 18,
+    offsetWidth: 720,
+    style: {},
+  };
+  const wrapper = {
+    classList: createClassList(),
+    querySelector(selector) {
+      if (selector === '.excalidraw-embed-header') {
+        return { offsetHeight: 44 };
+      }
+      if (selector === '.excalidraw-embed-resizer') {
+        return { offsetHeight: 6 };
+      }
+      return null;
+    },
+    style: {},
+  };
+  const entry = {
+    filePath: 'diagram.excalidraw',
+    iframe,
+    key: 'diagram.excalidraw#0',
+    placeholder,
+    wrapper,
+  };
+  const controller = {
+    embedEntries: new Map([[entry.key, entry]]),
+    previewElement: { querySelector: () => null },
+    _isFilePreviewEntry: ExcalidrawEmbedController.prototype._isFilePreviewEntry,
+    _shouldInlineFilePreview: ExcalidrawEmbedController.prototype._shouldInlineFilePreview,
+    _syncEntryLayout: ExcalidrawEmbedController.prototype._syncEntryLayout,
+  };
+
+  ExcalidrawEmbedController.prototype.syncLayout.call(controller);
+
+  assert.equal(srcWrites, 0);
+  assert.equal(placeholder.style.height, '550px');
+  assert.equal(wrapper.style.position, 'absolute');
+  assert.equal(wrapper.style.width, '720px');
+});
+
+test('Excalidraw embedded height resize updates height without recreating iframe', () => {
+  const originalDocument = globalThis.document;
+  const listeners = new Map();
+  let resizeEndCalls = 0;
+  let srcWrites = 0;
+  const resizer = {
+    addEventListener(type, handler) {
+      listeners.set(type, handler);
+    },
+  };
+  const iframe = {
+    offsetHeight: 420,
+    style: {},
+  };
+  Object.defineProperty(iframe, 'src', {
+    get() {
+      return 'http://localhost:4173/excalidraw-editor.html?file=diagram.excalidraw';
+    },
+    set() {
+      srcWrites += 1;
+    },
+  });
+
+  globalThis.document = {
+    addEventListener(type, handler) {
+      listeners.set(type, handler);
+    },
+    removeEventListener(type, handler) {
+      if (listeners.get(type) === handler) {
+        listeners.delete(type);
+      }
+    },
+  };
+
+  try {
+    ExcalidrawEmbedController.prototype._setupResizer.call(
+      {},
+      resizer,
+      iframe,
+      () => {
+        resizeEndCalls += 1;
+      },
+    );
+
+    listeners.get('pointerdown')({
+      clientY: 100,
+      preventDefault() {},
+    });
+    listeners.get('pointermove')({ clientY: 150 });
+    listeners.get('pointerup')();
+
+    assert.equal(srcWrites, 0);
+    assert.equal(iframe.style.height, '470px');
+    assert.equal(iframe.style.pointerEvents, '');
+    assert.equal(resizeEndCalls, 1);
+  } finally {
+    globalThis.document = originalDocument;
+  }
+});
+
+test('Excalidraw maximize keeps the iframe wrapper mounted in place', () => {
+  let srcWrites = 0;
+  const iframe = {};
+  Object.defineProperty(iframe, 'src', {
+    get() {
+      return 'http://localhost:4173/excalidraw-editor.html?file=diagram.excalidraw';
+    },
+    set() {
+      srcWrites += 1;
+    },
+  });
+
+  const parent = {
+    appendChild() {
+      throw new Error('maximize should not reparent the wrapper');
+    },
+    insertBefore() {
+      throw new Error('embedded maximize should not insert a replacement node');
+    },
+  };
+  const overlayClassList = createClassList();
+  const wrapper = {
+    dataset: {},
+    parentElement: parent,
+    style: {},
+  };
+  const entry = {
+    filePath: 'diagram.excalidraw',
+    iframe,
+    key: 'diagram.excalidraw#0',
+    wrapper,
+  };
+  const controller = {
+    overlayRoot: { classList: overlayClassList },
+    _shouldInlineFilePreview: ExcalidrawEmbedController.prototype._shouldInlineFilePreview,
+    _isFilePreviewEntry: ExcalidrawEmbedController.prototype._isFilePreviewEntry,
+  };
+
+  ExcalidrawEmbedController.prototype._enterMaximizedEntryLayout.call(controller, entry);
+
+  assert.equal(wrapper.parentElement, parent);
+  assert.equal(srcWrites, 0);
+  assert.equal(wrapper.dataset.excalidrawMaximized, 'true');
+  assert.equal(wrapper.style.width, 'auto');
+  assert.equal(wrapper.style.height, 'auto');
+  assert.equal(wrapper.style.minHeight, '0');
+  assert.equal(overlayClassList.contains('has-maximized-entry'), true);
+
+  ExcalidrawEmbedController.prototype._restoreMaximizedEntryLayout.call(controller, entry);
+
+  assert.equal(wrapper.parentElement, parent);
+  assert.equal(srcWrites, 0);
+  assert.equal(wrapper.dataset.excalidrawMaximized, undefined);
+  assert.equal(wrapper.style.width, '');
+  assert.equal(wrapper.style.height, '');
+  assert.equal(wrapper.style.minHeight, '');
+  assert.equal(overlayClassList.contains('has-maximized-entry'), false);
+});
+
+test('Excalidraw preview viewport fit request posts without reloading iframe', () => {
+  const originalWindow = globalThis.window;
+  const posts = [];
+  let srcWrites = 0;
+  const iframe = {
+    contentWindow: {
+      postMessage(payload, origin) {
+        posts.push({ origin, payload });
+      },
+    },
+  };
+  Object.defineProperty(iframe, 'src', {
+    get() {
+      return 'http://localhost:4173/excalidraw-editor.html?file=diagram.excalidraw&mode=preview';
+    },
+    set() {
+      srcWrites += 1;
+    },
+  });
+
+  globalThis.window = {
+    location: { origin: 'http://localhost:4173' },
+  };
+
+  try {
+    const controller = {
+      _isFilePreviewEntry: ExcalidrawEmbedController.prototype._isFilePreviewEntry,
+      _postMessageToEntry: ExcalidrawEmbedController.prototype._postMessageToEntry,
+    };
+    const entry = {
+      filePath: 'diagram.excalidraw',
+      iframe,
+      key: 'diagram.excalidraw#0',
+    };
+
+    ExcalidrawEmbedController.prototype._requestPreviewViewportFit.call(controller, entry);
+
+    assert.equal(srcWrites, 0);
+    assert.deepEqual(posts, [{
+      origin: 'http://localhost:4173',
+      payload: {
+        source: 'collabmd-host',
+        type: 'fit-preview-viewport',
+      },
+    }]);
+  } finally {
+    globalThis.window = originalWindow;
+  }
+});
+
+test('Excalidraw direct file preview skips preview viewport fit requests', () => {
+  const originalWindow = globalThis.window;
+  const posts = [];
+  const iframe = {
+    contentWindow: {
+      postMessage(payload, origin) {
+        posts.push({ origin, payload });
+      },
+    },
+  };
+
+  globalThis.window = {
+    location: { origin: 'http://localhost:4173' },
+  };
+
+  try {
+    const controller = {
+      _isFilePreviewEntry: ExcalidrawEmbedController.prototype._isFilePreviewEntry,
+      _postMessageToEntry: ExcalidrawEmbedController.prototype._postMessageToEntry,
+    };
+
+    ExcalidrawEmbedController.prototype._requestPreviewViewportFit.call(controller, {
+      filePath: 'diagram.excalidraw',
+      iframe,
+      key: 'diagram.excalidraw#file-preview',
+    });
+
+    assert.deepEqual(posts, []);
+  } finally {
+    globalThis.window = originalWindow;
+  }
 });
 
 test('hydrate reloads a reused direct-preview iframe when switching files', async () => {

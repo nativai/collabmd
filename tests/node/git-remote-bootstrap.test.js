@@ -240,6 +240,7 @@ test('server can start against a freshly bootstrapped vault and serve cloned fil
   });
 
   await prepareConfigForStartup(config);
+  config.fileWatcherEnabled = false;
   config.host = '127.0.0.1';
   config.port = 0;
   server = createAppServer(config);

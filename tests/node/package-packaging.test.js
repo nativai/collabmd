@@ -172,3 +172,13 @@ test('packed tarball can run the CLI help path and includes valid runtime helper
     await artifact.cleanup();
   }
 });
+
+test('Dockerfile and README document ripgrep for global text search', async () => {
+  const dockerfile = await readFile(resolve(rootDir, 'Dockerfile'), 'utf8');
+  const readme = await readFile(resolve(rootDir, 'README.md'), 'utf8');
+
+  assert.match(dockerfile, /apk add --no-cache[^\n]*\bripgrep\b/u);
+  assert.match(readme, /\bripgrep\b/u);
+  assert.match(readme, /Global text search/i);
+  assert.match(readme, /brew install ripgrep/u);
+});

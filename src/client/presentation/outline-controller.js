@@ -109,10 +109,7 @@ export class OutlineController {
     this.navigation.querySelectorAll('.outline-item').forEach((button) => {
       button.addEventListener('click', () => {
         const target = document.getElementById(button.dataset.target);
-        this.pinnedHeadingId = button.dataset.target;
-        this.notifyHeadingNavigation(target, button.dataset.target);
-        this.scrollHeadingIntoView(target, { behavior: 'auto' });
-        this.setActiveItem(button.dataset.target, { behavior: 'auto' });
+        this.navigateToHeading(target, button.dataset.target, { behavior: 'auto' });
 
         if (this.mobileBreakpointQuery.matches) {
           this.close();
@@ -123,7 +120,7 @@ export class OutlineController {
     this.observeHeadings(Array.from(headings));
   }
 
-  cleanup() {
+  cleanup({ preservePinnedHeading = false } = {}) {
     if (this.activeHeadingFrame) {
       cancelAnimationFrame(this.activeHeadingFrame);
       this.activeHeadingFrame = null;
@@ -131,7 +128,9 @@ export class OutlineController {
 
     this.previewContainer?.removeEventListener('scroll', this.handlePreviewScroll);
     this.headings = [];
-    this.pinnedHeadingId = null;
+    if (!preservePinnedHeading) {
+      this.pinnedHeadingId = null;
+    }
   }
 
   setActiveItem(id, { scrollIntoView = true, behavior = 'smooth' } = {}) {
@@ -150,7 +149,7 @@ export class OutlineController {
   }
 
   observeHeadings(headings) {
-    this.cleanup();
+    this.cleanup({ preservePinnedHeading: true });
 
     if (!this.previewContainer || headings.length === 0) {
       return;
@@ -158,6 +157,16 @@ export class OutlineController {
 
     this.headings = headings;
     this.previewContainer.addEventListener('scroll', this.handlePreviewScroll, { passive: true });
+
+    const pinnedHeading = this.getPinnedHeading();
+    if (pinnedHeading) {
+      this.setActiveItem(pinnedHeading.id, {
+        behavior: 'auto',
+        scrollIntoView: true,
+      });
+      return;
+    }
+
     this.updateActiveHeading();
   }
 
@@ -245,6 +254,18 @@ export class OutlineController {
       headingId,
       sourceLine: Number.isFinite(sourceLine) ? sourceLine : null,
     });
+  }
+
+  navigateToHeading(target, headingId, { behavior = 'auto' } = {}) {
+    if (!target || !headingId) {
+      return false;
+    }
+
+    this.pinnedHeadingId = headingId;
+    this.notifyHeadingNavigation(target, headingId);
+    this.scrollHeadingIntoView(target, { behavior });
+    this.setActiveItem(headingId, { behavior });
+    return true;
   }
 
   scrollHeadingIntoView(target, { behavior = 'smooth' } = {}) {

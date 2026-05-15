@@ -3,23 +3,33 @@ import assert from 'node:assert/strict';
 
 import { QuickSwitcherController } from '../../src/client/presentation/quick-switcher-controller.js';
 
-function createElementStub() {
+function createElementStub({ dataset = {} } = {}) {
+  const listeners = new Map();
+
   return {
-    addEventListener() {},
+    addEventListener(type, handler) {
+      listeners.set(type, handler);
+    },
     classList: {
       add() {},
       remove() {},
       toggle() {},
     },
+    dataset,
+    dispatchEvent(event) {
+      listeners.get(event.type)?.(event);
+    },
     innerHTML: '',
     querySelectorAll() {
       return [];
     },
+    setAttribute() {},
+    textContent: '',
     value: '',
   };
 }
 
-function installDocumentStub(t) {
+function installDocumentStub(t, { modeTabs = [] } = {}) {
   const elements = new Map([
     ['quickSwitcher', createElementStub()],
     ['quickSwitcherHint', createElementStub()],
@@ -32,6 +42,13 @@ function installDocumentStub(t) {
     activeElement: null,
     getElementById(id) {
       return elements.get(id) ?? null;
+    },
+    querySelectorAll(selector) {
+      if (selector === '[data-qs-mode]') {
+        return modeTabs;
+      }
+
+      return [];
     },
   };
   t.after(() => {
@@ -74,4 +91,158 @@ test('QuickSwitcherController keeps a bounded top-12 result set and rebuilds cor
   controller.input.value = 'special';
   controller.filterFiles();
   assert.deepEqual(controller.filteredFiles, ['archive/guide-special.md']);
+});
+
+test('QuickSwitcherController shows unavailable text search when ripgrep is missing', (t) => {
+  const elements = installDocumentStub(t);
+
+  const controller = new QuickSwitcherController({
+    getFileList: () => ['README.md'],
+    getSearchConfig: () => ({ available: false, minQueryLength: 2 }),
+    onFileSelect() {},
+    searchText: async () => {
+      throw new Error('should not search without ripgrep');
+    },
+  });
+
+  controller.input = elements.get('quickSwitcherInput');
+  controller.hint = elements.get('quickSwitcherHint');
+  controller.resultsList = elements.get('quickSwitcherResults');
+
+  controller.input.value = 'needle';
+  controller.setMode('text', { preserveInput: true });
+
+  assert.match(controller.hint.textContent, /requires ripgrep/i);
+});
+
+test('QuickSwitcherController preserves the query when switching search modes', (t) => {
+  const textTab = createElementStub({ dataset: { qsMode: 'text' } });
+  const elements = installDocumentStub(t, { modeTabs: [textTab] });
+
+  const controller = new QuickSwitcherController({
+    getFileList: () => ['README.md'],
+    getSearchConfig: () => ({ available: false, minQueryLength: 2 }),
+    onFileSelect() {},
+  });
+
+  controller.input = elements.get('quickSwitcherInput');
+  controller.input.value = 'needle';
+
+  textTab.dispatchEvent({ type: 'click' });
+
+  assert.equal(controller.mode, 'text');
+  assert.equal(controller.input.value, 'needle');
+});
+
+test('QuickSwitcherController ignores text search results after close', async (t) => {
+  const elements = installDocumentStub(t);
+  let resolveSearch;
+  let markSearchStarted;
+  const searchStarted = new Promise((resolve) => {
+    markSearchStarted = resolve;
+  });
+  const searchResult = new Promise((resolve) => {
+    resolveSearch = resolve;
+  });
+  let rendered = false;
+
+  const controller = new QuickSwitcherController({
+    getFileList: () => ['README.md'],
+    getSearchConfig: () => ({ available: true, minQueryLength: 2 }),
+    onFileSelect() {},
+    searchDebounceMs: 0,
+    searchText: async () => {
+      markSearchStarted();
+      return searchResult;
+    },
+  });
+
+  controller.input = elements.get('quickSwitcherInput');
+  controller.hint = elements.get('quickSwitcherHint');
+  controller.overlay = elements.get('quickSwitcher');
+  controller.resultsList = elements.get('quickSwitcherResults');
+  controller.renderTextResults = () => {
+    rendered = true;
+  };
+
+  controller.isOpen = true;
+  controller.input.value = 'needle';
+  controller.setMode('text', { preserveInput: true });
+  await searchStarted;
+
+  controller.close();
+  resolveSearch({
+    files: [{
+      file: 'README.md',
+      kind: 'markdown',
+      matchCount: 1,
+      snippets: [{
+        column: 1,
+        line: 1,
+        matchEnd: 6,
+        matchStart: 0,
+        text: 'needle',
+      }],
+    }],
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(rendered, false);
+});
+
+test('QuickSwitcherController confirms text search matches with navigation payload', async (t) => {
+  const elements = installDocumentStub(t);
+  let selectedMatch = null;
+
+  const controller = new QuickSwitcherController({
+    getFileList: () => ['README.md'],
+    getSearchConfig: () => ({ available: true, minQueryLength: 2 }),
+    onFileSelect() {},
+    onTextMatchSelect(match) {
+      selectedMatch = match;
+    },
+    searchDebounceMs: 0,
+    searchText: async () => ({
+      files: [{
+        file: 'diagram.drawio',
+        kind: 'drawio',
+        matchCount: 1,
+        snippets: [{
+          column: 4,
+          line: 7,
+          matchEnd: 9,
+          matchStart: 3,
+          text: 'abcneedle',
+        }],
+      }],
+    }),
+  });
+
+  controller.input = elements.get('quickSwitcherInput');
+  controller.hint = elements.get('quickSwitcherHint');
+  controller.overlay = elements.get('quickSwitcher');
+  controller.resultsList = elements.get('quickSwitcherResults');
+
+  controller.isOpen = true;
+  controller.input.value = 'needle';
+  controller.setMode('text', { preserveInput: true });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  controller.confirmSelection();
+
+  assert.deepEqual(selectedMatch, {
+    column: 4,
+    file: 'diagram.drawio',
+    kind: 'drawio',
+    line: 7,
+    matchLength: 6,
+    snippet: {
+      column: 4,
+      line: 7,
+      matchEnd: 9,
+      matchStart: 3,
+      text: 'abcneedle',
+    },
+  });
 });

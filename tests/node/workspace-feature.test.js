@@ -227,3 +227,27 @@ test('workspaceFeature keeps non-preview layout requests local for draw.io text 
   assert.equal(workspaceFeature.handleLayoutViewRequest.call(app, 'editor'), true);
   assert.equal(workspaceFeature.handleLayoutViewRequest.call(app, 'split'), true);
 });
+
+test('workspaceFeature forwards file selection reveal intent to the route controller', () => {
+  const events = [];
+  const app = {
+    workspaceRouteController: {
+      handleFileSelection(filePath, options) {
+        events.push([filePath, options]);
+      },
+    },
+  };
+
+  workspaceFeature.handleFileSelection.call(app, 'docs/guide.md', {
+    closeSidebarOnMobile: true,
+    revealInTree: true,
+  });
+
+  assert.deepEqual(events, [[
+    'docs/guide.md',
+    {
+      closeSidebarOnMobile: true,
+      revealInTree: true,
+    },
+  ]]);
+});

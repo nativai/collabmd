@@ -40,6 +40,10 @@ export function clampImageLightboxOffset(offset, {
   return Math.min(Math.max(numericOffset, -overflow), overflow);
 }
 
+export function isImageLightboxWheelZoomGesture(event) {
+  return Boolean(event?.ctrlKey);
+}
+
 export class ImageLightboxController {
   constructor({
     previewElement,
@@ -63,6 +67,13 @@ export class ImageLightboxController {
     this.dragStartY = 0;
     this.dragOriginX = 0;
     this.dragOriginY = 0;
+    this.touchPointers = new Map();
+    this.pinchPointerIds = [];
+    this.pinchStartDistance = 0;
+    this.pinchStartScale = MIN_SCALE;
+    this.pinchStartOffsetX = 0;
+    this.pinchStartOffsetY = 0;
+    this.pinchStartCenter = { x: 0, y: 0 };
     this.didDrag = false;
     this.resetButton = null;
 
@@ -167,7 +178,10 @@ export class ImageLightboxController {
       return;
     }
 
-    this.activePointerId = null;
+    this.stopDrag();
+    this.touchPointers.clear();
+    this.pinchPointerIds = [];
+    this.pinchStartDistance = 0;
     this.didDrag = false;
     this.viewport?.classList?.remove('is-dragging');
     if (this.overlayRoot) {
@@ -192,6 +206,201 @@ export class ImageLightboxController {
     this.scale = clampImageLightboxScale(nextScale);
     this.clampOffsets();
     this.syncTransform();
+  }
+
+  capturePointer(pointerId) {
+    try {
+      this.viewport?.setPointerCapture?.(pointerId);
+    } catch {
+      // Synthetic tests may not have an active browser pointer to capture.
+    }
+  }
+
+  releasePointer(pointerId) {
+    try {
+      this.viewport?.releasePointerCapture?.(pointerId);
+    } catch {
+      // Ignore release failures when the pointer is already gone.
+    }
+  }
+
+  getViewportPointFromClient(clientX, clientY) {
+    if (!this.viewport) {
+      return { x: 0, y: 0 };
+    }
+
+    const rect = this.viewport.getBoundingClientRect();
+    return {
+      x: Number(clientX) - rect.left - (rect.width / 2),
+      y: Number(clientY) - rect.top - (rect.height / 2),
+    };
+  }
+
+  setScaleAroundViewportPoint(nextScale, viewportPoint, {
+    originScale = this.scale,
+    originOffsetX = this.offsetX,
+    originOffsetY = this.offsetY,
+    targetViewportPoint = viewportPoint,
+  } = {}) {
+    const clampedScale = clampImageLightboxScale(nextScale);
+    const safeOriginScale = Number(originScale) > 0 ? Number(originScale) : MIN_SCALE;
+    const originPointX = Number.isFinite(viewportPoint?.x) ? viewportPoint.x : 0;
+    const originPointY = Number.isFinite(viewportPoint?.y) ? viewportPoint.y : 0;
+    const targetPointX = Number.isFinite(targetViewportPoint?.x) ? targetViewportPoint.x : originPointX;
+    const targetPointY = Number.isFinite(targetViewportPoint?.y) ? targetViewportPoint.y : originPointY;
+
+    this.scale = clampedScale;
+    this.offsetX = targetPointX - (((originPointX - originOffsetX) / safeOriginScale) * clampedScale);
+    this.offsetY = targetPointY - (((originPointY - originOffsetY) / safeOriginScale) * clampedScale);
+    this.clampOffsets();
+    this.syncTransform();
+  }
+
+  startDrag(pointerId, clientX, clientY) {
+    if (!this.viewport || this.scale <= MIN_SCALE) {
+      return false;
+    }
+
+    this.activePointerId = pointerId;
+    this.dragStartX = clientX;
+    this.dragStartY = clientY;
+    this.dragOriginX = this.offsetX;
+    this.dragOriginY = this.offsetY;
+    this.viewport.classList.add('is-dragging');
+    this.capturePointer(pointerId);
+    return true;
+  }
+
+  stopDrag(pointerId = this.activePointerId) {
+    if (pointerId === this.activePointerId) {
+      this.activePointerId = null;
+    }
+
+    this.viewport?.classList?.remove('is-dragging');
+    if (pointerId !== null) {
+      this.releasePointer(pointerId);
+    }
+    if (this.imageElement) {
+      this.imageElement.style.cursor = this.scale > MIN_SCALE ? 'grab' : 'zoom-in';
+    }
+  }
+
+  updateDrag(pointerId, clientX, clientY) {
+    if (!this.isOpen || this.activePointerId !== pointerId) {
+      return false;
+    }
+
+    if (
+      !this.didDrag
+      && (Math.abs(clientX - this.dragStartX) >= DRAG_THRESHOLD_PX
+        || Math.abs(clientY - this.dragStartY) >= DRAG_THRESHOLD_PX)
+    ) {
+      this.didDrag = true;
+    }
+
+    this.offsetX = this.dragOriginX + (clientX - this.dragStartX);
+    this.offsetY = this.dragOriginY + (clientY - this.dragStartY);
+    this.clampOffsets();
+    this.syncTransform();
+    return true;
+  }
+
+  getTrackedTouchPointers() {
+    return Array.from(this.touchPointers.values());
+  }
+
+  getActivePinchPointers() {
+    if (this.pinchPointerIds.length === 2) {
+      const pinchPointers = this.pinchPointerIds
+        .map((pointerId) => this.touchPointers.get(pointerId))
+        .filter(Boolean);
+      if (pinchPointers.length === 2) {
+        return pinchPointers;
+      }
+    }
+
+    return this.getTrackedTouchPointers().slice(0, 2);
+  }
+
+  startPinchGesture() {
+    const [firstPointer, secondPointer] = this.getActivePinchPointers();
+    if (!firstPointer || !secondPointer) {
+      return false;
+    }
+
+    this.stopDrag();
+    this.pinchPointerIds = [firstPointer.pointerId, secondPointer.pointerId];
+    this.pinchStartDistance = Math.hypot(
+      secondPointer.clientX - firstPointer.clientX,
+      secondPointer.clientY - firstPointer.clientY,
+    ) || 1;
+    this.pinchStartScale = this.scale;
+    this.pinchStartOffsetX = this.offsetX;
+    this.pinchStartOffsetY = this.offsetY;
+    const startCenter = this.getViewportPointFromClient(
+      (firstPointer.clientX + secondPointer.clientX) / 2,
+      (firstPointer.clientY + secondPointer.clientY) / 2,
+    );
+    this.pinchStartCenter = startCenter;
+    return true;
+  }
+
+  updatePinchGesture() {
+    const [firstPointer, secondPointer] = this.getActivePinchPointers();
+    if (!firstPointer || !secondPointer) {
+      return false;
+    }
+
+    const currentDistance = Math.hypot(
+      secondPointer.clientX - firstPointer.clientX,
+      secondPointer.clientY - firstPointer.clientY,
+    );
+    if (!Number.isFinite(currentDistance) || currentDistance <= 0) {
+      return false;
+    }
+
+    const currentCenter = this.getViewportPointFromClient(
+      (firstPointer.clientX + secondPointer.clientX) / 2,
+      (firstPointer.clientY + secondPointer.clientY) / 2,
+    );
+    const nextScale = this.pinchStartScale * (currentDistance / this.pinchStartDistance);
+    this.setScaleAroundViewportPoint(nextScale, this.pinchStartCenter, {
+      originScale: this.pinchStartScale,
+      originOffsetX: this.pinchStartOffsetX,
+      originOffsetY: this.pinchStartOffsetY,
+      targetViewportPoint: currentCenter,
+    });
+
+    if (
+      !this.didDrag
+      && (
+        Math.abs(currentDistance - this.pinchStartDistance) >= DRAG_THRESHOLD_PX
+        || Math.abs(currentCenter.x - this.pinchStartCenter.x) >= DRAG_THRESHOLD_PX
+        || Math.abs(currentCenter.y - this.pinchStartCenter.y) >= DRAG_THRESHOLD_PX
+      )
+    ) {
+      this.didDrag = true;
+    }
+
+    return true;
+  }
+
+  syncTouchGestureAfterPointerChange() {
+    if (this.touchPointers.size >= 2) {
+      this.startPinchGesture();
+      return;
+    }
+
+    this.pinchPointerIds = [];
+    this.pinchStartDistance = 0;
+
+    if (this.touchPointers.size === 1 && this.scale > MIN_SCALE) {
+      const [remainingPointer] = this.getTrackedTouchPointers();
+      this.startDrag(remainingPointer.pointerId, remainingPointer.clientX, remainingPointer.clientY);
+      return;
+    }
+
+    this.stopDrag();
   }
 
   clampOffsets() {
@@ -267,13 +476,15 @@ export class ImageLightboxController {
     const controls = this.document.createElement('div');
     controls.className = 'image-lightbox-controls';
 
+    const zoomOutButton = this.createControlButton('-', 'Zoom out', () => this.zoomBy(-ZOOM_STEP));
     const zoomLabel = this.document.createElement('span');
     zoomLabel.className = 'image-lightbox-zoom-label';
     zoomLabel.textContent = '100%';
+    const zoomInButton = this.createControlButton('+', 'Zoom in', () => this.zoomBy(ZOOM_STEP));
     const resetButton = this.createControlButton('Reset', 'Reset zoom and position', () => this.resetView());
     const closeButton = this.createControlButton('Close', 'Close image preview', () => this.close());
 
-    controls.append(zoomLabel, resetButton, closeButton);
+    controls.append(zoomOutButton, zoomLabel, zoomInButton, resetButton, closeButton);
     toolbar.append(title, controls);
 
     const viewport = this.document.createElement('div');
@@ -292,58 +503,108 @@ export class ImageLightboxController {
         return;
       }
 
-      event.preventDefault();
-      this.zoomBy(event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
-    }, { passive: false });
-
-    viewport.addEventListener('pointerdown', (event) => {
-      if (!this.isOpen || this.scale <= MIN_SCALE || event.button !== 0) {
+      if (isImageLightboxWheelZoomGesture(event)) {
+        event.preventDefault();
+        this.zoomBy(event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
         return;
       }
 
-      this.activePointerId = event.pointerId;
-      this.dragStartX = event.clientX;
-      this.dragStartY = event.clientY;
-      this.dragOriginX = this.offsetX;
-      this.dragOriginY = this.offsetY;
+      if (this.scale <= MIN_SCALE) {
+        return;
+      }
+
+      const deltaX = Number.isFinite(event.deltaX) ? event.deltaX : 0;
+      const deltaY = Number.isFinite(event.deltaY) ? event.deltaY : 0;
+      if (deltaX === 0 && deltaY === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      this.offsetX -= deltaX;
+      this.offsetY -= deltaY;
+      this.clampOffsets();
+      this.syncTransform();
+    }, { passive: false });
+
+    viewport.addEventListener('pointerdown', (event) => {
+      if (!this.isOpen) {
+        return;
+      }
+
+      if (event.pointerType === 'touch') {
+        if (this.touchPointers.size === 0) {
+          this.didDrag = false;
+        }
+        this.touchPointers.set(event.pointerId, {
+          clientX: event.clientX,
+          clientY: event.clientY,
+          pointerId: event.pointerId,
+        });
+        this.capturePointer(event.pointerId);
+        this.syncTouchGestureAfterPointerChange();
+        if (this.touchPointers.size > 1 || this.scale > MIN_SCALE) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      if (this.scale <= MIN_SCALE || event.button !== 0) {
+        return;
+      }
+
       this.didDrag = false;
-      viewport.classList.add('is-dragging');
-      viewport.setPointerCapture?.(event.pointerId);
+      this.startDrag(event.pointerId, event.clientX, event.clientY);
       event.preventDefault();
     });
 
     viewport.addEventListener('pointermove', (event) => {
-      if (!this.isOpen || this.activePointerId !== event.pointerId) {
+      if (!this.isOpen) {
         return;
       }
 
-      if (
-        !this.didDrag
-        && (Math.abs(event.clientX - this.dragStartX) >= DRAG_THRESHOLD_PX
-          || Math.abs(event.clientY - this.dragStartY) >= DRAG_THRESHOLD_PX)
-      ) {
-        this.didDrag = true;
+      if (event.pointerType === 'touch' && this.touchPointers.has(event.pointerId)) {
+        this.touchPointers.set(event.pointerId, {
+          clientX: event.clientX,
+          clientY: event.clientY,
+          pointerId: event.pointerId,
+        });
+
+        if (this.touchPointers.size >= 2) {
+          this.updatePinchGesture();
+          event.preventDefault();
+          return;
+        }
+
+        if (this.updateDrag(event.pointerId, event.clientX, event.clientY)) {
+          event.preventDefault();
+        }
+        return;
       }
 
-      this.offsetX = this.dragOriginX + (event.clientX - this.dragStartX);
-      this.offsetY = this.dragOriginY + (event.clientY - this.dragStartY);
-      this.clampOffsets();
-      this.syncTransform();
+      this.updateDrag(event.pointerId, event.clientX, event.clientY);
     });
 
-    const finishDrag = (event) => {
+    const finishPointerGesture = (event) => {
+      if (event.pointerType === 'touch') {
+        this.touchPointers.delete(event.pointerId);
+        this.releasePointer(event.pointerId);
+        if (this.activePointerId === event.pointerId) {
+          this.stopDrag(event.pointerId);
+        }
+        this.syncTouchGestureAfterPointerChange();
+        return;
+      }
+
       if (this.activePointerId !== event.pointerId) {
         return;
       }
 
-      this.activePointerId = null;
-      viewport.classList.remove('is-dragging');
-      viewport.releasePointerCapture?.(event.pointerId);
-      this.imageElement.style.cursor = this.scale > MIN_SCALE ? 'grab' : 'zoom-in';
+      this.stopDrag(event.pointerId);
     };
 
-    viewport.addEventListener('pointerup', finishDrag);
-    viewport.addEventListener('pointercancel', finishDrag);
+    viewport.addEventListener('pointerup', finishPointerGesture);
+    viewport.addEventListener('pointercancel', finishPointerGesture);
+    viewport.addEventListener('lostpointercapture', finishPointerGesture);
     image.addEventListener('click', (event) => {
       if (!this.isOpen) {
         return;

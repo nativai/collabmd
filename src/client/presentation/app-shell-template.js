@@ -109,7 +109,14 @@ export function appShellTemplate() {
             </button>
             <div class="toolbar-room-info">
               <span class="toolbar-room-name" id="activeFileName">CollabMD</span>
-              <span class=${badgeClassNames({ tone: 'accent', extra: 'toolbar-badge' })} id="userCount"></span>
+              <button
+                type="button"
+                class=${badgeClassNames({ tone: 'accent', extra: ['toolbar-badge', 'toolbar-badge-button'] })}
+                id="userCount"
+                aria-controls="presencePanel"
+                aria-expanded="false"
+                data-presence-panel-trigger="true"
+              ></button>
               <span class=${badgeClassNames({ tone: 'accent', hidden: true, extra: 'toolbar-badge' })} id="toolbarDiffBadge">Diff</span>
               <span class=${badgeClassNames({ tone: 'accent', hidden: true, extra: 'toolbar-badge' })} id="gitOperationStatus" aria-live="polite" aria-atomic="true"></span>
             </div>
@@ -150,6 +157,16 @@ export function appShellTemplate() {
             </button>
 
             <div class="user-avatars toolbar-presence-cluster" id="userAvatars"></div>
+
+            <section class="presence-panel hidden" id="presencePanel" aria-label="Online users" aria-hidden="true">
+              <div class="presence-panel-header">
+                <div>
+                  <h2 class="presence-panel-title">Online now</h2>
+                  <p class="presence-panel-status" id="presencePanelStatus">Click someone to follow.</p>
+                </div>
+              </div>
+              <div class="presence-panel-list" id="presencePanelList"></div>
+            </section>
 
             <div class="chat-container" id="chatContainer">
               <button class=${buttonClassNames({ variant: 'ghost', toolbar: true, extra: 'chat-toggle-btn' })} id="chatToggleBtn" aria-label="Open team chat" aria-expanded="false" title="Team chat">
@@ -603,6 +620,10 @@ export function appShellTemplate() {
 
     <div class="qs-overlay" id="quickSwitcher">
       <div class="qs-modal">
+        <div class="qs-mode-tabs" role="tablist" aria-label="Search mode">
+          <button class="qs-mode-tab active" type="button" role="tab" aria-selected="true" data-qs-mode="files">Files</button>
+          <button class="qs-mode-tab" type="button" role="tab" aria-selected="false" data-qs-mode="text">Text</button>
+        </div>
         <div class="qs-input-wrap">
           <svg class="qs-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <circle cx="11" cy="11" r="8"></circle>

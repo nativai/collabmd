@@ -395,6 +395,21 @@ test('image toolbar uploads a vault attachment and inserts inline markdown', asy
     'src',
     /\/api\/attachment\?path=assets%2Finline-diagram-[^?]+\.webp/,
   );
+
+  const uploadedMarkdown = await page.evaluate(async () => {
+    const response = await fetch('/api/file?path=README.md');
+    const data = await response.json();
+    return data.content || '';
+  });
+  const uploadedPath = uploadedMarkdown.match(/!\[inline diagram\]\((assets\/inline-diagram-[^)]+\.webp)\)/i)?.[1];
+  if (!uploadedPath) {
+    throw new Error('Expected uploaded image markdown to contain an asset path.');
+  }
+
+  await openFile(page, uploadedPath, { waitFor: 'preview' });
+  await expect(page.locator('#previewContent .image-file-preview-image')).toBeVisible();
+  await expect(page.locator('#backlinksPanel')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#backlinksPanel .backlinks-count')).toHaveText('1');
 });
 
 test('image lightbox uses a fullscreen stage with click zoom, reset, and close', async ({ page }) => {
@@ -494,6 +509,109 @@ test('opens a file by clicking the sidebar', async ({ page }) => {
   await waitForEditor(page);
   await expect(page.locator('#previewContent')).toContainText('CollabMD Project');
   await expect(page.locator('#activeFileName')).toContainText('collabmd');
+});
+
+test('quick switcher reveals the opened file in the file tree', async ({ page }) => {
+  await openHome(page);
+
+  for (let index = 0; index < 40; index += 1) {
+    const padded = String(index).padStart(2, '0');
+    const response = await page.request.put('/api/file', {
+      data: {
+        content: `# note-${padded}\n`,
+        path: `zz-folder-${padded}/note-${padded}.md`,
+      },
+    });
+    expect(response.ok()).toBe(true);
+  }
+
+  await page.locator('#refreshFilesBtn').click();
+  await expect(page.locator('#fileTree')).toContainText('zz-folder-39');
+
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
+  await expect(page.locator('#quickSwitcher')).toHaveClass(/visible/);
+  await page.locator('#quickSwitcherInput').fill('note-39');
+  await page.locator('#quickSwitcherResults .qs-result-item').first().click();
+
+  await waitForEditor(page);
+
+  const afterState = await page.locator('#fileTree').evaluate((element) => {
+    const active = element.querySelector('.file-tree-file.active');
+    const activeRect = active?.getBoundingClientRect();
+    const treeRect = element.getBoundingClientRect();
+
+    return {
+      activePath: active?.getAttribute('data-path') ?? null,
+      activeTop: activeRect?.top ?? null,
+      activeBottom: activeRect?.bottom ?? null,
+      treeBottom: treeRect.bottom,
+      treeTop: treeRect.top,
+    };
+  });
+
+  expect(afterState.activePath).toBe('zz-folder-39/note-39.md');
+  expect(afterState.activeTop).toBeGreaterThanOrEqual(afterState.treeTop);
+  expect(afterState.activeBottom).toBeLessThanOrEqual(afterState.treeBottom + 1);
+});
+
+test('quick switcher text search opens a grouped match at the matching line', async ({ page }) => {
+  await openHome(page);
+
+  const alphaLines = [
+    '# Global Search Alpha',
+    '',
+    'Context before the target.',
+    'Another ordinary line.',
+    'Needle-E2E appears in alpha line.',
+    'Context after the target.',
+  ];
+  const betaLines = [
+    '# Global Search Beta',
+    '',
+    'Needle-E2E appears in beta line.',
+  ];
+  const files = [
+    {
+      content: `${alphaLines.join('\n')}\n`,
+      path: 'search/global-search-alpha.md',
+    },
+    {
+      content: `${betaLines.join('\n')}\n`,
+      path: 'search/global-search-beta.md',
+    },
+    {
+      content: '{"type":"excalidraw","elements":[{"text":"Needle-E2E should stay ignored"}]}\n',
+      path: 'search/ignored-search-sketch.excalidraw',
+    },
+  ];
+
+  for (const file of files) {
+    const response = await page.request.put('/api/file', { data: file });
+    expect(response.ok()).toBe(true);
+  }
+
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
+  await expect(page.locator('#quickSwitcher')).toHaveClass(/visible/);
+  await page.locator('[data-qs-mode="text"]').click();
+  await page.locator('#quickSwitcherInput').fill('needle-e2e');
+
+  const results = page.locator('#quickSwitcherResults');
+  const alphaGroup = results.locator('.qs-text-group', { hasText: 'global-search-alpha' });
+  const betaGroup = results.locator('.qs-text-group', { hasText: 'global-search-beta' });
+  await expect(alphaGroup).toBeVisible();
+  await expect(betaGroup).toBeVisible();
+  await expect(results).not.toContainText('ignored-search-sketch');
+
+  await alphaGroup.locator('.qs-text-item', { hasText: 'Needle-E2E appears in alpha line.' }).click();
+
+  await waitForEditor(page);
+  await expect(page.locator('#activeFileName')).toContainText('global-search-alpha');
+  await expect(page.locator('.cm-content').first()).toContainText('Needle-E2E appears in alpha line.');
+  await expect(page.locator('#lineInfo')).toContainText('Ln 5');
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('file=search%2Fglobal-search-alpha.md');
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('line=5');
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('column=1');
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toContain('matchLength=10');
 });
 
 test('creates files from the sidebar with the custom dialog', async ({ page }) => {
@@ -663,7 +781,16 @@ test('moves files between folders by drag and drop in the sidebar', async ({ pag
       break;
     }
 
-    await page.waitForTimeout(250);
+    try {
+      await expect.poll(async () => page.evaluate(async (pathValue) => {
+        const response = await fetch(`/api/file?path=${encodeURIComponent(pathValue)}`);
+        return response.ok;
+      }, movedFilePath), { timeout: 1250 }).toBeTruthy();
+      moved = true;
+      break;
+    } catch {
+      // Retry the drag; WebKit/Chromium can occasionally miss the first drop event.
+    }
   }
 
   expect(moved).toBe(true);
@@ -852,6 +979,29 @@ test('creates and opens unresolved wiki-link targets', async ({ page }) => {
   await page.locator('#previewContent .wiki-link-new').first().click();
   await waitForEditor(page);
   await expect(page.locator('#activeFileName')).toContainText('new-page');
+});
+
+test('does not create unresolved wiki-link targets when auto-create is disabled', async ({ page }) => {
+  await page.route('**/app-config.js', async (route) => {
+    await route.fulfill({
+      body: 'window.__COLLABMD_CONFIG__ = {"wikiLinkAutoCreate":false};\n',
+      contentType: 'text/javascript; charset=utf-8',
+      status: 200,
+    });
+  });
+  await openFile(page, 'README.md');
+
+  await replaceEditorContent(page, '# Wiki Missing\n\nGo to [[notes/hidden-page]]');
+  const missingLink = page.locator('#previewContent .wiki-link-new').first();
+  await expect(missingLink).toHaveAttribute('title', 'Missing "notes/hidden-page"');
+
+  await missingLink.click();
+
+  await expect(page.locator('#toastContainer')).toContainText('Wiki-link target does not exist');
+  await expect(page.locator('#activeFileName')).toContainText('README');
+
+  const response = await page.request.get('/api/file?path=notes%2Fhidden-page.md');
+  expect(response.status()).toBe(404);
 });
 
 test('redundant hashchange events do not reopen the same markdown file into overlapping sessions', async ({ page }) => {

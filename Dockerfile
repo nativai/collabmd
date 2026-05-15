@@ -17,7 +17,7 @@ ENV HOST=0.0.0.0
 ENV PORT=1234
 ENV COLLABMD_VAULT_DIR=/data
 
-RUN apk add --no-cache git openssh-client ca-certificates
+RUN apk add --no-cache git openssh-client ca-certificates ripgrep
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev

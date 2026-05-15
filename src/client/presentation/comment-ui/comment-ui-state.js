@@ -165,11 +165,34 @@ function handleEditorContentChange() {
 /** @this {CommentUiStateContext} */
 function setThreads(threads = []) {
   this.threads = sortThreads(threads);
+  const groups = this.getThreadGroups();
   if (
     this.activeCard?.mode === 'group'
-    && !this.getThreadGroups().some((group) => group.key === this.activeCard.groupKey)
   ) {
-    this.activeCard = null;
+    const activeThreadIds = Array.isArray(this.activeCard.groupThreadIds)
+      ? this.activeCard.groupThreadIds
+      : [];
+    const matchingGroup = groups.find((group) => group.key === this.activeCard.groupKey)
+      ?? groups.find((group) => (
+        group.threads.length === activeThreadIds.length
+        && group.threads.every((thread) => activeThreadIds.includes(thread.id))
+      ));
+    if (!matchingGroup) {
+      this.activeCard = null;
+    } else {
+      this.activeCard = {
+        ...this.activeCard,
+        anchor: matchingGroup.anchor,
+        groupKey: matchingGroup.key,
+        groupThreadIds: matchingGroup.threads.map((thread) => thread.id),
+      };
+      if (
+        this.activeCard.replyThreadId
+        && !matchingGroup.threads.some((thread) => thread.id === this.activeCard.replyThreadId)
+      ) {
+        this.activeCard.replyThreadId = null;
+      }
+    }
   }
   if (
     this.reactionPicker

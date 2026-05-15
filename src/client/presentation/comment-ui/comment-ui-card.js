@@ -43,6 +43,7 @@ function openComposerForSelection(origin = 'editor', sourceRect = null) {
     : this.session?.getCommentAnchorClientRect?.(anchor));
   this.activeCard = {
     anchor,
+    composerDraft: null,
     mode: 'create',
     origin: nextOrigin,
     replyThreadId: null,
@@ -57,8 +58,10 @@ function openThreadGroup(group, { anchor, origin, sourceRect }) {
   this.activeCard = {
     anchor,
     groupKey: group.key,
+    groupThreadIds: group.threads.map((thread) => thread.id),
     mode: 'group',
     origin,
+    replyDrafts: {},
     replyThreadId: null,
     sourceRect,
   };
@@ -98,8 +101,58 @@ function updateCardSourceRect() {
 }
 
 /** @this {any} */
+function createTextareaDraft(textarea) {
+  if (!(textarea instanceof HTMLTextAreaElement)) {
+    return null;
+  }
+
+  return {
+    selectionDirection: textarea.selectionDirection ?? 'none',
+    selectionEnd: textarea.selectionEnd,
+    selectionStart: textarea.selectionStart,
+    value: textarea.value,
+  };
+}
+
+/** @this {any} */
+function captureActiveCardDraft() {
+  if (!this.activeCard) {
+    return;
+  }
+
+  const textarea = this.cardRoot?.querySelector('.comment-card-input');
+  const draft = createTextareaDraft(textarea);
+  if (!draft) {
+    return;
+  }
+
+  if (this.activeCard.mode === 'create') {
+    this.activeCard.composerDraft = draft;
+    return;
+  }
+
+  if (this.activeCard.mode === 'group' && this.activeCard.replyThreadId) {
+    this.activeCard.replyDrafts = {
+      ...(this.activeCard.replyDrafts ?? {}),
+      [this.activeCard.replyThreadId]: draft,
+    };
+  }
+}
+
+/** @this {any} */
+function createPendingFocusTarget(element, draft = null) {
+  return {
+    element,
+    selectionDirection: draft?.selectionDirection ?? 'none',
+    selectionEnd: Number.isInteger(draft?.selectionEnd) ? draft.selectionEnd : null,
+    selectionStart: Number.isInteger(draft?.selectionStart) ? draft.selectionStart : null,
+  };
+}
+
+/** @this {any} */
 function renderCard() {
   const root = this.ensureCardRoot();
+  this.captureActiveCardDraft();
   root.replaceChildren();
   root.classList.toggle('hidden', !this.activeCard);
   if (!this.activeCard) {
@@ -245,6 +298,7 @@ function createComposer() {
   textarea.rows = 4;
   textarea.maxLength = COMMENT_BODY_MAX_LENGTH;
   textarea.placeholder = 'Add context, feedback, or a question...';
+  textarea.value = this.activeCard?.composerDraft?.value ?? '';
 
   const actions = document.createElement('div');
   actions.className = 'ui-record-actions comment-card-actions';
@@ -277,7 +331,7 @@ function createComposer() {
     this.closeCard();
   });
 
-  this.pendingCardFocusElement = textarea;
+  this.pendingCardFocusElement = createPendingFocusTarget(textarea, this.activeCard?.composerDraft);
   return form;
 }
 
@@ -329,6 +383,9 @@ function createThreadElement(thread) {
   reply.setAttribute('aria-label', isReplying ? 'Cancel reply' : 'Reply to thread');
   reply.title = isReplying ? 'Cancel reply' : 'Reply to thread';
   reply.addEventListener('click', () => {
+    if (isReplying && this.activeCard?.replyDrafts?.[thread.id]) {
+      delete this.activeCard.replyDrafts[thread.id];
+    }
     this.activeCard = {
       ...this.activeCard,
       replyThreadId: isReplying ? null : thread.id,
@@ -517,12 +574,14 @@ function createReactionPickerButton(thread, message, emoji) {
 function createReplyComposer(thread) {
   const form = document.createElement('form');
   form.className = 'comment-reply-form';
+  const draft = this.activeCard?.replyDrafts?.[thread.id] ?? null;
 
   const textarea = document.createElement('textarea');
   textarea.className = inputClassNames({ extra: 'comment-card-input' });
   textarea.rows = 3;
   textarea.maxLength = COMMENT_BODY_MAX_LENGTH;
   textarea.placeholder = 'Reply to thread...';
+  textarea.value = draft?.value ?? '';
 
   const actions = document.createElement('div');
   actions.className = 'ui-record-actions comment-card-actions';
@@ -532,6 +591,9 @@ function createReplyComposer(thread) {
   cancel.className = buttonClassNames({ variant: 'secondary' });
   cancel.textContent = 'Cancel';
   cancel.addEventListener('click', () => {
+    if (this.activeCard?.replyDrafts?.[thread.id]) {
+      delete this.activeCard.replyDrafts[thread.id];
+    }
     this.activeCard = {
       ...this.activeCard,
       replyThreadId: null,
@@ -546,7 +608,7 @@ function createReplyComposer(thread) {
 
   actions.append(cancel, submit);
   form.append(textarea, actions);
-  this.pendingCardFocusElement = textarea;
+  this.pendingCardFocusElement = createPendingFocusTarget(textarea, draft);
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -556,6 +618,9 @@ function createReplyComposer(thread) {
       return;
     }
 
+    if (this.activeCard?.replyDrafts?.[thread.id]) {
+      delete this.activeCard.replyDrafts[thread.id];
+    }
     this.activeCard = {
       ...this.activeCard,
       replyThreadId: null,
@@ -597,7 +662,8 @@ function positionCard(card) {
 
 /** @this {any} */
 function flushPendingCardFocus() {
-  const element = this.pendingCardFocusElement;
+  const pendingTarget = this.pendingCardFocusElement;
+  const element = pendingTarget instanceof HTMLElement ? pendingTarget : pendingTarget?.element;
   if (!(element instanceof HTMLElement) || !element.isConnected) {
     this.pendingCardFocusElement = null;
     return;
@@ -615,6 +681,17 @@ function flushPendingCardFocus() {
     }
 
     element.focus({ preventScroll: true });
+    if (
+      element instanceof HTMLTextAreaElement
+      && Number.isInteger(pendingTarget?.selectionStart)
+      && Number.isInteger(pendingTarget?.selectionEnd)
+    ) {
+      element.setSelectionRange(
+        pendingTarget.selectionStart,
+        pendingTarget.selectionEnd,
+        pendingTarget.selectionDirection ?? 'none',
+      );
+    }
   };
 
   focusElement();
@@ -633,14 +710,17 @@ function flushPendingCardFocus() {
 }
 
 export const commentUiCardMethods = {
+  captureActiveCardDraft,
   closeCard,
   createComposer,
+  createPendingFocusTarget,
   createMessageElement,
   createQuickReactionButton,
   createReactionBar,
   createReactionPicker,
   createReactionPickerButton,
   createReplyComposer,
+  createTextareaDraft,
   createThreadElement,
   ensureCardRoot,
   flushPendingCardFocus,

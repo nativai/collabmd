@@ -165,6 +165,109 @@ describe('CommentUiController browser behavior', () => {
     expect(controller.reactionPicker).toBeNull();
   });
 
+  it('preserves a new comment draft when thread updates trigger a card rerender', async () => {
+    const setup = createController();
+    controller = setup.controller;
+
+    controller.activeCard = {
+      anchor: {
+        anchorKind: 'text',
+        endIndex: 12,
+        endLine: 1,
+        quote: 'Selected text',
+        startIndex: 0,
+        startLine: 1,
+      },
+      composerDraft: null,
+      mode: 'create',
+      origin: 'editor',
+      replyThreadId: null,
+      sourceRect: createRect({ left: 12, top: 24, width: 100, height: 24 }),
+    };
+    controller.renderCard();
+
+    const textarea = controller.cardRoot.querySelector('.comment-card-input');
+    textarea.value = 'Draft reply';
+    textarea.setSelectionRange(2, 7);
+    textarea.focus();
+
+    controller.setThreads([
+      {
+        anchor: { endLine: 3, quote: 'Line 3', startLine: 3 },
+        createdAt: 1,
+        createdByName: 'Alice',
+        id: 'thread-1',
+        messages: [{ body: 'Existing thread', createdAt: 2, id: 'message-1', reactions: [], userName: 'Alice' }],
+      },
+    ]);
+    await flushFrame();
+
+    const refreshedTextarea = controller.cardRoot.querySelector('.comment-card-input');
+    expect(refreshedTextarea.value).toBe('Draft reply');
+    expect(refreshedTextarea.selectionStart).toBe(2);
+    expect(refreshedTextarea.selectionEnd).toBe(7);
+    expect(document.activeElement).toBe(refreshedTextarea);
+  });
+
+  it('preserves an open reply draft when collaborative edits move the thread anchor', async () => {
+    const setup = createController();
+    controller = setup.controller;
+
+    controller.setThreads([
+      {
+        anchor: { endLine: 1, quote: 'Line 1', startLine: 1 },
+        createdAt: 1,
+        createdByName: 'Alice',
+        id: 'thread-1',
+        messages: [{ body: 'First comment', createdAt: 2, id: 'message-1', reactions: [], userName: 'Alice' }],
+      },
+    ]);
+
+    let group = controller.getThreadGroups()[0];
+    controller.openThreadGroup(group, {
+      anchor: group.anchor,
+      origin: 'editor',
+      sourceRect: createRect({ left: 12, top: 24, width: 100, height: 24 }),
+    });
+
+    const replyButton = Array.from(controller.cardRoot.querySelectorAll('.comment-thread-card-action'))
+      .find((button) => button.textContent === 'Reply');
+    replyButton.click();
+    const textarea = controller.cardRoot.querySelector('.comment-reply-form .comment-card-input');
+    textarea.value = 'Still typing';
+    textarea.setSelectionRange(3, 8);
+    textarea.focus();
+
+    controller.setThreads([
+      {
+        anchor: { endLine: 4, quote: 'Line 1 updated', startLine: 4 },
+        createdAt: 1,
+        createdByName: 'Alice',
+        id: 'thread-1',
+        messages: [{ body: 'First comment', createdAt: 2, id: 'message-1', reactions: [], userName: 'Alice' }],
+      },
+    ]);
+    await flushFrame();
+
+    group = controller.getThreadGroups()[0];
+    const refreshedTextarea = controller.cardRoot.querySelector('.comment-reply-form .comment-card-input');
+    expect(controller.activeCard.groupKey).toBe(group.key);
+    expect(controller.activeCard.anchor).toEqual(group.anchor);
+    expect(refreshedTextarea.value).toBe('Still typing');
+    expect(refreshedTextarea.selectionStart).toBe(3);
+    expect(refreshedTextarea.selectionEnd).toBe(8);
+    expect(document.activeElement).toBe(refreshedTextarea);
+
+    const cancelReplyButton = Array.from(controller.cardRoot.querySelectorAll('.comment-thread-card-action'))
+      .find((button) => button.textContent === 'Reply' && button.getAttribute('aria-label') === 'Cancel reply');
+    cancelReplyButton.click();
+    const reopenReplyButton = Array.from(controller.cardRoot.querySelectorAll('.comment-thread-card-action'))
+      .find((button) => button.textContent === 'Reply' && button.getAttribute('aria-label') === 'Reply to thread');
+    reopenReplyButton.click();
+
+    expect(controller.cardRoot.querySelector('.comment-reply-form .comment-card-input').value).toBe('');
+  });
+
   it('tracks preview hover regions for rendered thread groups', () => {
     const setup = createController();
     controller = setup.controller;

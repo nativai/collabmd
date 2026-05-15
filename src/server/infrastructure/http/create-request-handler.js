@@ -45,12 +45,13 @@ export function createRequestHandler(
   roomRegistry = null,
   plantUmlRenderer = null,
   gitService = null,
+  searchService = null,
   testControls = { wsRoomHydrateDelayMs: 0 },
   workspaceMutationCoordinator = null,
   fileSystemSyncService = null,
 ) {
   const handleEsmProxy = createEsmProxyHandler();
-  const handleStaticRequest = createStaticHandler(config, authService);
+  const handleStaticRequest = createStaticHandler(config, authService, searchService);
   const handleAuthApi = createAuthApiHandler({ authService });
   const handleGitApi = createGitApiHandler({
     authService,
@@ -63,9 +64,11 @@ export function createRequestHandler(
   const handleVaultApi = createVaultApiHandler({
     baseQueryService,
     backlinkIndex,
+    config,
     docxExporter,
     plantUmlRenderer,
     roomRegistry,
+    searchService,
     vaultFileStore,
     workspaceMutationCoordinator,
   });

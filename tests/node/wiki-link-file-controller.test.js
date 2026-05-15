@@ -39,6 +39,43 @@ test('WikiLinkFileController navigates to existing resolved wiki-link targets', 
   assert.deepEqual(events, [['navigate', 'README.md']]);
 });
 
+test('WikiLinkFileController navigates to existing targets when auto-create is disabled', () => {
+  const { controller, events } = createController({ wikiLinkAutoCreate: false });
+
+  controller.handleWikiLinkClick('README');
+
+  assert.deepEqual(events, [['navigate', 'README.md']]);
+});
+
+test('WikiLinkFileController creates missing targets when auto-create is enabled', async () => {
+  const { controller, events } = createController({ fileList: ['README.md'] });
+
+  controller.handleWikiLinkClick('plans/q4');
+  await new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+
+  assert.deepEqual(events, [
+    ['create', 'plans/q4.md', '# q4\n\n'],
+    ['refresh'],
+    ['navigate', 'plans/q4.md'],
+  ]);
+});
+
+test('WikiLinkFileController leaves missing targets alone when auto-create is disabled', async () => {
+  const { controller, events } = createController({
+    fileList: ['README.md'],
+    wikiLinkAutoCreate: false,
+  });
+
+  controller.handleWikiLinkClick('secret/spoilers');
+  await new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+
+  assert.deepEqual(events, [['toast', 'Wiki-link target does not exist']]);
+});
+
 test('WikiLinkFileController normalizes and creates new markdown wiki-link targets', async () => {
   const { controller, events } = createController({ fileList: ['README.md'] });
 

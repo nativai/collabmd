@@ -257,6 +257,45 @@ test('HTTP server compresses large JSON API responses without changing payloads'
   assert.equal(payload.content, largeContent);
 });
 
+test('HTTP server searches vault text with ripgrep-backed API', async (t) => {
+  const app = await startTestServer({ fileWatcherEnabled: false });
+  t.after(() => app.close());
+
+  await mkdir(join(app.vaultDir, 'docs'), { recursive: true });
+  await writeFile(join(app.vaultDir, 'docs', 'guide.md'), '# Guide\n\nFind the search needle here.\n', 'utf8');
+  await writeFile(join(app.vaultDir, 'diagram.drawio'), '<mxfile>needle in drawio text</mxfile>\n', 'utf8');
+  await writeFile(join(app.vaultDir, 'sketch.excalidraw'), '{"text":"needle should not be searched"}\n', 'utf8');
+
+  const response = await httpRequest(`${app.baseUrl}/api/search?q=needle&limit=10`);
+  assert.equal(response.statusCode, 200);
+  const payload = JSON.parse(response.body);
+
+  assert.equal(payload.ok, true);
+  assert.equal(payload.search.backend, 'ripgrep');
+  assert.equal(payload.files.some((entry) => entry.file === 'docs/guide.md'), true);
+  assert.equal(payload.files.some((entry) => entry.file === 'diagram.drawio'), true);
+  assert.equal(payload.files.some((entry) => entry.file === 'sketch.excalidraw'), false);
+
+  const guide = payload.files.find((entry) => entry.file === 'docs/guide.md');
+  assert.equal(guide.snippets[0].line, 3);
+  assert.match(guide.snippets[0].text, /needle/);
+});
+
+test('HTTP server reports unavailable global text search when ripgrep is missing', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  app.server.searchService.available = false;
+  app.server.searchService.unavailableReason = 'ripgrep is not installed on the server';
+
+  const response = await httpRequest(`${app.baseUrl}/api/search?q=needle`);
+  assert.equal(response.statusCode, 503);
+  const payload = JSON.parse(response.body);
+  assert.equal(payload.ok, false);
+  assert.equal(payload.search.available, false);
+  assert.match(payload.error, /requires ripgrep/i);
+});
+
 test('HTTP server queries and exports Obsidian base results', async (t) => {
   const app = await startTestServer();
   t.after(() => app.close());
@@ -409,7 +448,7 @@ test('HTTP server returns base metadata, property values, and transformed source
 });
 
 test('HTTP base queries flush pending external file changes before serving cached snapshots', async (t) => {
-  const app = await startTestServer();
+  const app = await startTestServer({ fileWatcherEnabled: false });
   t.after(() => app.close());
 
   await writeFile(join(app.vaultDir, 'notes.md'), [
@@ -1209,6 +1248,18 @@ test('HTTP server downloads vault files as attachments', async (t) => {
   assert.match(response.body, /Hello from test vault/);
 });
 
+test('HTTP server rejects downloads that exceed configured limits', async (t) => {
+  const app = await startTestServer({
+    maxDownloadFileBytes: 8,
+  });
+  t.after(() => app.close());
+
+  const response = await httpRequest(`${app.baseUrl}/api/download/file?path=${encodeURIComponent('test.md')}`);
+
+  assert.equal(response.statusCode, 413);
+  assert.match(response.body, /too large/i);
+});
+
 test('HTTP server downloads directories as zip archives and excludes ignored entries', async (t) => {
   const app = await startTestServer();
   t.after(() => app.close());
@@ -1232,6 +1283,22 @@ test('HTTP server downloads directories as zip archives and excludes ignored ent
     'docs/empty-dir/',
     'docs/guide.md',
   ]);
+});
+
+test('HTTP server rejects directory archives that exceed configured entry limits', async (t) => {
+  const app = await startTestServer({
+    maxArchiveEntries: 1,
+  });
+  t.after(() => app.close());
+
+  await mkdir(join(app.vaultDir, 'docs'), { recursive: true });
+  await writeFile(join(app.vaultDir, 'docs', 'one.md'), '# One\n', 'utf-8');
+  await writeFile(join(app.vaultDir, 'docs', 'two.md'), '# Two\n', 'utf-8');
+
+  const response = await httpRequest(`${app.baseUrl}/api/download/directory?path=${encodeURIComponent('docs')}`);
+
+  assert.equal(response.statusCode, 413);
+  assert.match(response.body, /exceeds 1 entries/);
 });
 
 test('HTTP server serves attachment bytes for password-authenticated workspaces with a session cookie', async (t) => {

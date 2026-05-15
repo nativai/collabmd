@@ -55,6 +55,7 @@ export class ExcalidrawEmbedController {
     getTheme,
     getLocalUser,
     onOpenFile = null,
+    onToggleQuickSwitcher = null,
     previewContainer,
     previewElement,
     toastController,
@@ -62,6 +63,7 @@ export class ExcalidrawEmbedController {
     this.getTheme = getTheme;
     this.getLocalUser = getLocalUser;
     this.onOpenFile = onOpenFile;
+    this.onToggleQuickSwitcher = onToggleQuickSwitcher;
     this.previewContainer = previewContainer;
     this.previewElement = previewElement;
     this.toastController = toastController;
@@ -74,7 +76,6 @@ export class ExcalidrawEmbedController {
     this.isLargeDocument = false;
     this.maximizedEmbed = null;
     this.overlayRoot = null;
-    this.maximizedRoot = null;
     this.warmCacheRoot = null;
     this.warmEntry = null;
     this.placeholderObserver = null;
@@ -120,8 +121,6 @@ export class ExcalidrawEmbedController {
     this.followedPeerIdsByFilePath.clear();
     this.overlayRoot?.remove();
     this.overlayRoot = null;
-    this.maximizedRoot?.remove();
-    this.maximizedRoot = null;
     this.warmCacheRoot?.remove();
     this.warmCacheRoot = null;
   }
@@ -156,9 +155,6 @@ export class ExcalidrawEmbedController {
     this._exitMaximizedEmbed();
     if (this.overlayRoot) {
       this.overlayRoot.hidden = true;
-    }
-    if (this.maximizedRoot) {
-      this.maximizedRoot.hidden = true;
     }
 
     this.embedEntries.forEach((entry) => {
@@ -716,7 +712,10 @@ export class ExcalidrawEmbedController {
     const resizer = document.createElement('div');
     resizer.className = 'excalidraw-embed-resizer';
     resizer.title = 'Drag to resize';
-    this._setupResizer(resizer, iframe, () => this._syncEntryLayout(entry));
+    this._setupResizer(resizer, iframe, () => {
+      this._syncEntryLayout(entry);
+      this._requestPreviewViewportFit(entry);
+    });
 
     wrapper.append(header, iframe, resizer);
 
@@ -735,12 +734,13 @@ export class ExcalidrawEmbedController {
       wrapper.classList.remove('is-maximized');
       syncMaximizeButtonState();
       document.body.classList.remove('excalidraw-maximized-open');
-      this._restoreWrapperMount(entry);
+      this._restoreMaximizedEntryLayout(entry);
       iframe.style.height = restoreHeight;
       if (this.maximizedEmbed?.wrapper === wrapper) {
         this.maximizedEmbed = null;
       }
       this._syncEntryLayout(entry);
+      this._requestPreviewViewportFit(entry);
     };
 
     const enterMaximize = () => {
@@ -748,12 +748,13 @@ export class ExcalidrawEmbedController {
       this._exitMaximizedEmbed();
       isMaximized = true;
       restoreHeight = iframe.style.height || `${DEFAULT_HEIGHT}px`;
-      this._mountWrapperInMaximizedRoot(entry);
+      this._enterMaximizedEntryLayout(entry);
       wrapper.classList.add('is-maximized');
       syncMaximizeButtonState();
       document.body.classList.add('excalidraw-maximized-open');
       this.maximizedEmbed = { wrapper, exit: exitMaximize };
       this._syncEntryLayout(entry);
+      this._requestPreviewViewportFit(entry);
     };
 
     maxBtn.addEventListener('click', () => {
@@ -841,23 +842,6 @@ export class ExcalidrawEmbedController {
 
     this.overlayRoot = overlayRoot;
     return overlayRoot;
-  }
-
-  _ensureMaximizedRoot() {
-    if (this.maximizedRoot?.isConnected && this.maximizedRoot.parentElement === document.body) {
-      return this.maximizedRoot;
-    }
-
-    let maximizedRoot = document.body.querySelector('[data-excalidraw-maximized-root="true"]');
-    if (!maximizedRoot) {
-      maximizedRoot = document.createElement('div');
-      maximizedRoot.dataset.excalidrawMaximizedRoot = 'true';
-      maximizedRoot.className = 'excalidraw-maximized-root';
-      document.body.appendChild(maximizedRoot);
-    }
-
-    this.maximizedRoot = maximizedRoot;
-    return maximizedRoot;
   }
 
   _isFilePreviewEntry(entry) {
@@ -1040,53 +1024,47 @@ export class ExcalidrawEmbedController {
     entry.placeholder.style.pointerEvents = '';
   }
 
-  _mountWrapperInMaximizedRoot(entry) {
+  _enterMaximizedEntryLayout(entry) {
     if (!entry?.wrapper) {
       return;
     }
 
-    const maximizedRoot = this._ensureMaximizedRoot();
-    maximizedRoot.hidden = false;
-    entry.restoreParent = entry.wrapper.parentElement || null;
-    entry.restoreNextSibling = entry.wrapper.nextSibling || null;
+    if (this._shouldInlineFilePreview(entry) && entry.wrapper.parentElement && !entry.maximizeSpacer) {
+      const spacer = document.createElement('div');
+      spacer.className = 'excalidraw-maximize-spacer';
+      spacer.style.height = `${Math.ceil(entry.wrapper.getBoundingClientRect().height)}px`;
+      entry.maximizeSpacer = spacer;
+      entry.wrapper.parentElement.insertBefore(spacer, entry.wrapper);
+    }
+
+    entry.wrapper.dataset.excalidrawMaximized = 'true';
     entry.wrapper.style.position = '';
     entry.wrapper.style.top = '';
     entry.wrapper.style.left = '';
-    entry.wrapper.style.width = '';
-    entry.wrapper.style.margin = '';
-    if (entry.wrapper.parentElement !== maximizedRoot) {
-      maximizedRoot.appendChild(entry.wrapper);
-    }
+    entry.wrapper.style.width = 'auto';
+    entry.wrapper.style.height = 'auto';
+    entry.wrapper.style.minHeight = '0';
+    entry.wrapper.style.margin = '0';
+    this.overlayRoot?.classList.add('has-maximized-entry');
   }
 
-  _restoreWrapperMount(entry) {
+  _restoreMaximizedEntryLayout(entry) {
     if (!entry?.wrapper) {
       return;
     }
 
-    if (this._shouldInlineFilePreview(entry)) {
-      const { restoreParent, restoreNextSibling } = entry;
-      if (restoreParent?.isConnected) {
-        if (restoreNextSibling?.parentElement === restoreParent) {
-          restoreParent.insertBefore(entry.wrapper, restoreNextSibling);
-        } else {
-          restoreParent.appendChild(entry.wrapper);
-        }
-      }
-    } else {
-      const overlayRoot = this._ensureOverlayRoot();
-      overlayRoot.hidden = false;
-      if (entry.wrapper.parentElement !== overlayRoot) {
-        overlayRoot.appendChild(entry.wrapper);
-      }
+    const { maximizeSpacer } = entry;
+    delete entry.wrapper.dataset.excalidrawMaximized;
+    entry.wrapper.style.width = '';
+    entry.wrapper.style.height = '';
+    entry.wrapper.style.minHeight = '';
+
+    if (maximizeSpacer?.parentElement) {
+      maximizeSpacer.remove();
     }
 
-    entry.restoreParent = null;
-    entry.restoreNextSibling = null;
-
-    if (this.maximizedRoot && this.maximizedRoot.childElementCount === 0) {
-      this.maximizedRoot.hidden = true;
-    }
+    entry.maximizeSpacer = null;
+    this.overlayRoot?.classList.remove('has-maximized-entry');
   }
 
   _syncEntryLayout(entry) {
@@ -1131,8 +1109,10 @@ export class ExcalidrawEmbedController {
       entry.wrapper.style.position = '';
       entry.wrapper.style.top = '';
       entry.wrapper.style.left = '';
-      entry.wrapper.style.width = '';
-      entry.wrapper.style.margin = '';
+      entry.wrapper.style.width = 'auto';
+      entry.wrapper.style.height = 'auto';
+      entry.wrapper.style.minHeight = '0';
+      entry.wrapper.style.margin = '0';
       return;
     }
 
@@ -1140,6 +1120,8 @@ export class ExcalidrawEmbedController {
     entry.wrapper.style.top = `${placeholder.offsetTop}px`;
     entry.wrapper.style.left = `${placeholder.offsetLeft}px`;
     entry.wrapper.style.width = `${placeholder.offsetWidth}px`;
+    entry.wrapper.style.height = '';
+    entry.wrapper.style.minHeight = '';
     entry.wrapper.style.margin = '0';
   }
 
@@ -1197,6 +1179,11 @@ export class ExcalidrawEmbedController {
       return;
     }
 
+    if (msg.type === 'request-toggle-quick-switcher') {
+      this.onToggleQuickSwitcher?.();
+      return;
+    }
+
     if (msg.type === 'error') {
       if (entry.isParked) {
         return;
@@ -1231,6 +1218,17 @@ export class ExcalidrawEmbedController {
 
   _postMessageToEntry(entry, payload) {
     entry?.iframe?.contentWindow?.postMessage(payload, window.location.origin);
+  }
+
+  _requestPreviewViewportFit(entry) {
+    if (this._isFilePreviewEntry(entry)) {
+      return;
+    }
+
+    this._postMessageToEntry(entry, {
+      source: 'collabmd-host',
+      type: 'fit-preview-viewport',
+    });
   }
 
   _syncEntryUser(entry, overrideUser = null) {

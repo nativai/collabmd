@@ -38,14 +38,15 @@ import {
 } from '@codemirror/view';
 import { yCollab } from 'y-codemirror.next';
 
-import { isBaseFilePath, isPlantUmlFilePath } from '../../domain/file-kind.js';
+import { isBaseFilePath, isMermaidFilePath, isPlantUmlFilePath } from '../../domain/file-kind.js';
 import { normalizeCommentQuote } from '../../domain/comment-threads.js';
 import { createMarkdownToolbarEdit } from '../domain/markdown-formatting.js';
+import { mermaidLanguage, mermaidLanguageDescription } from '../domain/mermaid-language.js';
 import { wikiLinkCompletions } from '../domain/wiki-link-completions.js';
 import { plantUmlLanguage, plantUmlLanguageDescription } from '../domain/plantuml-language.js';
 import { handleImagePasteEvent } from './editor-paste-utils.js';
 
-const markdownCodeLanguages = [...languages, plantUmlLanguageDescription];
+const markdownCodeLanguages = [...languages, mermaidLanguageDescription, plantUmlLanguageDescription];
 const pairedMatchingBracketMark = Decoration.mark({ class: 'cm-matchingBracket cm-matchingBracket-paired' });
 const nonmatchingBracketMark = Decoration.mark({ class: 'cm-nonmatchingBracket' });
 const remoteUpdateMark = Decoration.mark({ class: 'cm-remoteUpdateFlash' });
@@ -299,6 +300,10 @@ function createEditorTheme(theme) {
 }
 
 export function createLanguageExtension(filePath) {
+  if (isMermaidFilePath(filePath)) {
+    return mermaidLanguage;
+  }
+
   if (isPlantUmlFilePath(filePath)) {
     return plantUmlLanguage;
   }
@@ -843,6 +848,36 @@ export class EditorViewAdapter {
     );
 
     scroller.scrollTo({ top: nextScrollTop });
+    return true;
+  }
+
+  revealSearchMatch({ column = 1, length = 0, line = 1 } = {}) {
+    const state = this.editorView?.state;
+    if (!state || !this.editorView) {
+      return false;
+    }
+
+    const targetLineNumber = Math.min(
+      Math.max(Math.round(Number(line) || 1), 1),
+      state.doc.lines,
+    );
+    const targetLine = state.doc.line(targetLineNumber);
+    const columnOffset = Math.min(
+      Math.max(Math.round(Number(column) || 1) - 1, 0),
+      targetLine.length,
+    );
+    const from = targetLine.from + columnOffset;
+    const to = Math.min(
+      from + Math.max(Math.round(Number(length) || 0), 0),
+      targetLine.to,
+    );
+
+    this.editorView.dispatch({
+      scrollIntoView: true,
+      selection: EditorSelection.range(from, Math.max(to, from)),
+    });
+    this.editorView.focus();
+    this.scrollToLine(targetLineNumber, 0.2);
     return true;
   }
 

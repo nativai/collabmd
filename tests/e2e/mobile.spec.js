@@ -315,27 +315,42 @@ test.describe('mobile bases preview', () => {
 
     await openFile(page, 'views/mobile-toolbar.base', { waitFor: 'preview' });
 
-    const shellMetrics = await page.locator('.bases-shell').evaluate((element) => {
-      const style = getComputedStyle(element);
-      return {
-        borderTopLeftRadius: style.borderTopLeftRadius,
-        borderTopRightRadius: style.borderTopRightRadius,
-        overflow: style.overflow,
-      };
-    });
-    const toolbarMetrics = await page.locator('.bases-toolbar').evaluate((element) => {
-      const style = getComputedStyle(element);
-      return {
-        borderTopLeftRadius: style.borderTopLeftRadius,
-        borderTopRightRadius: style.borderTopRightRadius,
-      };
-    });
+    await expect.poll(async () => {
+      const shellMetrics = await page.locator('.bases-shell').evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          borderTopLeftRadius: style.borderTopLeftRadius,
+          borderTopRightRadius: style.borderTopRightRadius,
+          isConnected: element.isConnected,
+          overflowX: style.overflowX,
+          overflowY: style.overflowY,
+        };
+      });
+      const toolbarMetrics = await page.locator('.bases-toolbar').evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          borderTopLeftRadius: style.borderTopLeftRadius,
+          borderTopRightRadius: style.borderTopRightRadius,
+          isConnected: element.isConnected,
+        };
+      });
 
-    expect(shellMetrics.overflow).toBe('hidden');
-    expect(shellMetrics.borderTopLeftRadius).not.toBe('0px');
-    expect(shellMetrics.borderTopRightRadius).not.toBe('0px');
-    expect(toolbarMetrics.borderTopLeftRadius).not.toBe('0px');
-    expect(toolbarMetrics.borderTopRightRadius).not.toBe('0px');
+      return {
+        shellHasRadius: shellMetrics.borderTopLeftRadius !== '0px' && shellMetrics.borderTopRightRadius !== '0px',
+        shellIsConnected: shellMetrics.isConnected,
+        shellOverflowX: shellMetrics.overflowX,
+        shellOverflowY: shellMetrics.overflowY,
+        toolbarHasRadius: toolbarMetrics.borderTopLeftRadius !== '0px' && toolbarMetrics.borderTopRightRadius !== '0px',
+        toolbarIsConnected: toolbarMetrics.isConnected,
+      };
+    }).toEqual({
+      shellHasRadius: true,
+      shellIsConnected: true,
+      shellOverflowX: 'hidden',
+      shellOverflowY: 'hidden',
+      toolbarHasRadius: true,
+      toolbarIsConnected: true,
+    });
   });
 });
 
@@ -447,13 +462,24 @@ test.describe('mobile presence', () => {
     const teammatePage = await teammateContext.newPage();
 
     await openFile(ownerPage, 'README.md', { userName: 'Owner', waitFor: 'preview' });
-    await openFile(teammatePage, 'README.md', { userName: 'Teammate', waitFor: 'preview' });
+    await openFile(teammatePage, 'projects/collabmd.md', { userName: 'Teammate', waitFor: 'preview' });
 
     await expect(ownerPage.locator('#userCount')).toHaveText('2 online');
     await expect(ownerPage.locator('#userAvatars')).toBeVisible();
     await expect(ownerPage.locator('#userAvatars .user-avatar').first()).toBeVisible();
     await expect(ownerPage.locator('#userAvatars .user-avatar-button').first()).toBeVisible();
     await expect(ownerPage.locator('#userAvatars .user-avatar-button').first()).toHaveAttribute('aria-label', /Follow Teammate/);
+
+    await ownerPage.locator('#userCount').click();
+    await expect(ownerPage.locator('#presencePanel')).toBeVisible();
+    await expect(ownerPage.locator('#presencePanel .presence-panel-user')).toHaveCount(2);
+    await expect.poll(async () => (
+      ownerPage.locator('#presencePanelList').evaluate((element) => getComputedStyle(element).overflowY)
+    )).toBe('auto');
+    await ownerPage.locator('#presencePanel .presence-panel-user-button').filter({ hasText: 'Teammate' }).click();
+    await expect(ownerPage.locator('#presencePanel')).toBeHidden();
+    await expect(ownerPage.locator('#activeFileName')).toHaveText('collabmd');
+    await expect(ownerPage.locator('#previewContent')).toContainText('CollabMD Project');
 
     await ownerContext.close();
     await teammateContext.close();
@@ -565,6 +591,61 @@ test.describe('mobile PlantUML preview', () => {
     expect(standaloneMetrics.maximizeButtonRightOverflow).toBeLessThanOrEqual(1);
     expect(standaloneMetrics.frameClientWidth).toBeGreaterThan(0);
     expect(standaloneMetrics.frameClientWidth).toBeLessThanOrEqual(standaloneMetrics.containerClientWidth);
+  });
+});
+
+test.describe('narrow mobile PlantUML preview', () => {
+  test.use({
+    viewport: { width: 320, height: 844 },
+  });
+
+  test('keeps all toolbar actions reachable through horizontal scrolling on narrow screens', async ({ page }) => {
+    await page.route('**/api/plantuml/render', async (route) => {
+      await route.fulfill({
+        body: JSON.stringify({
+          ok: true,
+          svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 1400"><text x="40" y="120">narrow-mobile-plantuml</text></svg>',
+        }),
+        contentType: 'application/json',
+        status: 200,
+      });
+    });
+
+    await openFile(page, 'sample-plantuml.puml', { waitFor: 'preview' });
+    await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'preview');
+    await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+
+    const toolbar = page.locator('#previewContent .plantuml-toolbar');
+    const initialMetrics = await toolbar.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      clientWidth: element.clientWidth,
+      scrollLeft: element.scrollLeft,
+      scrollWidth: element.scrollWidth,
+    }));
+
+    expect(initialMetrics.clientHeight).toBeGreaterThan(0);
+    expect(initialMetrics.scrollWidth).toBeGreaterThanOrEqual(initialMetrics.clientWidth);
+
+    await toolbar.evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+    });
+
+    const scrolledMetrics = await toolbar.evaluate((element) => {
+      const toolbarRect = element.getBoundingClientRect();
+      const lastButton = element.querySelector('.plantuml-tool-btn[aria-label="Maximize diagram"]');
+      const lastRect = lastButton?.getBoundingClientRect();
+      return {
+        overflow: element.scrollWidth - element.clientWidth,
+        scrollLeft: element.scrollLeft,
+        lastRightOverflow: lastRect ? Math.max(0, Math.ceil(lastRect.right - toolbarRect.right)) : null,
+      };
+    });
+
+    if (scrolledMetrics.overflow > 1) {
+      expect(scrolledMetrics.scrollLeft).toBeGreaterThan(0);
+    }
+    expect(scrolledMetrics.lastRightOverflow).toBeLessThanOrEqual(1);
+    await expect(page.locator('#previewContent .plantuml-tool-btn[aria-label="Maximize diagram"]')).toBeVisible();
   });
 });
 

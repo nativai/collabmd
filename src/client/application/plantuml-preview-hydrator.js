@@ -1,5 +1,12 @@
 import { clamp } from '../domain/vault-utils.js';
 import { setDiagramActionButtonIcon } from '../domain/diagram-action-icons.js';
+import {
+  createDiagramExportFileNames,
+  downloadBlob,
+  exportSvgMarkupFromElement,
+  rasterizeSvgMarkupToPngBlob,
+  writeBlobToClipboard,
+} from './diagram-preview-export.js';
 import { DiagramPreviewHydrator } from './diagram-preview-hydrator.js';
 import {
   createPlantUmlPlaceholderCard,
@@ -36,6 +43,8 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
     this.svgCache = new Map();
     this.svgInflightRequests = new Map();
     this.shellRefits = new WeakMap();
+    this.shellResizeObservers = new WeakMap();
+    this.resizeObservers = new Set();
     this.activeMaximizedShell = null;
     this.maximizedRoot = null;
     this.resizeFrameId = null;
@@ -49,8 +58,39 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
       cancelAnimationFrame(this.resizeFrameId);
       this.resizeFrameId = null;
     }
+    this.disconnectResizeObservers();
     this.maximizedRoot?.remove();
     this.maximizedRoot = null;
+  }
+
+  disconnectResizeObservers() {
+    this.resizeObservers.forEach((observer) => observer.disconnect());
+    this.resizeObservers.clear();
+    this.shellResizeObservers = new WeakMap();
+  }
+
+  disconnectShellResizeObserver(shell) {
+    const observer = this.shellResizeObservers.get(shell);
+    if (!observer) {
+      return;
+    }
+
+    observer.disconnect();
+    this.resizeObservers.delete(observer);
+    this.shellResizeObservers.delete(shell);
+  }
+
+  attachShellResizeObserver(shell, frame, onResize) {
+    this.disconnectShellResizeObserver(shell);
+    if (typeof ResizeObserver !== 'function' || !shell?.isConnected || !(frame instanceof HTMLElement)) {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => onResize());
+    observer.observe(frame);
+    observer.observe(shell);
+    this.shellResizeObservers.set(shell, observer);
+    this.resizeObservers.add(observer);
   }
 
   clearActiveShell() {
@@ -228,6 +268,7 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
       this.svgInflightRequests.delete(source);
     }
 
+    this.disconnectShellResizeObserver(shell);
     this.shellRefits.delete(shell);
     if (this.activeMaximizedShell === shell) {
       this.restoreShellMount(shell);
@@ -261,27 +302,38 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
 
     const toolbar = document.createElement('div');
     toolbar.className = 'plantuml-toolbar diagram-preview-toolbar';
+    const leftGroup = document.createElement('div');
+    leftGroup.className = 'diagram-preview-toolbar-group diagram-preview-toolbar-group--zoom';
+    const rightGroup = document.createElement('div');
+    rightGroup.className = 'diagram-preview-toolbar-group diagram-preview-toolbar-group--actions';
 
     const frame = document.createElement('div');
     frame.className = 'plantuml-frame diagram-preview-frame';
     const decreaseButton = this.createToolButton('−', 'Zoom out');
     const increaseButton = this.createToolButton('+', 'Zoom in');
-    const resetButton = this.createToolButton('Reset', 'Reset zoom');
-    const reloadButton = this.createToolButton('Reload', 'Reload diagram');
-    const maximizeButton = this.createToolButton('Max', 'Maximize diagram');
+    const resetButton = this.createToolButton('', 'Reset zoom', { icon: 'fit' });
+    const copyButton = this.createToolButton('', 'Copy image', { icon: 'copy' });
+    const downloadButton = this.createToolButton('', 'Download SVG', { icon: 'download' });
+    const reloadButton = this.createToolButton('', 'Reload diagram', { icon: 'refresh' });
+    const maximizeButton = this.createToolButton('', 'Maximize diagram', { icon: 'maximize' });
     maximizeButton.classList.add('plantuml-maximize-btn');
-    setDiagramActionButtonIcon(reloadButton, 'refresh');
-    setDiagramActionButtonIcon(maximizeButton, 'maximize');
     const zoomLabel = document.createElement('span');
     zoomLabel.className = 'plantuml-zoom-label diagram-preview-zoom-label';
     zoomLabel.setAttribute('aria-live', 'polite');
 
-    toolbar.append(decreaseButton, zoomLabel, resetButton, increaseButton, reloadButton, maximizeButton);
+    leftGroup.append(decreaseButton, zoomLabel, resetButton, increaseButton);
+    rightGroup.append(copyButton, downloadButton, reloadButton, maximizeButton);
+    toolbar.append(leftGroup, rightGroup);
 
     const { width: baseWidth, height: baseHeight } = getSvgSize(svg);
     let currentZoom = PLANTUML_ZOOM.default;
     let defaultZoom = 1;
     let zoomAnimationFrameId = null;
+    let resetZoomFrameId = null;
+    let layoutFrameId = null;
+    let hasManualZoom = false;
+    let lastAutoFitViewportWidth = 0;
+    let shouldForceScheduledReset = false;
     let isPanning = false;
     let activePointerId = null;
     let panStartX = 0;
@@ -292,6 +344,15 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
     svg.style.display = 'block';
     svg.style.margin = '0 auto';
     svg.style.maxWidth = 'none';
+
+    const exportSvgMarkup = () => exportSvgMarkupFromElement(svg);
+
+    const exportFileNames = () => createDiagramExportFileNames({
+      currentFilePath: this.renderer.getSourceFilePath?.() ?? '',
+      diagramKind: 'plantuml',
+      sourceLine: shell.getAttribute('data-source-line') || '',
+      targetPath: shell.dataset.plantumlTarget || '',
+    });
 
     const calculateDefaultZoom = () => {
       const viewport = getFrameViewportSize(frame);
@@ -369,11 +430,14 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
     };
 
     const zoomBy = (delta) => {
+      hasManualZoom = true;
       animateZoomTo(currentZoom + delta);
     };
 
     const resetZoomToFit = ({ animate = false } = {}) => {
       defaultZoom = calculateDefaultZoom();
+      hasManualZoom = false;
+      lastAutoFitViewportWidth = getFrameViewportSize(frame).width;
 
       if (animate && Math.abs(defaultZoom - currentZoom) > 0.001) {
         animateZoomTo(defaultZoom);
@@ -390,28 +454,73 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
       frame.scrollTop = 0;
     };
 
-    let resetZoomFrameId = null;
-    const scheduleResetZoomToFit = () => {
+    const scheduleResetZoomToFit = ({ force = false } = {}) => {
+      shouldForceScheduledReset = shouldForceScheduledReset || force;
       if (resetZoomFrameId) {
         cancelAnimationFrame(resetZoomFrameId);
       }
+      if (layoutFrameId) {
+        cancelAnimationFrame(layoutFrameId);
+      }
 
       resetZoomFrameId = requestAnimationFrame(() => {
-        resetZoomFrameId = null;
-        if (!shell.isConnected) {
-          return;
-        }
+        layoutFrameId = requestAnimationFrame(() => {
+          layoutFrameId = requestAnimationFrame(() => {
+            layoutFrameId = null;
+            resetZoomFrameId = null;
+            if (!shell.isConnected) {
+              return;
+            }
 
-        resetZoomToFit();
+            const shouldForce = shouldForceScheduledReset;
+            shouldForceScheduledReset = false;
+            const viewportWidth = getFrameViewportSize(frame).width;
+            const viewportChanged = Math.abs(viewportWidth - lastAutoFitViewportWidth) > 1;
+            if (!shouldForce && hasManualZoom) {
+              return;
+            }
+            if (!shouldForce && viewportWidth > 0 && lastAutoFitViewportWidth > 0 && !viewportChanged) {
+              return;
+            }
+
+            resetZoomToFit();
+          });
+        });
       });
     };
 
     this.shellRefits.set(shell, scheduleResetZoomToFit);
+    this.attachShellResizeObserver(shell, frame, () => scheduleResetZoomToFit());
 
     decreaseButton.addEventListener('click', () => zoomBy(-PLANTUML_ZOOM.step));
     increaseButton.addEventListener('click', () => zoomBy(PLANTUML_ZOOM.step));
     resetButton.addEventListener('click', () => {
-      resetZoomToFit({ animate: true });
+      scheduleResetZoomToFit({ force: true });
+    });
+    copyButton.addEventListener('click', async () => {
+      try {
+        const { pngFileName } = exportFileNames();
+        const pngBlob = await rasterizeSvgMarkupToPngBlob(exportSvgMarkup());
+        try {
+          await writeBlobToClipboard(pngBlob);
+          this.renderer.toastController?.show?.('Diagram copied');
+        } catch {
+          downloadBlob(pngBlob, pngFileName);
+          this.renderer.toastController?.show?.('Clipboard image copy is unavailable here. Downloaded PNG instead.');
+        }
+      } catch {
+        this.renderer.toastController?.show?.('Failed to copy diagram');
+      }
+    });
+    downloadButton.addEventListener('click', () => {
+      try {
+        const { svgFileName } = exportFileNames();
+        const svgBlob = new Blob([exportSvgMarkup()], { type: 'image/svg+xml;charset=utf-8' });
+        downloadBlob(svgBlob, svgFileName);
+        this.renderer.toastController?.show?.('Diagram download started');
+      } catch {
+        this.renderer.toastController?.show?.('Failed to download diagram');
+      }
     });
 
     const syncMaximizeButtonState = () => {
@@ -445,7 +554,7 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
         this.activeMaximizedShell = shell;
         document.body.classList.add('plantuml-maximized-open');
         syncMaximizeButtonState();
-        scheduleResetZoomToFit();
+        scheduleResetZoomToFit({ force: true });
         return;
       }
 
@@ -458,7 +567,7 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
         document.body.classList.remove('plantuml-maximized-open');
       }
       syncMaximizeButtonState();
-      scheduleResetZoomToFit();
+      scheduleResetZoomToFit({ force: true });
     };
 
     reloadButton.addEventListener('click', () => {
@@ -481,6 +590,12 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
 
       isPanning = false;
       frame.classList.remove('is-dragging');
+      window.removeEventListener('pointerup', stopPanning, true);
+      window.removeEventListener('pointercancel', stopPanning, true);
+      window.removeEventListener('mouseup', stopPanning, true);
+      window.removeEventListener('touchend', stopPanning, true);
+      window.removeEventListener('touchcancel', stopPanning, true);
+      window.removeEventListener('blur', stopPanning, true);
 
       if (activePointerId !== null && typeof frame.releasePointerCapture === 'function') {
         try {
@@ -511,7 +626,19 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
       panStartScrollTop = frame.scrollTop;
 
       frame.classList.add('is-dragging');
-      frame.setPointerCapture?.(event.pointerId);
+      window.addEventListener('pointerup', stopPanning, true);
+      window.addEventListener('pointercancel', stopPanning, true);
+      window.addEventListener('mouseup', stopPanning, true);
+      window.addEventListener('touchend', stopPanning, true);
+      window.addEventListener('touchcancel', stopPanning, true);
+      window.addEventListener('blur', stopPanning, true);
+      if (typeof frame.setPointerCapture === 'function') {
+        try {
+          frame.setPointerCapture(event.pointerId);
+        } catch {
+          // Safari can reject pointer capture during rapid layout transitions.
+        }
+      }
       event.preventDefault();
     });
 
@@ -527,6 +654,10 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
     frame.addEventListener('pointerup', stopPanning);
     frame.addEventListener('pointercancel', stopPanning);
     frame.addEventListener('lostpointercapture', stopPanning);
+    frame.addEventListener('mouseleave', stopPanning);
+    frame.addEventListener('mouseup', stopPanning);
+    frame.addEventListener('touchend', stopPanning);
+    frame.addEventListener('touchcancel', stopPanning);
 
     frame.appendChild(svg);
     const sourceNode = shell.querySelector('.plantuml-source');
@@ -541,13 +672,17 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
     applyZoom(defaultZoom);
   }
 
-  createToolButton(label, ariaLabel) {
+  createToolButton(label, ariaLabel, { icon = '' } = {}) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'plantuml-tool-btn ui-preview-action';
     button.setAttribute('aria-label', ariaLabel);
     button.title = ariaLabel;
-    button.textContent = label;
+    if (icon) {
+      setDiagramActionButtonIcon(button, icon);
+    } else {
+      button.textContent = label;
+    }
     return button;
   }
 }

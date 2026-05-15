@@ -27,6 +27,7 @@ Throughout this guide, **vault** simply means a regular folder on your computer 
 Requirements for the fastest first run:
 
 - Node.js 24 for `npx` and source installs
+- ripgrep for global text search (`rg`; included in the Docker image)
 - Homebrew only if you want the `brew install` path
 
 ## Quick start
@@ -65,6 +66,7 @@ Prefer video? [Open the WebM demo](https://raw.githubusercontent.com/andes90/col
 - **Realtime collaboration** — multiple people can edit the same file at the same time via Yjs
 - **External edit sync** — changes made from tools like Obsidian or direct file writes are reflected back into open documents and the file explorer
 - **Markdown with context** — live preview, wiki-links, backlinks, outline, quick switcher, and scroll sync
+- **Global text search** — search text across supported vault files with ripgrep-backed results grouped by file
 - **Source-anchored comments** — comment on lines or selected text with inline markers, preview bubbles, and thread cards
 - **Collaboration built in** — collaborator presence, follow mode, and team chat
 - **Diagram-friendly** — Mermaid fences and standalone `.mmd` / `.mermaid`, PlantUML `.puml` / `.plantuml`, `.excalidraw`, `.drawio`, and public video embeds in Markdown
@@ -85,6 +87,7 @@ Prefer video? [Open the WebM demo](https://raw.githubusercontent.com/andes90/col
 
 - macOS, Linux, or Windows (via WSL2)
 - Node.js 24 for `npx` and source installs
+- ripgrep for global text search. Install with `brew install ripgrep` on macOS, `apk add ripgrep` on Alpine, or `apt install ripgrep` on Debian/Ubuntu. Docker images already include it.
 
 ### Run via npx (Node.js)
 
@@ -180,7 +183,7 @@ CollabMD starts a local server, scans the vault, and opens a browser-based edito
 - **`[[wiki-links]]` + backlinks** — jump between notes and inspect linked mentions
 - **Room chat** — discuss changes without leaving the workspace
 - **Presence + follow mode** — see who is online and follow another collaborator's active cursor
-- **Quick switcher + outline** — move around large vaults and long documents faster
+- **Quick switcher, global text search, and outline** — move around large vaults and long documents faster
 - **Standalone diagram files** — open `.mmd` / `.mermaid` or `.puml` / `.plantuml` files in side-by-side editor + preview, `.excalidraw` files in direct preview mode, and `.drawio` files in an embedded diagrams.net editor/viewer
 
 Comment threads are source-anchored and currently supported for markdown, Mermaid, and PlantUML text files. You can comment on a whole line or a text selection, then reopen the thread from either the editor marker or the preview bubble. Excalidraw and draw.io files are currently excluded from comments.
@@ -340,6 +343,8 @@ Published image: `ghcr.io/andes90/collabmd:latest`
 docker run -p 1234:1234 -v /path/to/vault:/data ghcr.io/andes90/collabmd:latest
 ```
 
+The published Docker image includes `ripgrep`, so global text search works without installing extra packages in the container.
+
 The container listens on `0.0.0.0:1234` and stores vault files at `/data`.
 
 ### Kubernetes / Helm
@@ -488,6 +493,7 @@ Health check: `GET /health`
 - `--auth oidc` fails on startup: set `PUBLIC_BASE_URL`, `AUTH_OIDC_CLIENT_ID`, and `AUTH_OIDC_CLIENT_SECRET`, and make sure the Google redirect URI matches `/api/auth/oidc/callback`
 - Google login loops back to the auth screen: verify the configured `PUBLIC_BASE_URL` matches the browser URL and that your reverse proxy forwards HTTPS correctly
 - `--local-plantuml` fails: make sure Docker is installed and running, or point `PLANTUML_SERVER_URL` at another PlantUML server
+- Global text search is disabled: install `ripgrep` on the server host and restart CollabMD. Docker images already include `ripgrep`.
 - Private git bootstrap fails on startup: verify `COLLABMD_GIT_REPO_URL` plus either `COLLABMD_GIT_SSH_PRIVATE_KEY_FILE` or `COLLABMD_GIT_SSH_PRIVATE_KEY_B64`
 - WSL2 path issues: run CollabMD against a directory inside your Linux filesystem when possible rather than a mounted Windows path
 
@@ -605,6 +611,7 @@ vite.config.mjs            Vite multi-page build and dev-server proxy config
 | `BASE_PATH` | URL path prefix for subpath deployments | |
 | `PLANTUML_SERVER_URL` | Upstream PlantUML server base URL used for server-side SVG rendering | `https://www.plantuml.com/plantuml` |
 | `COLLABMD_DRAWIO_BASE_URL` | diagrams.net base URL used for `.drawio` viewing and editing | `https://embed.diagrams.net` |
+| `COLLABMD_WIKI_LINK_AUTO_CREATE` | Create missing markdown files when clicking unresolved wiki-links; set to `false` to disable | `true` |
 | `COLLABMD_VAULT_DIR` | Vault directory path | CLI: current directory, server entrypoint: `data/vault`, Docker: `/data` |
 | `COLLABMD_GIT_ENABLED` | Enable or disable git integration in the UI and API | `true` |
 | `COLLABMD_GIT_REPO_URL` | Remote git repository used to bootstrap the vault checkout | |

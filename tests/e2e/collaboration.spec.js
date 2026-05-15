@@ -18,6 +18,7 @@ import {
   waitForCommentSelectionChip,
   waitForExcalidrawFrameHarness,
   waitForExcalidrawTestHarness,
+  writeVaultFileAndResetCollab,
 } from './helpers/app-fixture.js';
 
 function createSeededMultiplayerScene() {
@@ -266,6 +267,77 @@ function createSeededMultiplayerScene() {
   };
 }
 
+function createEmptyExcalidrawScene() {
+  return {
+    type: 'excalidraw',
+    version: 2,
+    source: 'collabmd',
+    appState: {
+      gridSize: null,
+      viewBackgroundColor: '#ffffff',
+    },
+    files: {},
+    elements: [],
+  };
+}
+
+function createImageScene() {
+  const timestamp = 1_710_000_100_000;
+  const fileId = 'remote-image-file';
+
+  return {
+    type: 'excalidraw',
+    version: 2,
+    source: 'collabmd',
+    appState: {
+      gridSize: 20,
+      viewBackgroundColor: '#ffffff',
+    },
+    files: {
+      [fileId]: {
+        id: fileId,
+        mimeType: 'image/png',
+        dataURL: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Zt9kAAAAASUVORK5CYII=',
+        created: timestamp,
+        lastRetrieved: timestamp,
+        version: 1,
+      },
+    },
+    elements: [{
+      id: 'remote-image-element',
+      type: 'image',
+      x: 120,
+      y: 80,
+      width: 96,
+      height: 96,
+      angle: 0,
+      strokeColor: 'transparent',
+      backgroundColor: 'transparent',
+      fillStyle: 'solid',
+      strokeWidth: 1,
+      strokeStyle: 'solid',
+      roundness: null,
+      roughness: 0,
+      opacity: 100,
+      seed: 2001,
+      version: 2,
+      versionNonce: 2002,
+      index: 'a0',
+      isDeleted: false,
+      groupIds: [],
+      frameId: null,
+      boundElements: null,
+      updated: timestamp,
+      link: null,
+      locked: false,
+      fileId,
+      status: 'saved',
+      scale: [1, 1],
+      crop: null,
+    }],
+  };
+}
+
 async function hoverPreviewQuotedText(page, quote) {
   const rect = await page.evaluate((targetQuote) => {
     const root = document.getElementById('previewContent');
@@ -312,8 +384,43 @@ async function seedExcalidrawMultiplayerScene(page) {
   return scene;
 }
 
+async function prepareExcalidrawTestFile(page, filePath) {
+  await writeVaultFileAndResetCollab(page, {
+    path: filePath,
+    content: JSON.stringify(createEmptyExcalidrawScene()),
+  });
+}
+
 async function getSceneElementIds(page) {
   return page.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds());
+}
+
+async function waitForExcalidrawSceneFrame(page) {
+  await page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  }));
+}
+
+async function waitForExcalidrawBackground(page, expectedColor) {
+  await expect.poll(async () => (
+    page.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
+  )).toBe(expectedColor);
+}
+
+async function waitForExcalidrawAuthoritativeReady(page) {
+  await expect.poll(async () => (
+    page.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.isAuthoritativeReady())
+  ), { timeout: 15000 }).toBe(true);
+}
+
+async function waitForExcalidrawElementIds(page, expectedIds) {
+  await expect.poll(async () => getSceneElementIds(page)).toEqual(expectedIds);
+}
+
+async function waitForExcalidrawHistoryState(page, key, expectedValue) {
+  await expect.poll(async () => (
+    page.evaluate((stateKey) => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState()[stateKey], key)
+  )).toBe(expectedValue);
 }
 
 async function getSceneElementCount(page) {
@@ -321,15 +428,31 @@ async function getSceneElementCount(page) {
 }
 
 async function getViewportElementCenter(page, elementId) {
-  const bounds = await page.evaluate((id) => window.__COLLABMD_EXCALIDRAW_TEST__.getElementBounds(id), elementId);
-  if (!bounds) {
+  const center = await page.evaluate((id) => {
+    const bounds = window.__COLLABMD_EXCALIDRAW_TEST__.getElementBounds(id);
+    if (!bounds) {
+      return null;
+    }
+
+    const viewport = window.__COLLABMD_EXCALIDRAW_TEST__.getViewport() || {};
+    const zoom = Number(viewport.zoom) > 0 ? Number(viewport.zoom) : 1;
+    const sceneX = bounds.centerX ?? (bounds.x + (bounds.width / 2));
+    const sceneY = bounds.centerY ?? (bounds.y + (bounds.height / 2));
+
+    return {
+      sceneX,
+      sceneY,
+      viewportX: (sceneX * zoom) + Number(viewport.scrollX || 0),
+      viewportY: (sceneY * zoom) + Number(viewport.scrollY || 0),
+      zoom,
+    };
+  }, elementId);
+
+  if (!center) {
     throw new Error(`Missing bounds for element ${elementId}`);
   }
 
-  return {
-    x: bounds.centerX ?? (bounds.x + (bounds.width / 2)),
-    y: bounds.centerY ?? (bounds.y + (bounds.height / 2)),
-  };
+  return center;
 }
 
 async function readExcalidrawFile(page, filePath) {
@@ -404,6 +527,37 @@ test('direct Excalidraw fallback does not wipe live room state from another page
   await expect.poll(async () => (
     pageA.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
   )).toBe('#123456');
+
+  await context.close();
+});
+
+test('direct Excalidraw collaboration registers binary files before applying remote image elements', async ({ browser }) => {
+  const context = await browser.newContext();
+  const pageA = await context.newPage();
+  const pageB = await context.newPage();
+
+  await pageA.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
+  await pageB.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
+  await waitForExcalidrawTestHarness(pageA);
+  await waitForExcalidrawTestHarness(pageB);
+  await waitForExcalidrawAuthoritativeReady(pageA);
+  await waitForExcalidrawAuthoritativeReady(pageB);
+
+  const imageScene = createImageScene();
+
+  await pageA.evaluate((scene) => {
+    window.__COLLABMD_EXCALIDRAW_TEST__.setScene(scene);
+  }, imageScene);
+
+  await expect.poll(async () => (
+    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
+  )).toContain('remote-image-element');
+  await expect.poll(async () => (
+    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getFileIds())
+  )).toContain('remote-image-file');
+  await expect.poll(async () => (
+    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementStatus('remote-image-element'))
+  )).toBe('saved');
 
   await context.close();
 });
@@ -492,9 +646,12 @@ test('local Excalidraw undo and redo sync the resulting scene to collaborators',
   const context = await browser.newContext();
   const pageA = await context.newPage();
   const pageB = await context.newPage();
+  const filePath = 'history-undo-redo.e2e.excalidraw';
 
-  await pageA.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
-  await pageB.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
+  await prepareExcalidrawTestFile(pageA, filePath);
+
+  await pageA.goto(`/excalidraw-editor.html?file=${encodeURIComponent(filePath)}&test=1`);
+  await pageB.goto(`/excalidraw-editor.html?file=${encodeURIComponent(filePath)}&test=1`);
   await waitForExcalidrawTestHarness(pageA);
   await waitForExcalidrawTestHarness(pageB);
 
@@ -507,9 +664,12 @@ test('local Excalidraw undo and redo sync the resulting scene to collaborators',
     window.__COLLABMD_EXCALIDRAW_TEST__.setScene(scene);
   });
 
-  await expect.poll(async () => (
-    pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#111111');
+  await waitForExcalidrawSceneFrame(pageA);
+  await waitForExcalidrawBackground(pageA, '#111111');
+  await waitForExcalidrawBackground(pageB, '#111111');
+  await waitForExcalidrawSceneFrame(pageB);
+  await waitForExcalidrawAuthoritativeReady(pageB);
+  await waitForExcalidrawHistoryState(pageA, 'canUndo', true);
 
   await pageA.evaluate(() => {
     const scene = JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson());
@@ -520,37 +680,23 @@ test('local Excalidraw undo and redo sync the resulting scene to collaborators',
     window.__COLLABMD_EXCALIDRAW_TEST__.setScene(scene);
   });
 
-  await expect.poll(async () => (
-    pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#222222');
+  await waitForExcalidrawSceneFrame(pageA);
+  await waitForExcalidrawBackground(pageA, '#222222');
+  await waitForExcalidrawBackground(pageB, '#222222');
 
-  await expect.poll(async () => (
-    pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canUndo)
-  )).toBe(true);
-  await expect.poll(async () => (
-    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canUndo)
-  )).toBe(false);
+  await waitForExcalidrawHistoryState(pageA, 'canUndo', true);
+  await waitForExcalidrawHistoryState(pageB, 'canUndo', false);
 
   await pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.undoShared());
 
-  await expect.poll(async () => (
-    pageA.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#111111');
-  await expect.poll(async () => (
-    pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#111111');
-  await expect.poll(async () => (
-    pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canRedo)
-  )).toBe(true);
+  await waitForExcalidrawBackground(pageA, '#111111');
+  await waitForExcalidrawBackground(pageB, '#111111');
+  await waitForExcalidrawHistoryState(pageA, 'canRedo', true);
 
   await pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.redoShared());
 
-  await expect.poll(async () => (
-    pageA.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#222222');
-  await expect.poll(async () => (
-    pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
-  )).toBe('#222222');
+  await waitForExcalidrawBackground(pageA, '#222222');
+  await waitForExcalidrawBackground(pageB, '#222222');
 
   await context.close();
 });
@@ -559,11 +705,16 @@ test('local Excalidraw redo is dropped after local undo followed by a new local 
   const context = await browser.newContext();
   const pageA = await context.newPage();
   const pageB = await context.newPage();
+  const filePath = 'history-drop-redo.e2e.excalidraw';
 
-  await pageA.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
-  await pageB.goto('/excalidraw-editor.html?file=sample-excalidraw.excalidraw&test=1');
+  await prepareExcalidrawTestFile(pageA, filePath);
+
+  await pageA.goto(`/excalidraw-editor.html?file=${encodeURIComponent(filePath)}&test=1`);
+  await pageB.goto(`/excalidraw-editor.html?file=${encodeURIComponent(filePath)}&test=1`);
   await waitForExcalidrawTestHarness(pageA);
   await waitForExcalidrawTestHarness(pageB);
+  await waitForExcalidrawAuthoritativeReady(pageA);
+  await waitForExcalidrawAuthoritativeReady(pageB);
 
   await pageA.evaluate(() => {
     const base = {
@@ -583,7 +734,16 @@ test('local Excalidraw redo is dropped after local undo followed by a new local 
       version: 2,
     };
     window.__COLLABMD_EXCALIDRAW_TEST__.setScene(base);
+  });
 
+  await waitForExcalidrawSceneFrame(pageA);
+  await waitForExcalidrawElementIds(pageA, ['shape-1']);
+  await waitForExcalidrawElementIds(pageB, ['shape-1']);
+  await waitForExcalidrawSceneFrame(pageB);
+  await waitForExcalidrawAuthoritativeReady(pageB);
+
+  await pageA.evaluate(() => {
+    const base = JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson());
     const withSecondShape = {
       ...base,
       elements: [
@@ -602,15 +762,16 @@ test('local Excalidraw redo is dropped after local undo followed by a new local 
     window.__COLLABMD_EXCALIDRAW_TEST__.setScene(withSecondShape);
   });
 
-  await expect.poll(async () => (
-    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
-  )).toEqual(['shape-1', 'shape-2']);
+  await waitForExcalidrawSceneFrame(pageA);
+  await waitForExcalidrawElementIds(pageA, ['shape-1', 'shape-2']);
+  await waitForExcalidrawElementIds(pageB, ['shape-1', 'shape-2']);
+  await waitForExcalidrawSceneFrame(pageB);
+  await waitForExcalidrawAuthoritativeReady(pageB);
 
   await pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.undoShared());
 
-  await expect.poll(async () => (
-    pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
-  )).toEqual(['shape-1']);
+  await waitForExcalidrawElementIds(pageA, ['shape-1']);
+  await waitForExcalidrawElementIds(pageB, ['shape-1']);
 
   await pageA.evaluate(() => {
     const scene = JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson());
@@ -629,21 +790,15 @@ test('local Excalidraw redo is dropped after local undo followed by a new local 
     window.__COLLABMD_EXCALIDRAW_TEST__.setScene(scene);
   });
 
-  await expect.poll(async () => (
-    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
-  )).toEqual(['shape-1', 'shape-3']);
-  await expect.poll(async () => (
-    pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canRedo)
-  )).toBe(false);
-  await expect.poll(async () => (
-    pageB.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getHistoryState().canUndo)
-  )).toBe(false);
+  await waitForExcalidrawSceneFrame(pageA);
+  await waitForExcalidrawElementIds(pageA, ['shape-1', 'shape-3']);
+  await waitForExcalidrawElementIds(pageB, ['shape-1', 'shape-3']);
+  await waitForExcalidrawHistoryState(pageA, 'canRedo', false);
+  await waitForExcalidrawHistoryState(pageB, 'canUndo', false);
 
   await pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.redoShared());
 
-  await expect.poll(async () => (
-    pageA.evaluate(() => window.__COLLABMD_EXCALIDRAW_TEST__.getElementIds())
-  )).toEqual(['shape-1', 'shape-3']);
+  await waitForExcalidrawElementIds(pageA, ['shape-1', 'shape-3']);
 
   await context.close();
 });
@@ -744,9 +899,9 @@ test('keeps multiplayer Excalidraw scenes stable while one user drags and anothe
   await expect.poll(async () => getSceneElementCount(pageB)).toBe(expectedIds.length);
 
   const dragStart = await getViewportElementCenter(pageA, 'table-shell');
-  await pageA.mouse.move(dragStart.x, dragStart.y);
+  await pageA.mouse.move(dragStart.viewportX, dragStart.viewportY);
   await pageA.mouse.down();
-  await pageA.mouse.move(dragStart.x + 160, dragStart.y + 90, { steps: 8 });
+  await pageA.mouse.move(dragStart.viewportX + 160, dragStart.viewportY + 90, { steps: 8 });
 
   await pageB.evaluate(() => {
     const scene = JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson());
@@ -770,6 +925,25 @@ test('keeps multiplayer Excalidraw scenes stable while one user drags and anothe
   });
 
   await pageA.mouse.up();
+
+  await expect.poll(async () => {
+    const [centerA, centerB] = await Promise.all([
+      getViewportElementCenter(pageA, 'table-shell'),
+      getViewportElementCenter(pageB, 'table-shell'),
+    ]);
+    const minimumSceneDeltaX = 80 / dragStart.zoom;
+    const minimumSceneDeltaY = 40 / dragStart.zoom;
+
+    return {
+      movedOnA: centerA.sceneX > dragStart.sceneX + minimumSceneDeltaX
+        && centerA.sceneY > dragStart.sceneY + minimumSceneDeltaY,
+      movedOnB: centerB.sceneX > dragStart.sceneX + minimumSceneDeltaX
+        && centerB.sceneY > dragStart.sceneY + minimumSceneDeltaY,
+    };
+  }).toEqual({
+    movedOnA: true,
+    movedOnB: true,
+  });
 
   await expect.poll(async () => (
     pageB.evaluate(() => JSON.parse(window.__COLLABMD_EXCALIDRAW_TEST__.getSceneJson()).appState.viewBackgroundColor)
@@ -1650,4 +1824,39 @@ test('pins and labels the current user in the header avatar list', async ({ brow
 
   await localPage.close();
   await remotePage.close();
+});
+
+test('opens the participant panel for hidden collaborators and follows them', async ({ browser }) => {
+  const names = ['Owner', 'Amy', 'Ben', 'Cara', 'Drew', 'Eli', 'Farah'];
+  const contexts = await Promise.all(names.map(() => browser.newContext()));
+  const pages = await Promise.all(contexts.map((context) => context.newPage()));
+
+  try {
+    for (const [index, page] of pages.entries()) {
+      await openFile(page, 'README.md', { userName: names[index] });
+    }
+
+    const ownerPage = pages[0];
+    const hiddenTargetPage = pages.at(-1);
+
+    await replaceEditorContent(hiddenTargetPage, createLongMarkdownDocument(140));
+    await expect(ownerPage.locator('#previewContent')).toContainText('Line 80 for follow testing.');
+    await expect(ownerPage.locator('#userCount')).toHaveText('7 online');
+    await expect(ownerPage.locator('#userAvatars .user-avatar-overflow-trigger')).toHaveText('+2');
+    await expect(ownerPage.locator('#userAvatars .user-avatar-button[aria-label*="Farah"]')).toHaveCount(0);
+
+    const initialScrollTop = await ownerPage.locator('.cm-scroller').evaluate((element) => element.scrollTop);
+
+    await ownerPage.locator('#userCount').click();
+    await expect(ownerPage.locator('#presencePanel')).toBeVisible();
+    await expect(ownerPage.locator('#presencePanel .presence-panel-user')).toHaveCount(7);
+    await ownerPage.locator('#presencePanel .presence-panel-user-button').filter({ hasText: 'Farah' }).click();
+    await expect(ownerPage.locator('#presencePanel')).toBeHidden();
+
+    await expect.poll(async () => (
+      ownerPage.locator('.cm-scroller').evaluate((element) => element.scrollTop)
+    )).toBeGreaterThan(initialScrollTop + 150);
+  } finally {
+    await Promise.all(contexts.map((context) => context.close().catch(() => {})));
+  }
 });

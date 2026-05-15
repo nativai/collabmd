@@ -227,7 +227,10 @@ export const workspaceFeature = {
     await this.wikiLinkFileController.createAndOpenFile(filePath, displayName);
   },
 
-  handleFileSelection(filePath, { closeSidebarOnMobile = false } = {}) {
-    this.workspaceRouteController.handleFileSelection(filePath, { closeSidebarOnMobile });
+  handleFileSelection(filePath, { closeSidebarOnMobile = false, revealInTree = false } = {}) {
+    this.workspaceRouteController.handleFileSelection(filePath, {
+      closeSidebarOnMobile,
+      revealInTree,
+    });
   },
 };

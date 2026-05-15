@@ -36,6 +36,7 @@ export async function startTestServer(overrides = {}) {
   });
   const config = {
     ...baseConfig,
+    fileWatcherEnabled: overrides.fileWatcherEnabled ?? false,
     host,
     nodeEnv: 'test',
     vaultDir,

@@ -1,6 +1,5 @@
 @import '../foundation/tokens.css';
 @import '../foundation/themes.css';
-@import '../base.css';
 
 html,
 body {
@@ -8,11 +7,13 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 body[data-surface] {
   font-family: var(--font-body);
   font-size: var(--text-ui-sm);
+  line-height: 1.4;
   color: var(--color-text);
   background: var(--color-bg);
 }

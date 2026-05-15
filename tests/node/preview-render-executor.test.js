@@ -69,6 +69,7 @@ test('PreviewRenderExecutor compiles through the worker when available', async (
     markdownText: '# Today',
     renderVersion: 7,
     sourceFilePath: '',
+    wikiLinkAutoCreate: true,
   });
 
   worker.dispatch('message', {
@@ -84,6 +85,29 @@ test('PreviewRenderExecutor compiles through the worker when available', async (
     html: '<h1>Today</h1>',
     stats: { headings: 1 },
   });
+});
+
+test('PreviewRenderExecutor forwards disabled wiki-link auto-create to the worker', async () => {
+  const worker = createFakeWorker();
+  const executor = new PreviewRenderExecutor({
+    createWorkerFn: () => worker,
+    getFileList: () => ['notes/today.md'],
+    getWikiLinkAutoCreate: () => false,
+  });
+
+  const resultPromise = executor.compile('# Today', 8);
+
+  assert.equal(worker.lastMessage.wikiLinkAutoCreate, false);
+
+  worker.dispatch('message', {
+    data: {
+      html: '<h1>Today</h1>',
+      renderVersion: 8,
+      stats: { headings: 1 },
+    },
+  });
+
+  await resultPromise;
 });
 
 test('PreviewRenderExecutor schedules worker prewarm and tears it down on destroy', () => {

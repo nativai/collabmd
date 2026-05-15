@@ -165,20 +165,30 @@ export function createPlantUmlPlaceholderCard(key, message = 'Renders server-sid
   return card;
 }
 
-export function sanitizeSvgMarkup(svgMarkup) {
-  const parser = new DOMParser();
-  const documentNode = parser.parseFromString(svgMarkup, 'image/svg+xml');
-  const svg = documentNode.documentElement;
+const SHOW_COMMENT_NODE = 128;
 
-  if (!svg || svg.nodeName.toLowerCase() !== 'svg') {
+function removeSvgComments(rootElement) {
+  const walker = rootElement.ownerDocument.createTreeWalker(rootElement, SHOW_COMMENT_NODE);
+  const comments = [];
+
+  while (walker.nextNode()) {
+    comments.push(walker.currentNode);
+  }
+
+  comments.forEach((comment) => comment.remove());
+}
+
+export function sanitizeSvgElement(svgElement) {
+  if (!(svgElement instanceof SVGSVGElement)) {
     throw new Error('Renderer returned invalid SVG');
   }
 
-  documentNode.querySelectorAll('script, foreignObject').forEach((node) => {
+  removeSvgComments(svgElement);
+  svgElement.querySelectorAll('script, foreignObject').forEach((node) => {
     node.remove();
   });
 
-  Array.from(documentNode.querySelectorAll('*')).forEach((element) => {
+  [svgElement, ...Array.from(svgElement.querySelectorAll('*'))].forEach((element) => {
     Array.from(element.attributes).forEach((attribute) => {
       const name = attribute.name.toLowerCase();
       const value = attribute.value || '';
@@ -193,7 +203,37 @@ export function sanitizeSvgMarkup(svgMarkup) {
     });
   });
 
-  return svg.outerHTML;
+  return svgElement;
+}
+
+export function serializeSvgElement(svgElement) {
+  const sanitizedSvg = sanitizeSvgElement(svgElement);
+  return new XMLSerializer().serializeToString(sanitizedSvg);
+}
+
+function parseSvgMarkup(svgMarkup) {
+  const normalizedMarkup = String(svgMarkup ?? '')
+    .replace(/<!--[\s\S]*?-->/gu, '')
+    .replace(/&nbsp;/giu, '&#160;');
+
+  const parser = new DOMParser();
+  const documentNode = parser.parseFromString(normalizedMarkup, 'image/svg+xml');
+  const svg = documentNode.documentElement;
+  if (svg?.nodeName.toLowerCase() === 'svg' && !documentNode.querySelector('parsererror')) {
+    return svg;
+  }
+
+  const fallbackDocument = parser.parseFromString(normalizedMarkup, 'text/html');
+  return fallbackDocument.querySelector('svg');
+}
+
+export function sanitizeSvgMarkup(svgMarkup) {
+  const svg = parseSvgMarkup(svgMarkup);
+  if (!(svg instanceof SVGSVGElement)) {
+    throw new Error('Renderer returned invalid SVG');
+  }
+
+  return serializeSvgElement(svg);
 }
 
 export function shouldPreserveHydratedDiagram({ nextSource = '', nextTarget = '', preservedSource = '', preservedTarget = '' } = {}) {

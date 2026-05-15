@@ -43,6 +43,7 @@ function createController(overrides = {}) {
       setHydrationPaused: (value) => events.push(['embed-hydration', value]),
     },
     fileExplorer: {
+      revealFile: (filePath, options) => events.push(['explorer-reveal', filePath, options ?? null]),
       setActiveFile: (filePath) => events.push(['explorer-active', filePath]),
     },
     getIsTabActive: () => overrides.isTabActive ?? true,
@@ -89,6 +90,7 @@ function createController(overrides = {}) {
       events.push(['session-token', value]);
     },
     setSidebarTab: (value) => events.push(['sidebar-tab', value]),
+    setSidebarVisibility: (value) => events.push(['sidebar-visibility', value]),
     showGitCommit: async (route) => {
       events.push(['show-git-commit', route.hash ?? null, route.path ?? null, route.historyFilePath ?? null]);
     },
@@ -255,4 +257,70 @@ test('WorkspaceRouteController resets into diff mode and keeps navigation helper
     ['close-sidebar'],
     ['navigate', 'README.md'],
   ]);
+});
+
+test('WorkspaceRouteController reveals the file tree once for quick-switcher opens without changing navigation semantics', async () => {
+  const { controller, events } = createController();
+
+  controller.handleFileSelection('notes/today.md', {
+    closeSidebarOnMobile: true,
+    revealInTree: true,
+  });
+
+  assert.deepEqual(events.slice(-1), [
+    ['navigate', 'notes/today.md'],
+  ]);
+  assert.equal(events.some(([type]) => type === 'explorer-reveal'), false);
+  assert.equal(events.some(([type]) => type === 'close-sidebar'), false);
+
+  await controller.openFile('notes/today.md');
+  await controller.openFile('notes/today.md');
+
+  assert.deepEqual(events.filter(([type]) => type === 'explorer-reveal'), [
+    ['explorer-reveal', 'notes/today.md', { clearSearch: true }],
+  ]);
+  assert.deepEqual(events.filter(([type]) => type === 'sidebar-tab').slice(-1), [
+    ['sidebar-tab', 'files'],
+  ]);
+  assert.deepEqual(events.filter(([type]) => type === 'sidebar-visibility').slice(-1), [
+    ['sidebar-visibility', true],
+  ]);
+});
+
+test('WorkspaceRouteController reveals the current file immediately for quick-switcher reselection', () => {
+  const { controller, events } = createController();
+
+  controller.handleFileSelection('README.md', { revealInTree: true });
+
+  assert.deepEqual(events.filter(([type]) => type === 'sidebar-tab'), [
+    ['sidebar-tab', 'files'],
+  ]);
+  assert.deepEqual(events.filter(([type]) => type === 'sidebar-visibility'), [
+    ['sidebar-visibility', true],
+  ]);
+  assert.deepEqual(events.filter(([type]) => type === 'explorer-reveal'), [
+    ['explorer-reveal', 'README.md', { clearSearch: true }],
+  ]);
+  assert.equal(events.some(([type]) => type === 'navigate'), false);
+});
+
+test('WorkspaceRouteController navigates instead of fast-revealing when draw.io text mode is active', () => {
+  const { controller, events } = createController({
+    navigation: {
+      getHashRoute: () => ({
+        drawioMode: 'text',
+        filePath: 'diagrams/architecture.drawio',
+        type: 'file',
+      }),
+      navigateToFile: (filePath) => events.push(['navigate', filePath]),
+    },
+  });
+
+  controller.handleFileSelection('diagrams/architecture.drawio', { revealInTree: true });
+
+  assert.deepEqual(events.filter(([type]) => type === 'navigate'), [
+    ['navigate', 'diagrams/architecture.drawio'],
+  ]);
+  assert.equal(events.some(([type]) => type === 'explorer-reveal'), false);
+  assert.equal(events.some(([type]) => type === 'sidebar-visibility'), false);
 });

@@ -9,6 +9,7 @@ self.onmessage = (event) => {
     markdownText,
     renderVersion,
     sourceFilePath,
+    wikiLinkAutoCreate,
   } = event.data ?? {};
 
   try {
@@ -19,6 +20,7 @@ self.onmessage = (event) => {
       frontmatterInteractive,
       markdownText,
       sourceFilePath,
+      wikiLinkAutoCreate,
     });
     self.postMessage({
       html: result.html,

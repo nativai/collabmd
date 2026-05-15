@@ -240,7 +240,7 @@ test('opens excalidraw files with a direct iframe preview', async ({ page }) => 
 
   const maximizedWidths = await page.evaluate(() => {
     const container = document.getElementById('previewContainer');
-    const embed = document.querySelector('[data-excalidraw-maximized-root="true"] .excalidraw-embed.is-maximized');
+    const embed = document.querySelector('.excalidraw-embed.is-maximized[data-excalidraw-maximized="true"]');
     if (!container || !embed) {
       return null;
     }
@@ -249,12 +249,14 @@ test('opens excalidraw files with a direct iframe preview', async ({ page }) => 
     return {
       containerWidth: container.getBoundingClientRect().width,
       embedWidth: rect.width,
+      position: window.getComputedStyle(embed).position,
       left: rect.left,
       right: rect.right,
       innerWidth: window.innerWidth,
     };
   });
   expect(maximizedWidths).not.toBeNull();
+  expect(maximizedWidths.position).toBe('fixed');
   expect(maximizedWidths.embedWidth).toBeGreaterThan(maximizedWidths.containerWidth - 48);
   expect(maximizedWidths.left).toBeGreaterThanOrEqual(0);
   expect(maximizedWidths.right).toBeLessThanOrEqual(maximizedWidths.innerWidth);
@@ -292,7 +294,7 @@ test('opens drawio files with a maximizable direct preview', async ({ page }) =>
 
   const maximizedBounds = await page.evaluate(() => {
     const container = document.getElementById('previewContainer');
-    const embed = document.querySelector('[data-drawio-maximized-root="true"] .drawio-embed.is-maximized');
+    const embed = document.querySelector('.drawio-embed.is-maximized[data-drawio-maximized="true"]');
     if (!container || !embed) {
       return null;
     }
@@ -318,6 +320,96 @@ test('opens drawio files with a maximizable direct preview', async ({ page }) =>
   expect(maximizedBounds.top).toBeGreaterThanOrEqual(0);
   expect(maximizedBounds.left).toBeGreaterThanOrEqual(0);
   expect(maximizedBounds.right).toBeLessThanOrEqual(maximizedBounds.innerWidth);
+});
+
+test('direct drawio preview ignores duplicate frame init events during resize', async ({ page }) => {
+  let frameDocumentRequests = 0;
+  await page.route('https://embed.diagrams.net/**', async (route) => {
+    frameDocumentRequests += 1;
+    await route.fulfill({
+      body: `
+        <!doctype html>
+        <html>
+          <body data-load-count="0">
+            <script>
+              function emit(event) {
+                parent.postMessage(JSON.stringify({ event }), '*');
+              }
+              window.__emitDrawioInit = () => emit('init');
+              window.addEventListener('message', (event) => {
+                const payload = JSON.parse(event.data || '{}');
+                if (payload.action === 'load') {
+                  document.body.dataset.loadCount = String(Number(document.body.dataset.loadCount || '0') + 1);
+                }
+              });
+              emit('init');
+            </script>
+          </body>
+        </html>
+      `,
+      contentType: 'text/html',
+      status: 200,
+    });
+  });
+
+  await openHome(page);
+  await writeVaultFileAndResetCollab(page, {
+    path: 'sample-drawio.drawio',
+    content: [
+      '<mxfile host="app.diagrams.net" modified="2026-01-01T00:00:00.000Z" agent="CollabMD" version="24.7.17">',
+      '  <diagram id="page-1" name="Page-1">',
+      '    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">',
+      '      <root>',
+      '        <mxCell id="0" />',
+      '        <mxCell id="1" parent="0" />',
+      '      </root>',
+      '    </mxGraphModel>',
+      '  </diagram>',
+      '</mxfile>',
+      '',
+    ].join('\n'),
+  });
+
+  await openFile(page, 'sample-drawio.drawio', { waitFor: 'preview' });
+  const iframe = page.locator('#previewContent .drawio-embed-iframe').first();
+  await expect(iframe).toBeVisible();
+  const initialSrc = await iframe.getAttribute('src');
+  await page.evaluate(() => {
+    const frame = document.querySelector('#previewContent .drawio-embed-iframe');
+    if (frame) {
+      frame.dataset.resizeProbe = 'alive';
+    }
+  });
+
+  const getFakeDrawioFrame = () => page.frames().find((frame) => frame.url().startsWith('https://embed.diagrams.net/'));
+  await expect.poll(async () => {
+    const frame = getFakeDrawioFrame();
+    return frame?.evaluate(() => document.body.dataset.loadCount || '0').catch(() => '0') ?? '0';
+  }, { timeout: 60000 }).toBe('1');
+  expect(frameDocumentRequests).toBe(1);
+
+  await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+  await getFakeDrawioFrame()?.evaluate(() => window.__emitDrawioInit());
+
+  await expect.poll(async () => {
+    const frame = getFakeDrawioFrame();
+    return frame?.evaluate(() => document.body.dataset.loadCount || '0').catch(() => '0') ?? '0';
+  }, { timeout: 60000 }).toBe('1');
+  await expect(iframe).toHaveAttribute('src', initialSrc);
+  await expect.poll(async () => (
+    page.evaluate(() => document.querySelector('#previewContent .drawio-embed-iframe')?.dataset.resizeProbe || '')
+  ), { timeout: 60000 }).toBe('alive');
+  await expect(page.locator('#previewContent')).not.toContainText('Loading draw.io preview…');
+
+  await page.locator('#previewContent .drawio-embed-btn[aria-label="Maximize diagram"]').click();
+  await expect(page.locator(`${ACTIVE_MAXIMIZED_DRAWIO_SELECTOR} .drawio-embed-btn[aria-label="Restore diagram size"]`)).toBeVisible();
+  await page.locator(`${ACTIVE_MAXIMIZED_DRAWIO_SELECTOR} .drawio-embed-btn[aria-label="Restore diagram size"]`).click();
+  await expect(page.locator('#previewContent .drawio-embed-btn[aria-label="Maximize diagram"]')).toBeVisible();
+  expect(frameDocumentRequests).toBe(1);
+  await expect(iframe).toHaveAttribute('src', initialSrc);
+  await expect.poll(async () => (
+    page.evaluate(() => document.querySelector('#previewContent .drawio-embed-iframe')?.dataset.resizeProbe || '')
+  ), { timeout: 60000 }).toBe('alive');
 });
 
 test('embedded drawio uses the shared diagram preview header chrome', async ({ page }) => {
@@ -353,10 +445,167 @@ test('embedded drawio uses the shared diagram preview header chrome', async ({ p
   await expect(embed.locator('.drawio-embed-btn').filter({ hasText: 'Open' })).toHaveCount(0);
 });
 
+test('preserves embedded drawio preview instances across unrelated preview rerenders', async ({ page }) => {
+  await openHome(page);
+  await writeVaultFileAndResetCollab(page, {
+    path: 'sample-drawio.drawio',
+    content: [
+      '<mxfile host="app.diagrams.net" modified="2026-01-01T00:00:00.000Z" agent="CollabMD" version="24.7.17">',
+      '  <diagram id="page-1" name="Page-1">',
+      '    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">',
+      '      <root>',
+      '        <mxCell id="0" />',
+      '        <mxCell id="1" parent="0" />',
+      '      </root>',
+      '    </mxGraphModel>',
+      '  </diagram>',
+      '</mxfile>',
+      '',
+    ].join('\n'),
+  });
+
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, [
+    '# Drawio Preserve',
+    '',
+    '![[sample-drawio.drawio]]',
+  ].join('\n'));
+
+  await expect(page.locator('#previewContent .drawio-embed').first()).toBeVisible();
+  await page.evaluate(() => {
+    const embed = document.querySelector('#previewContent .drawio-embed');
+    if (embed) {
+      embed.__collabmdPreserveProbe = 'alive';
+    }
+  });
+
+  const editor = page.locator('.cm-content').first();
+  await editor.click();
+  await page.keyboard.insertText(' ');
+  await page.keyboard.press('Backspace');
+
+  await expect.poll(async () => (
+    page.evaluate(() => document.querySelector('#previewContent .drawio-embed')?.__collabmdPreserveProbe || '')
+  ), { timeout: 60000 }).toBe('alive');
+  await expect(page.locator('#previewContent .drawio-embed-placeholder.is-hydrated').first()).toBeAttached();
+});
+
+test('embedded drawio maximize clears inline overlay geometry', async ({ page }) => {
+  await page.addInitScript(() => {
+    const renderViewerFrame = (element) => {
+      element.style.position = 'relative';
+      element.style.overflow = 'auto';
+      element.style.width = '281px';
+      element.style.height = '242px';
+      element.replaceChildren();
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 281 242');
+      svg.style.display = 'block';
+      svg.style.width = '100%';
+      svg.style.height = '100%';
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', '80');
+      rect.setAttribute('y', '60');
+      rect.setAttribute('width', '120');
+      rect.setAttribute('height', '60');
+      rect.setAttribute('fill', 'none');
+      rect.setAttribute('stroke', 'currentColor');
+      svg.appendChild(rect);
+      element.appendChild(svg);
+    };
+
+    window.GraphViewer = {
+      createViewerForElement: renderViewerFrame,
+      processElements: () => {
+        document.querySelectorAll('.mxgraph').forEach(renderViewerFrame);
+      },
+    };
+  });
+
+  await openHome(page);
+  await writeVaultFileAndResetCollab(page, {
+    path: 'sample-drawio.drawio',
+    content: [
+      '<mxfile host="app.diagrams.net" modified="2026-01-01T00:00:00.000Z" agent="CollabMD" version="24.7.17">',
+      '  <diagram id="page-1" name="Page-1">',
+      '    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">',
+      '      <root>',
+      '        <mxCell id="0" />',
+      '        <mxCell id="1" parent="0" />',
+      '      </root>',
+      '    </mxGraphModel>',
+      '  </diagram>',
+      '</mxfile>',
+      '',
+    ].join('\n'),
+  });
+
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, [
+    '# Drawio Maximize',
+    '',
+    '![[sample-drawio.drawio]]',
+  ].join('\n'));
+
+  const staticPreview = page.locator('#previewContent .drawio-embed.is-static-preview').first();
+  await expect(staticPreview.locator('.drawio-viewer-frame')).toBeVisible({ timeout: 60000 });
+  await staticPreview.locator('.drawio-embed-btn[aria-label="Maximize diagram"]').click();
+  await expect(page.locator(`${ACTIVE_MAXIMIZED_DRAWIO_SELECTOR} .drawio-embed-btn[aria-label="Restore diagram size"]`).first()).toBeVisible();
+
+  const bounds = await page.evaluate(() => {
+    const embed = document.querySelector('.drawio-embed.is-maximized[data-drawio-maximized="true"]');
+    if (!(embed instanceof HTMLElement)) {
+      return null;
+    }
+
+    const rect = embed.getBoundingClientRect();
+    const style = window.getComputedStyle(embed);
+    return {
+      height: rect.height,
+      left: rect.left,
+      position: style.position,
+      top: rect.top,
+      width: rect.width,
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+    };
+  });
+
+  expect(bounds).not.toBeNull();
+  expect(bounds.position).toBe('fixed');
+  expect(bounds.width).toBeGreaterThan(bounds.viewportWidth - 64);
+  expect(bounds.height).toBeGreaterThan(bounds.viewportHeight - 64);
+  expect(bounds.left).toBeLessThanOrEqual(24);
+  expect(bounds.top).toBeLessThanOrEqual(24);
+
+  const viewerAlignment = await page.evaluate(() => {
+    const shell = document.querySelector('.drawio-embed.is-maximized .drawio-viewer-shell');
+    const frame = document.querySelector('.drawio-embed.is-maximized .drawio-viewer-frame');
+    if (!(shell instanceof HTMLElement) || !(frame instanceof HTMLElement)) {
+      return null;
+    }
+
+    const shellRect = shell.getBoundingClientRect();
+    const frameRect = frame.getBoundingClientRect();
+    return {
+      deltaX: Math.abs((frameRect.left + frameRect.width / 2) - (shellRect.left + shellRect.width / 2)),
+      deltaY: Math.abs((frameRect.top + frameRect.height / 2) - (shellRect.top + shellRect.height / 2)),
+      frameHeight: frameRect.height,
+      frameWidth: frameRect.width,
+    };
+  });
+
+  expect(viewerAlignment).not.toBeNull();
+  expect(viewerAlignment.frameWidth).toBeGreaterThan(0);
+  expect(viewerAlignment.frameHeight).toBeGreaterThan(0);
+  expect(viewerAlignment.deltaX).toBeLessThanOrEqual(4);
+  expect(viewerAlignment.deltaY).toBeLessThanOrEqual(4);
+});
+
 test('markdown excalidraw embeds use preview mode with an edit button', async ({ page }) => {
   test.slow();
 
-  await openSampleFull(page);
+  await openSampleFull(page, { waitFor: 'preview' });
   await expect.poll(async () => (
     page.locator('#previewContent .excalidraw-embed iframe').count()
   ), { timeout: 60000 }).toBeGreaterThan(0);
@@ -364,12 +613,31 @@ test('markdown excalidraw embeds use preview mode with an edit button', async ({
   const iframe = page.locator('#previewContent .excalidraw-embed iframe').first();
   await expect(iframe).toHaveAttribute('src', /mode=preview/);
   await expect(page.locator('#previewContent .excalidraw-embed-btn[aria-label="Edit in Excalidraw"]').first()).toBeVisible();
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const iframeElement = document.querySelector('#previewContent .excalidraw-embed iframe');
+      const iframeDocument = iframeElement?.contentDocument;
+      if (!iframeDocument || iframeDocument.body?.dataset.documentMode !== 'preview') {
+        return 'loading';
+      }
+
+      const hasVisibleButton = Array.from(iframeDocument.querySelectorAll('.disable-view-mode')).some((button) => {
+        if (!(button instanceof HTMLElement)) {
+          return false;
+        }
+
+        const style = iframeElement.contentWindow.getComputedStyle(button);
+        return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+      });
+      return hasVisibleButton ? 'visible' : 'hidden';
+    })
+  ), { timeout: 60000 }).toBe('hidden');
 });
 
 test('embedded excalidraw edit button navigates to the diagram file', async ({ page }) => {
   test.slow();
 
-  await openSampleFull(page);
+  await openSampleFull(page, { waitFor: 'preview' });
   await expect.poll(async () => (
     page.locator('#previewContent .excalidraw-embed-btn[aria-label="Edit in Excalidraw"]').count()
   ), { timeout: 60000 }).toBeGreaterThan(0);
@@ -456,6 +724,51 @@ test('preserves excalidraw iframe instances across unrelated preview rerenders',
       return iframe?.contentWindow?.__collabmdPreserveProbe || '';
     })
   ), { timeout: 60000 }).toBe('alive');
+});
+
+test('embedded excalidraw height resize preserves the iframe instance', async ({ page }) => {
+  test.slow();
+
+  await openSampleFull(page);
+  await expect.poll(async () => (
+    page.locator('#previewContent .excalidraw-embed iframe').count()
+  ), { timeout: 60000 }).toBeGreaterThan(0);
+
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const iframe = document.querySelector('#previewContent .excalidraw-embed iframe');
+      return iframe?.contentWindow?.location?.pathname || '';
+    })
+  ), { timeout: 60000 }).toBe('/excalidraw-editor.html');
+
+  await page.evaluate(() => {
+    const iframe = document.querySelector('#previewContent .excalidraw-embed iframe');
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.__collabmdResizeProbe = 'alive';
+    }
+  });
+
+  const firstInstanceId = await page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('data-instance-id');
+  const firstSrc = await page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('src');
+  const resizerBox = await page.locator('#previewContent .excalidraw-embed-resizer').first().boundingBox();
+  expect(resizerBox).not.toBeNull();
+
+  await page.mouse.move(resizerBox.x + (resizerBox.width / 2), resizerBox.y + (resizerBox.height / 2));
+  await page.mouse.down();
+  await page.mouse.move(resizerBox.x + (resizerBox.width / 2), resizerBox.y + 80, { steps: 6 });
+  await page.mouse.up();
+
+  await expect.poll(async () => (
+    page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('data-instance-id')
+  ), { timeout: 60000 }).toBe(firstInstanceId);
+  await expect(page.locator('#previewContent .excalidraw-embed iframe').first()).toHaveAttribute('src', firstSrc);
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const iframe = document.querySelector('#previewContent .excalidraw-embed iframe');
+      return iframe?.contentWindow?.__collabmdResizeProbe || '';
+    })
+  ), { timeout: 60000 }).toBe('alive');
+  await expect(page.locator('#previewContent .excalidraw-embed.is-loading')).toHaveCount(0);
 });
 
 test('opening an embedded excalidraw file directly promotes the same iframe into editable mode', async ({ page }) => {
@@ -613,7 +926,7 @@ test('switching directly between excalidraw files updates the reused iframe scen
     }),
   });
 
-  const writtenDiagram = await page.request.get('http://127.0.0.1:4173/api/file?path=new-diagram.excalidraw');
+  const writtenDiagram = await page.request.get('/api/file?path=new-diagram.excalidraw');
   expect(writtenDiagram.ok()).toBe(true);
   expect(await writtenDiagram.text()).toContain('shape-new');
 
@@ -707,11 +1020,28 @@ test('embedded excalidraw maximize preserves layout and modal sizing', async ({ 
 
   await expect(page.locator('#previewContent .excalidraw-embed-btn[aria-label="Expand diagram"]')).toHaveCount(0);
 
+  await page.evaluate(() => {
+    const iframe = document.querySelector('#previewContent .excalidraw-embed iframe');
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.__collabmdMaximizeProbe = 'alive';
+    }
+  });
+  const firstInstanceId = await page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('data-instance-id');
+  const firstSrc = await page.locator('#previewContent .excalidraw-embed iframe').first().getAttribute('src');
+
   await page.locator('#previewContent .excalidraw-embed-btn[aria-label="Maximize diagram"]').first().click();
   await expect(page.locator(`${ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR} .excalidraw-embed-btn[aria-label="Restore diagram size"]`).first()).toBeVisible();
+  await expect(page.locator(`${ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR} iframe`).first()).toHaveAttribute('data-instance-id', firstInstanceId);
+  await expect(page.locator(`${ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR} iframe`).first()).toHaveAttribute('src', firstSrc);
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const iframe = document.querySelector('.excalidraw-embed.is-maximized[data-excalidraw-maximized="true"] iframe');
+      return iframe?.contentWindow?.__collabmdMaximizeProbe || '';
+    })
+  ), { timeout: 60000 }).toBe('alive');
 
   const afterMaximize = await page.evaluate(() => {
-    const embed = document.querySelector('[data-excalidraw-maximized-root="true"] .excalidraw-embed.is-maximized');
+    const embed = document.querySelector('.excalidraw-embed.is-maximized[data-excalidraw-maximized="true"]');
     const previewContainer = document.getElementById('previewContainer');
     const resizer = document.getElementById('resizer');
     if (!embed || !previewContainer) {
@@ -747,12 +1077,22 @@ test('embedded excalidraw maximize preserves layout and modal sizing', async ({ 
   expect(afterMaximize.resizerOpacity).toBe('0');
   expect(afterMaximize.resizerPointerEvents).toBe('none');
   expect(afterMaximize.hitMaximizedEmbed).toBeTruthy();
+
+  await page.locator(`${ACTIVE_MAXIMIZED_EXCALIDRAW_SELECTOR} .excalidraw-embed-btn[aria-label="Restore diagram size"]`).first().click();
+  await expect(page.locator('#previewContent .excalidraw-embed iframe').first()).toHaveAttribute('data-instance-id', firstInstanceId);
+  await expect(page.locator('#previewContent .excalidraw-embed iframe').first()).toHaveAttribute('src', firstSrc);
+  await expect.poll(async () => (
+    page.evaluate(() => {
+      const iframe = document.querySelector('#previewContent .excalidraw-embed iframe');
+      return iframe?.contentWindow?.__collabmdMaximizeProbe || '';
+    })
+  ), { timeout: 60000 }).toBe('alive');
 });
 
 test('embedded excalidraw matches mermaid width in preview-only view', async ({ page }) => {
   test.slow();
 
-  await openSampleFull(page);
+  await openSampleFull(page, { waitFor: 'preview' });
   await page.locator('.view-btn[data-view="preview"]').click();
   await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'preview');
 
@@ -963,11 +1303,43 @@ test('opens .puml files with side-by-side PlantUML preview', async ({ page }) =>
   await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
   await expect(page.locator('#previewContent .plantuml-frame')).toContainText('standalone-puml');
   await expect(page.locator('#previewContent .plantuml-zoom-label')).toHaveText('100%');
+  await expect(page.locator('#previewContent .plantuml-tool-btn[aria-label="Copy image"]')).toBeVisible();
+  await expect(page.locator('#previewContent .plantuml-tool-btn[aria-label="Download SVG"]')).toBeVisible();
+  await expect(page.locator('#previewContent .plantuml-tool-btn[aria-label="Reload diagram"]')).toBeVisible();
   await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
   await expect(page.locator('#previewContent .plantuml-zoom-label')).toHaveText('110%');
   await expect(page.locator('#outlineToggle')).toHaveClass(/hidden/);
   await expect(page.locator('#backlinksPanel')).not.toHaveClass(/hidden/);
   await expect(page.locator('#backlinksPanel .backlinks-count')).toHaveText('1');
+});
+
+test('preserves manual standalone PlantUML zoom after preview layout sync runs', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.route('**/api/plantuml/render', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        ok: true,
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 400"><text x="40" y="220">manual-standalone-puml</text></svg>',
+      }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
+  await openFile(page, 'sample-plantuml.puml');
+
+  await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+  await expect.poll(async () => {
+    const metrics = await getPlantUmlZoomMetrics(page);
+    return metrics ? metrics.currentLabel === metrics.expectedLabel : false;
+  }).toBeTruthy();
+
+  const initialLabel = await page.locator('#previewContent .plantuml-zoom-label').textContent();
+  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
+  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
+  await expect(page.locator('#previewContent .plantuml-zoom-label')).not.toHaveText(initialLabel || '');
+
+  await expect(page.locator('#previewContent .plantuml-zoom-label')).not.toHaveText(initialLabel || '');
 });
 
 test('refits standalone PlantUML diagrams on maximize, resize, and restore', async ({ page }) => {
@@ -1031,6 +1403,8 @@ test('opens .mmd files with side-by-side Mermaid preview', async ({ page }) => {
 
   await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'split');
   await expect(page.locator('#previewContent .mermaid-frame svg')).toBeVisible();
+  await expect(page.locator('#previewContent .mermaid-zoom-btn[aria-label="Copy image"]')).toBeVisible();
+  await expect(page.locator('#previewContent .mermaid-zoom-btn[aria-label="Download SVG"]')).toBeVisible();
   await expect.poll(async () => {
     const metrics = await getMermaidZoomMetrics(page);
     return metrics ? metrics.currentLabel === metrics.expectedLabel : false;
@@ -1097,7 +1471,6 @@ test('preserves manual Mermaid zoom after preview layout sync runs', async ({ pa
   await page.locator('#previewContent .mermaid-zoom-btn[aria-label="Zoom in"]').click();
   await expect(page.locator('#previewContent .mermaid-zoom-label')).not.toHaveText(initialLabel || '');
 
-  await page.waitForTimeout(1000);
   await expect(page.locator('#previewContent .mermaid-zoom-label')).not.toHaveText(initialLabel || '');
 });
 
@@ -1112,6 +1485,176 @@ test('renders embedded Mermaid files from markdown docs', async ({ page }) => {
   await expect(page.locator('#previewContent .mermaid-frame svg')).toBeVisible();
   await expect(page.locator('#previewContent .mermaid-frame')).toContainText('Start');
   await expect(page.locator('#previewContent .mermaid-shell[data-mermaid-target="sample-mermaid.mmd"]')).toHaveCount(1);
+  await expect(page.locator('#previewContent .mermaid-shell[data-mermaid-target="sample-mermaid.mmd"] .mermaid-zoom-btn[aria-label="Copy image"]')).toBeVisible();
+  await expect(page.locator('#previewContent .mermaid-shell[data-mermaid-target="sample-mermaid.mmd"] .mermaid-zoom-btn[aria-label="Download SVG"]')).toBeVisible();
+});
+
+test('renders embedded PlantUML previews with copy and download actions', async ({ page }) => {
+  await page.route('**/api/plantuml/render', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        ok: true,
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 48"><text x="8" y="28">plantuml-actions</text></svg>',
+      }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, [
+    '# PlantUML Embed',
+    '',
+    '![[sample-plantuml.puml|Embedded sequence]]',
+  ].join('\n'));
+
+  await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+  await expect(page.locator('#previewContent .plantuml-shell[data-plantuml-target="sample-plantuml.puml"] .plantuml-tool-btn[aria-label="Copy image"]')).toBeVisible();
+  await expect(page.locator('#previewContent .plantuml-shell[data-plantuml-target="sample-plantuml.puml"] .plantuml-tool-btn[aria-label="Download SVG"]')).toBeVisible();
+});
+
+test('preserves manual embedded PlantUML zoom after preview layout sync runs', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.route('**/api/plantuml/render', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        ok: true,
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 400"><text x="40" y="220">manual-embedded-puml</text></svg>',
+      }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
+  await openFile(page, 'README.md');
+  await replaceEditorContent(page, [
+    '# PlantUML Embed',
+    '',
+    '![[sample-plantuml.puml|Embedded sequence]]',
+  ].join('\n'));
+
+  await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+  await expect.poll(async () => {
+    const metrics = await getPlantUmlZoomMetrics(page);
+    return metrics ? metrics.currentLabel === metrics.expectedLabel : false;
+  }).toBeTruthy();
+
+  const initialLabel = await page.locator('#previewContent .plantuml-zoom-label').textContent();
+  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
+  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Zoom in"]').click();
+  await expect(page.locator('#previewContent .plantuml-zoom-label')).not.toHaveText(initialLabel || '');
+
+  await expect(page.locator('#previewContent .plantuml-zoom-label')).not.toHaveText(initialLabel || '');
+});
+
+test('downloads standalone Mermaid previews as SVG with the diagram file name', async ({ page }) => {
+  await openFile(page, 'sample-mermaid.mmd');
+  await expect(page.locator('#previewContent .mermaid-frame svg')).toBeVisible();
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.locator('#previewContent .mermaid-zoom-btn[aria-label="Download SVG"]').click();
+  const download = await downloadPromise;
+
+  expect(download.suggestedFilename()).toBe('sample-mermaid.svg');
+  const stream = await download.createReadStream();
+  const chunks = [];
+  for await (const chunk of stream) {
+    chunks.push(chunk);
+  }
+  const svgMarkup = Buffer.concat(chunks).toString('utf8');
+  expect(svgMarkup).toContain('Start');
+  expect(svgMarkup).toContain('Review');
+  expect(svgMarkup).toContain('Ship');
+  expect(svgMarkup).not.toContain('foreignObject');
+});
+
+test('PlantUML standalone download saves SVG with the diagram file name', async ({ page }) => {
+  await page.route('**/api/plantuml/render', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        ok: true,
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 48"><text x="8" y="28">standalone-puml-download</text></svg>',
+      }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
+
+  await openFile(page, 'sample-plantuml.puml');
+  await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.locator('#previewContent .plantuml-tool-btn[aria-label="Download SVG"]').click();
+  const download = await downloadPromise;
+
+  expect(download.suggestedFilename()).toBe('sample-plantuml.svg');
+});
+
+test('copies standalone Mermaid previews as PNG when image clipboard write succeeds', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openFile(page, 'sample-mermaid.mmd');
+  await expect(page.locator('#previewContent .mermaid-frame svg')).toBeVisible();
+
+  await page.evaluate(() => {
+    window.__diagramClipboardWrites = [];
+    if (typeof ClipboardItem !== 'function') {
+      window.ClipboardItem = class ClipboardItem {
+        constructor(payload) {
+          this.types = Object.keys(payload || {});
+        }
+      };
+    }
+
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        ...(navigator.clipboard || {}),
+        async write(items) {
+          window.__diagramClipboardWrites.push(items.map((item) => Array.from(item.types || [])));
+        },
+      },
+    });
+  });
+
+  await page.locator('#previewContent .mermaid-zoom-btn[aria-label="Copy image"]').click();
+
+  await expect.poll(async () => (
+    page.evaluate(() => window.__diagramClipboardWrites?.[0]?.[0]?.[0] || '')
+  )).toBe('image/png');
+  await expect(page.locator('#toastContainer')).toContainText('Diagram copied');
+});
+
+test('falls back to a PNG download when image clipboard write is unavailable', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openFile(page, 'sample-mermaid.mmd');
+  await expect(page.locator('#previewContent .mermaid-frame svg')).toBeVisible();
+
+  await page.evaluate(() => {
+    if (typeof ClipboardItem !== 'function') {
+      window.ClipboardItem = class ClipboardItem {
+        constructor(payload) {
+          this.types = Object.keys(payload || {});
+        }
+      };
+    }
+
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        ...(navigator.clipboard || {}),
+        async write() {
+          throw new Error('Clipboard blocked');
+        },
+      },
+    });
+  });
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.locator('#previewContent .mermaid-zoom-btn[aria-label="Copy image"]').click();
+  const download = await downloadPromise;
+
+  expect(download.suggestedFilename()).toBe('sample-mermaid.png');
+  await expect(page.locator('#toastContainer')).toContainText('Clipboard image copy is unavailable here. Downloaded PNG instead.');
 });
 
 test('renders historical Mermaid gantt charts without an oversized today marker canvas', async ({ page }) => {

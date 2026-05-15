@@ -51,6 +51,8 @@ function buildRuntimeConfig({
   gitEnabled,
   nodeEnv,
   publicWsBaseUrl,
+  search,
+  wikiLinkAutoCreate,
   wsBasePath,
 }) {
   return `window.__COLLABMD_CONFIG__ = ${JSON.stringify({
@@ -61,6 +63,8 @@ function buildRuntimeConfig({
     environment: nodeEnv,
     gitEnabled,
     publicWsBaseUrl,
+    search,
+    wikiLinkAutoCreate,
     wsBasePath,
   })};\n`;
 }
@@ -97,7 +101,7 @@ function resolvePublicFile(publicDir, pathname) {
   return absolutePath;
 }
 
-export function createStaticHandler(config, authService = null) {
+export function createStaticHandler(config, authService = null, searchService = null) {
   const readStaticFile = createStaticFileReader({
     cacheEnabled: config.nodeEnv === 'production',
   });
@@ -116,6 +120,13 @@ export function createStaticHandler(config, authService = null) {
           implemented: true,
           requiresLogin: false,
           strategy: 'none',
+        },
+        search: searchService?.getClientConfig?.() ?? config.search ?? {
+          available: false,
+          backend: 'ripgrep',
+          minQueryLength: 2,
+          unavailableReason: 'ripgrep search is unavailable',
+          version: '',
         },
       });
       sendResponse(req, res, {

@@ -1,19 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { syntaxTree } from '@codemirror/language';
+import { ensureSyntaxTree } from '@codemirror/language';
 import { EditorState } from '@codemirror/state';
 
 import { createLanguageExtension } from '../../src/client/infrastructure/editor-view-adapter.js';
 
 function collectSyntaxNodeNames(state) {
   const names = [];
-  syntaxTree(state).iterate({
+  ensureSyntaxTree(state, state.doc.length, 1000).iterate({
     enter(node) {
       names.push(node.name);
     },
   });
   return names;
+}
+
+function getInnerSyntaxNodeNameAt(state, searchText) {
+  const tree = ensureSyntaxTree(state, state.doc.length, 1000);
+  const position = state.doc.toString().indexOf(searchText);
+  assert.notEqual(position, -1, `expected to find "${searchText}" in document`);
+  return tree.resolveInner(position, 1).name;
 }
 
 test('createLanguageExtension uses YAML syntax for base files', () => {
@@ -39,4 +46,54 @@ test('createLanguageExtension keeps Markdown syntax for markdown files', () => {
 
   assert.ok(nodeNames.includes('Paragraph'));
   assert.ok(!nodeNames.includes('BlockMapping'));
+});
+
+test('createLanguageExtension uses Mermaid syntax for .mmd files', () => {
+  const state = EditorState.create({
+    doc: 'flowchart TD\n  A[Start] --> B{Done?}\n  %% comment\n',
+    extensions: [createLanguageExtension('diagrams/flow.mmd')],
+  });
+
+  const nodeNames = collectSyntaxNodeNames(state);
+
+  assert.ok(nodeNames.includes('meta'));
+  assert.ok(nodeNames.includes('atom'));
+  assert.ok(nodeNames.includes('operator'));
+  assert.ok(nodeNames.includes('comment'));
+  assert.ok(!nodeNames.includes('Paragraph'));
+});
+
+test('createLanguageExtension uses Mermaid syntax for .mermaid files', () => {
+  const state = EditorState.create({
+    doc: 'sequenceDiagram\n  participant Alice\n  Alice->>Bob: Hello\n',
+    extensions: [createLanguageExtension('diagrams/sequence.mermaid')],
+  });
+
+  const nodeNames = collectSyntaxNodeNames(state);
+
+  assert.ok(nodeNames.includes('meta'));
+  assert.ok(nodeNames.includes('keyword'));
+  assert.ok(nodeNames.includes('operator'));
+  assert.ok(!nodeNames.includes('Paragraph'));
+});
+
+test('createLanguageExtension highlights Mermaid fenced blocks inside Markdown', () => {
+  const state = EditorState.create({
+    doc: [
+      '# Diagram',
+      '',
+      '```mermaid',
+      'flowchart LR',
+      '  A --> B',
+      '```',
+    ].join('\n'),
+    extensions: [createLanguageExtension('README.md')],
+  });
+
+  const nodeNames = collectSyntaxNodeNames(state);
+
+  assert.ok(nodeNames.includes('ATXHeading1'));
+  assert.ok(nodeNames.includes('FencedCode'));
+  assert.equal(getInnerSyntaxNodeNameAt(state, 'flowchart'), 'meta');
+  assert.equal(getInnerSyntaxNodeNameAt(state, '-->'), 'operator');
 });

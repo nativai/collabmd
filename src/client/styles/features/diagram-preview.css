@@ -52,9 +52,13 @@
 .diagram-preview-toolbar {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  justify-content: flex-start;
+  gap: var(--space-3);
   min-width: 0;
-  flex-wrap: wrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface-raised);
@@ -63,12 +67,30 @@
   user-select: none;
 }
 
+.diagram-preview-toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: max-content;
+  flex: 0 0 auto;
+}
+
+.diagram-preview-toolbar-group--zoom {
+  flex: 0 0 auto;
+}
+
+.diagram-preview-toolbar-group--actions {
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
 .diagram-preview-zoom-label {
-  min-width: 52px;
+  min-width: 48px;
+  padding: 0 4px;
   color: var(--color-text-muted);
   text-align: center;
   font-size: var(--text-xs);
-  font-weight: 500;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
@@ -80,6 +102,51 @@
   padding: var(--space-3);
   background: transparent;
   overscroll-behavior: contain;
+}
+
+.diagram-preview-toolbar .ui-preview-action {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  line-height: 1;
+}
+
+.diagram-preview-toolbar .ui-preview-action:not(.ui-preview-action--icon-only) {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.diagram-preview-toolbar .ui-preview-action:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--color-primary) 72%, white 28%);
+  outline-offset: 2px;
+  border-color: color-mix(in oklab, var(--color-primary) 64%, var(--color-border) 36%);
+}
+
+.diagram-preview-toolbar .ui-preview-action.is-icon-only svg {
+  width: 14px;
+  height: 14px;
+}
+
+@media (max-width: 360px) {
+  .diagram-preview-toolbar {
+    gap: var(--space-2);
+    padding-inline: var(--space-2);
+  }
+
+  .diagram-preview-toolbar-group {
+    gap: 4px;
+  }
+
+  .diagram-preview-zoom-label {
+    min-width: 44px;
+  }
+
+  .diagram-preview-toolbar .ui-preview-action {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+  }
 }
 
 .excalidraw-embed,
@@ -209,11 +276,21 @@
   margin-right: auto;
 }
 
-.drawio-maximized-root {
+.drawio-embed-overlay-root {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.drawio-embed-placeholder.is-hydrated {
+  visibility: hidden;
+}
+
+.drawio-embed-overlay-root.has-maximized-entry {
   position: fixed;
   inset: 0;
   z-index: 171;
-  pointer-events: none;
 }
 
 body.drawio-maximized-open {
@@ -221,15 +298,10 @@ body.drawio-maximized-open {
 }
 
 body.drawio-maximized-open::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 170;
-  background: var(--surface-scrim);
-  backdrop-filter: blur(2px);
+  content: none;
 }
 
-.drawio-maximized-root .drawio-embed.is-maximized {
+body.drawio-maximized-open .drawio-embed.is-maximized {
   pointer-events: auto;
 }
 
@@ -244,7 +316,13 @@ body.drawio-maximized-open::before {
   margin: 0;
   box-sizing: border-box;
   border-radius: var(--radius-lg-plus);
-  box-shadow: var(--shadow-media-modal);
+  box-shadow: 0 0 0 9999px var(--surface-scrim), var(--shadow-media-modal);
+}
+
+.preview-content.is-drawio-file-preview .drawio-embed.is-maximized {
+  width: auto !important;
+  height: auto !important;
+  min-height: 0;
 }
 
 .drawio-embed.is-maximized .drawio-embed-header {
@@ -263,6 +341,20 @@ body.drawio-maximized-open::before {
   align-items: stretch;
 }
 
+.drawio-embed.is-maximized.is-static-preview .drawio-viewer-shell {
+  align-items: center;
+  justify-content: center;
+}
+
+.drawio-embed.is-maximized.is-static-preview .drawio-viewer-frame {
+  flex: 0 0 auto !important;
+  width: auto;
+  height: auto;
+  margin: auto !important;
+  max-width: 100%;
+  max-height: 100%;
+}
+
 .excalidraw-embed-overlay-root {
   position: absolute;
   inset: 0;
@@ -270,11 +362,10 @@ body.drawio-maximized-open::before {
   pointer-events: none;
 }
 
-.excalidraw-maximized-root {
+.excalidraw-embed-overlay-root.has-maximized-entry {
   position: fixed;
   inset: 0;
   z-index: 171;
-  pointer-events: none;
 }
 
 .excalidraw-warm-cache-root {
@@ -292,16 +383,7 @@ body.excalidraw-maximized-open {
 }
 
 body.excalidraw-maximized-open::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 170;
-  background: var(--surface-scrim);
-  backdrop-filter: blur(2px);
-}
-
-body.excalidraw-maximized-open .excalidraw-maximized-root {
-  z-index: 171;
+  content: none;
 }
 
 body.excalidraw-maximized-open .resizer {
@@ -379,7 +461,12 @@ body.excalidraw-maximized-open .resizer {
   margin: 0;
   box-sizing: border-box;
   border-radius: var(--radius-lg-plus);
-  box-shadow: var(--shadow-media-modal);
+  box-shadow: 0 0 0 9999px var(--surface-scrim), var(--shadow-media-modal);
+}
+
+.excalidraw-maximize-spacer {
+  pointer-events: none;
+  visibility: hidden;
 }
 
 .excalidraw-embed.is-maximized .excalidraw-embed-header {

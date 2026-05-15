@@ -50,6 +50,9 @@ function createFakeProvider() {
 
 function createScene(elementId, {
   color = '#ffffff',
+  isDeleted = false,
+  version = 1,
+  versionNonce = 1,
 } = {}) {
   return JSON.stringify({
     appState: {
@@ -58,8 +61,10 @@ function createScene(elementId, {
     },
     elements: [{
       id: elementId,
-      isDeleted: false,
+      isDeleted,
       type: 'rectangle',
+      version,
+      versionNonce,
       x: 0,
       y: 0,
       width: 100,
@@ -151,14 +156,244 @@ test('ExcalidrawRoomClient syncs local scene updates into the structured room st
   });
 });
 
-test('ExcalidrawRoomClient commitSceneJson writes the latest scene without tracking room history', async () => {
+test('ExcalidrawRoomClient preserves concurrent remote app state while flushing queued element updates', async () => {
+  const timers = [];
+  const provider = createFakeProvider();
+  const ydoc = new Y.Doc();
+  const client = new ExcalidrawRoomClient({
+    filePath: 'diagram.excalidraw',
+    resolveWsBaseUrlFn: () => 'ws://localhost:3000',
+    setTimeoutFn: (callback, delay) => {
+      timers.push({ callback, delay });
+      return timers.length;
+    },
+    vaultClient: {
+      async readFile() {
+        return { content: JSON.stringify({ type: 'excalidraw', version: 2, source: 'collabmd', elements: [], appState: {}, files: {} }) };
+      },
+    },
+    websocketProviderFactory: () => provider,
+    ydocFactory: () => ydoc,
+  });
+
+  await client.connect({
+    initialUser: { color: '#111111', colorLight: '#11111133', name: 'Andes', peerId: 'peer-1' },
+  });
+  client.commitSceneJson(createScene('shape-1'), { origin: 'seed-shape' });
+
+  client.scheduleSceneSync(
+    [{ id: 'shape-1', isDeleted: false, type: 'rectangle', version: 2, versionNonce: 1, x: 20, y: 0, width: 100, height: 80 }],
+    { gridSize: null, viewBackgroundColor: '#ffffff' },
+    {},
+  );
+  client.commitSceneJson(createScene('shape-1', { color: '#dbeafe' }), { origin: 'remote-background-change' });
+
+  timers.shift().callback();
+
+  const scene = buildExcalidrawRoomScene(ydoc);
+  assert.equal(scene.appState.viewBackgroundColor, '#dbeafe');
+  assert.equal(scene.elements[0].x, 20);
+});
+
+test('ExcalidrawRoomClient builds live sync deltas with only changed elements and files', async () => {
+  const { client } = await createConnectedClient();
+  client.commitSceneJson(JSON.stringify({
+    appState: {
+      gridSize: null,
+      viewBackgroundColor: '#ffffff',
+    },
+    elements: [
+      JSON.parse(createScene('shape-1')).elements[0],
+      JSON.parse(createScene('shape-2')).elements[0],
+    ],
+    files: {
+      imageA: { id: 'imageA', version: 1 },
+    },
+    source: 'collabmd',
+    type: 'excalidraw',
+    version: 2,
+  }), { origin: 'seed-shapes' });
+
+  const changedShape = {
+    ...JSON.parse(createScene('shape-1')).elements[0],
+    version: 2,
+    x: 30,
+  };
+  const unchangedShape = JSON.parse(createScene('shape-2')).elements[0];
+  const delta = client.buildLiveSceneDelta({
+    appState: {
+      gridSize: null,
+      viewBackgroundColor: '#ffffff',
+    },
+    baseSceneJson: client.getLastSceneJson(),
+    elements: [changedShape, unchangedShape],
+    files: {
+      imageA: { id: 'imageA', version: 1 },
+      imageB: { id: 'imageB', version: 1 },
+    },
+  });
+
+  assert.equal(delta.hasChanges, true);
+  assert.deepEqual(delta.scene.elements.map((element) => element.id), ['shape-1']);
+  assert.deepEqual(Object.keys(delta.scene.files), ['imageB']);
+});
+
+test('ExcalidrawRoomClient ignores restored same-version element object differences in live deltas', async () => {
+  const { client } = await createConnectedClient();
+  const seededElement = JSON.parse(createScene('shape-1', { version: 3, versionNonce: 10 })).elements[0];
+  client.commitSceneJson(JSON.stringify({
+    appState: {
+      gridSize: null,
+      viewBackgroundColor: '#ffffff',
+    },
+    elements: [seededElement],
+    files: {},
+    source: 'collabmd',
+    type: 'excalidraw',
+    version: 2,
+  }), { origin: 'seed-shape' });
+
+  const delta = client.buildLiveSceneDelta({
+    appState: {
+      gridSize: null,
+      viewBackgroundColor: '#ffffff',
+    },
+    baseSceneJson: client.getLastSceneJson(),
+    elements: [{
+      ...seededElement,
+      restoredLocalOnlyField: true,
+    }],
+    files: {},
+  });
+
+  assert.equal(delta.hasChanges, false);
+  assert.deepEqual(delta.scene.elements, []);
+});
+
+test('ExcalidrawRoomClient follows lower versionNonce tie-breaks in live deltas', async () => {
+  const { client } = await createConnectedClient();
+  const seededElement = JSON.parse(createScene('shape-1', { version: 3, versionNonce: 10 })).elements[0];
+  client.commitSceneJson(JSON.stringify({
+    appState: {
+      gridSize: null,
+      viewBackgroundColor: '#ffffff',
+    },
+    elements: [seededElement],
+    files: {},
+    source: 'collabmd',
+    type: 'excalidraw',
+    version: 2,
+  }), { origin: 'seed-shape' });
+
+  const lowerNonceDelta = client.buildLiveSceneDelta({
+    appState: {
+      gridSize: null,
+      viewBackgroundColor: '#ffffff',
+    },
+    baseSceneJson: client.getLastSceneJson(),
+    elements: [{
+      ...seededElement,
+      versionNonce: 4,
+      x: 40,
+    }],
+    files: {},
+  });
+  const higherNonceDelta = client.buildLiveSceneDelta({
+    appState: {
+      gridSize: null,
+      viewBackgroundColor: '#ffffff',
+    },
+    baseSceneJson: client.getLastSceneJson(),
+    elements: [{
+      ...seededElement,
+      versionNonce: 20,
+      x: 60,
+    }],
+    files: {},
+  });
+
+  assert.deepEqual(lowerNonceDelta.scene.elements.map((element) => element.x), [40]);
+  assert.equal(higherNonceDelta.hasChanges, false);
+});
+
+test('ExcalidrawRoomClient reschedules delayed empty-scene commits when newer local changes arrive', async () => {
+  let currentTime = 1000;
+  const timers = [];
+  const clearedTimers = [];
+  const provider = createFakeProvider();
+  const ydoc = new Y.Doc();
+  const client = new ExcalidrawRoomClient({
+    clearTimeoutFn: (timerId) => {
+      clearedTimers.push(timerId);
+    },
+    filePath: 'diagram.excalidraw',
+    now: () => currentTime,
+    resolveWsBaseUrlFn: () => 'ws://localhost:3000',
+    setTimeoutFn: (callback, delay) => {
+      timers.push({ callback, delay });
+      return timers.length;
+    },
+    vaultClient: {
+      async readFile() {
+        return { content: JSON.stringify({ type: 'excalidraw', version: 2, source: 'collabmd', elements: [], appState: {}, files: {} }) };
+      },
+    },
+    websocketProviderFactory: () => provider,
+    ydocFactory: () => ydoc,
+  });
+
+  await client.connect({
+    initialUser: { color: '#111111', colorLight: '#11111133', name: 'Andes', peerId: 'peer-1' },
+  });
+  client.lastSceneSyncAt = currentTime;
+  provider.awareness.getStates().set(2, {
+    user: {
+      color: '#222222',
+      colorLight: '#22222233',
+      name: 'Remote User',
+      peerId: 'peer-2',
+    },
+  });
+  client.commitSceneJson(createScene('shape-1'), { origin: 'seed-shape' });
+
+  client.scheduleSceneSync(
+    [],
+    {
+      gridSize: null,
+      viewBackgroundColor: '#ffffff',
+    },
+    {},
+  );
+  assert.equal(timers[0].delay, 48);
+
+  currentTime = 1048;
+  timers[0].callback();
+  assert.equal(timers[1].delay, 250);
+
+  currentTime = 1050;
+  client.scheduleSceneSync(
+    [{ id: 'shape-1', isDeleted: false, type: 'rectangle', version: 2, versionNonce: 1, x: 10, y: 0, width: 100, height: 80 }],
+    {
+      gridSize: null,
+      viewBackgroundColor: '#ffffff',
+    },
+    {},
+  );
+
+  assert.deepEqual(clearedTimers, [2]);
+  assert.equal(timers[2].delay, 0);
+  timers[2].callback();
+  assert.equal(buildExcalidrawRoomScene(ydoc).elements.find((element) => element.id === 'shape-1').x, 10);
+});
+
+test('ExcalidrawRoomClient commitSceneJson live-merges scenes without tracking room history', async () => {
   const { client, ydoc } = await createConnectedClient();
 
   assert.equal(client.commitSceneJson(createScene('shape-1', { color: '#111111' }), { origin: 'test-1' }), true);
   assert.equal(client.commitSceneJson(createScene('shape-2', { color: '#222222' }), { origin: 'test-2' }), true);
 
-  assert.deepEqual(parseElements(client.getLastSceneJson()), ['shape-2']);
-  assert.deepEqual(buildExcalidrawRoomScene(ydoc).elements.map((element) => element.id), ['shape-2']);
+  assert.deepEqual(parseElements(client.getLastSceneJson()), ['shape-1', 'shape-2']);
+  assert.deepEqual(buildExcalidrawRoomScene(ydoc).elements.map((element) => element.id), ['shape-1', 'shape-2']);
   assert.deepEqual(client.getHistoryState(), {
     canRedo: false,
     canUndo: false,
@@ -336,10 +571,10 @@ test('ExcalidrawRoomClient delays transient empty scene commits during active co
   currentTime += 25;
   timers.shift().callback();
 
-  assert.deepEqual(parseElements(client.getLastSceneJson()), ['shape-2']);
+  assert.deepEqual(parseElements(client.getLastSceneJson()), ['shape-1', 'shape-2']);
 });
 
-test('ExcalidrawRoomClient still allows an empty scene commit after the guard window elapses', async () => {
+test('ExcalidrawRoomClient keeps existing elements when delayed empty payload has no tombstones', async () => {
   let currentTime = 1000;
   const timers = [];
   const provider = createFakeProvider();
@@ -381,7 +616,20 @@ test('ExcalidrawRoomClient still allows an empty scene commit after the guard wi
   currentTime += 250;
   timers.shift().callback();
 
-  assert.deepEqual(parseElements(client.getLastSceneJson()), []);
+  assert.deepEqual(parseElements(client.getLastSceneJson()), ['shape-1']);
+  assert.deepEqual(buildExcalidrawRoomScene(ydoc).elements.map((element) => element.id), ['shape-1']);
+});
+
+test('ExcalidrawRoomClient applies explicit delete tombstones to live room state', async () => {
+  const { client, ydoc } = await createConnectedClient();
+
+  client.commitSceneJson(createScene('shape-1', { version: 1 }), { origin: 'seed-shape' });
+  client.commitSceneJson(createScene('shape-1', { isDeleted: true, version: 2 }), { origin: 'delete-shape' });
+
+  const liveScene = buildExcalidrawRoomScene(ydoc);
+  assert.equal(liveScene.elements.length, 1);
+  assert.equal(liveScene.elements[0].id, 'shape-1');
+  assert.equal(liveScene.elements[0].isDeleted, true);
 });
 
 test('ExcalidrawRoomClient ignores malformed legacy room text when structured state is authoritative', async () => {

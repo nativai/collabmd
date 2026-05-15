@@ -75,6 +75,7 @@ async function handleTabBlocked({ reason } = {}) {
   this.chatMessageIds.clear();
   this.chatUnreadCount = 0;
   this.chatInitialSyncComplete = false;
+  this.presencePanelOpen = false;
   this.followedUserClientId = null;
   this.followedCursorSignature = '';
   this.connectionState = { status: 'disconnected', unreachable: false };

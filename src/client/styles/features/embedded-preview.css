@@ -75,13 +75,12 @@
 
 .preview-content .mermaid-toolbar,
 .mermaid-maximized-root .mermaid-toolbar {
-  justify-content: flex-end;
+  width: 100%;
 }
 
 .preview-content .mermaid-zoom-btn,
 .mermaid-maximized-root .mermaid-zoom-btn {
-  min-width: 32px;
-  line-height: 1.5;
+  flex-shrink: 0;
 }
 
 .preview-content .mermaid-zoom-btn:disabled,
@@ -174,13 +173,12 @@ body.mermaid-maximized-open::before {
 
 .preview-content .plantuml-toolbar,
 .plantuml-maximized-root .plantuml-toolbar {
-  justify-content: flex-end;
+  width: 100%;
 }
 
 .preview-content .plantuml-tool-btn,
 .plantuml-maximized-root .plantuml-tool-btn {
-  min-width: 32px;
-  line-height: 1.5;
+  flex-shrink: 0;
 }
 
 .preview-content .plantuml-frame,

@@ -1,16 +1,19 @@
 import { basename, dirname, extname } from 'node:path';
 
-import { createWikiTargetIndex, resolveWikiTargetWithIndex } from '../../../domain/wiki-link-resolver.js';
+import { createWikiTargetIndex } from '../../../domain/wiki-link-resolver.js';
 import {
-  getVaultFileExtension,
   isMarkdownFilePath,
   stripVaultFileExtension,
 } from '../../../domain/file-kind.js';
 import { extractYamlFrontmatter } from '../../../domain/yaml-frontmatter.js';
+import {
+  collectMarkdownReferences,
+  collectReferenceTargetKeysForFilePath,
+  createReferenceTargetAliasMap,
+} from '../markdown-reference-extractor.js';
 import { mapWithConcurrency } from '../../shared/async-utils.js';
 import { createLinkValue, dedupeLinkValues } from './base-expression-runtime.js';
 
-const INTERNAL_LINK_RE = /(!)?\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g;
 const INLINE_TAG_RE = /(^|[\s(])#([A-Za-z0-9/_-]+)/g;
 const INDEX_READ_CONCURRENCY = 8;
 
@@ -42,28 +45,35 @@ function compareVaultPaths(left = '', right = '') {
   return String(left).localeCompare(String(right), undefined, { sensitivity: 'base' });
 }
 
-function extractReferences(markdownText = '', wikiTargetIndex) {
+function extractReferences(markdownText = '', {
+  sourceFilePath = '',
+  targetPathAliases = new Map(),
+  wikiTargetIndex,
+} = {}) {
   const links = [];
   const embeds = [];
-  let match;
-  while ((match = INTERNAL_LINK_RE.exec(String(markdownText ?? ''))) !== null) {
-    const isEmbed = Boolean(match[1]);
-    const rawTarget = String(match[2] ?? '').trim();
-    if (!rawTarget) {
-      continue;
-    }
+  const rawTargetKeys = new Set();
+  const references = collectMarkdownReferences(markdownText, {
+    sourceFilePath,
+    targetPathAliases,
+    wikiTargetIndex,
+  });
 
-    const resolvedPath = resolveWikiTargetWithIndex(rawTarget, wikiTargetIndex);
-    const linkValue = createLinkValue(resolvedPath || rawTarget, {
-      exists: Boolean(resolvedPath),
-      rawTarget,
+  references.forEach((reference) => {
+    const linkValue = createLinkValue(reference.resolvedPath || reference.targetPath || reference.rawTarget, {
+      exists: Boolean(reference.resolvedPath),
+      rawTarget: reference.rawTarget,
     });
     links.push(linkValue);
-    if (isEmbed) {
+    if (reference.isEmbed) {
       embeds.push(linkValue);
     }
-  }
-  return { embeds, links };
+    if (reference.rawTargetKey) {
+      rawTargetKeys.add(reference.rawTargetKey);
+    }
+  });
+
+  return { embeds, links, rawTargetKeys };
 }
 
 function isWorkspaceFileEntry(entry = null) {
@@ -79,39 +89,6 @@ function listWorkspaceFilePaths(workspaceState = {}) {
     .filter((entry) => isWorkspaceFileEntry(entry))
     .map((entry) => entry.path)
     .sort(compareVaultPaths);
-}
-
-function normalizeWikiTargetKey(target = '') {
-  const normalizedTarget = String(target ?? '').trim();
-  if (!normalizedTarget) {
-    return '';
-  }
-
-  return getVaultFileExtension(normalizedTarget)
-    ? normalizedTarget
-    : `${normalizedTarget}.md`;
-}
-
-function collectWikiTargetKeysForFilePath(filePath = '') {
-  const normalizedPath = String(filePath ?? '').trim();
-  if (!normalizedPath) {
-    return [];
-  }
-
-  const segments = normalizedPath.split('/').filter(Boolean);
-  const keys = [];
-  for (let index = 0; index < segments.length; index += 1) {
-    keys.push(segments.slice(index).join('/'));
-  }
-
-  if (isMarkdownFilePath(normalizedPath)) {
-    const rawSegments = normalizedPath.replace(/\.md$/i, '').split('/').filter(Boolean);
-    for (let index = 0; index < rawSegments.length; index += 1) {
-      keys.push(rawSegments.slice(index).join('/'));
-    }
-  }
-
-  return [...new Set(keys)];
 }
 
 function createBacklinkEntry(sourcePath = '') {
@@ -160,12 +137,18 @@ export class BaseIndexSnapshotStore {
     return scannedWorkspaceState;
   }
 
-  createSnapshotRow(filePath, workspaceState, wikiTargetIndex, markdownContent = null) {
+  createSnapshotRow(filePath, workspaceState, wikiTargetIndex, markdownContent = null, {
+    targetPathAliases = new Map(),
+  } = {}) {
     const metadata = workspaceState.metadata.get(filePath) ?? null;
     const frontmatter = markdownContent ? extractYamlFrontmatter(markdownContent) : null;
     const noteProperties = isPlainObject(frontmatter?.data) ? frontmatter.data : {};
     const bodyMarkdown = frontmatter?.bodyMarkdown ?? markdownContent ?? '';
-    const references = extractReferences(bodyMarkdown, wikiTargetIndex);
+    const references = extractReferences(bodyMarkdown, {
+      sourceFilePath: filePath,
+      targetPathAliases,
+      wikiTargetIndex,
+    });
     const tags = [...new Set([
       ...normalizeTags(noteProperties.tags),
       ...extractInlineTags(bodyMarkdown),
@@ -193,11 +176,7 @@ export class BaseIndexSnapshotStore {
           .map((link) => link?.path)
           .filter((targetPath) => targetPath && targetPath !== filePath),
       ),
-      rawTargetKeys: new Set(
-        references.links
-          .map((link) => normalizeWikiTargetKey(link?.rawTarget))
-          .filter(Boolean),
-      ),
+      rawTargetKeys: references.rawTargetKeys,
       row: {
         file: fileValue,
         noteProperties,
@@ -373,7 +352,7 @@ export class BaseIndexSnapshotStore {
   collectImpactedSourcesForMembershipChanges(snapshot, pathValues = []) {
     const affectedTargetKeys = new Set();
     pathValues.forEach((pathValue) => {
-      collectWikiTargetKeysForFilePath(pathValue).forEach((targetKey) => {
+      collectReferenceTargetKeysForFilePath(pathValue).forEach((targetKey) => {
         affectedTargetKeys.add(targetKey);
       });
     });
@@ -392,7 +371,9 @@ export class BaseIndexSnapshotStore {
     return impactedPaths;
   }
 
-  async refreshSnapshotRows(snapshot, workspaceState, pathValues = []) {
+  async refreshSnapshotRows(snapshot, workspaceState, pathValues = [], {
+    targetPathAliases = new Map(),
+  } = {}) {
     const filePathsToRefresh = Array.from(new Set(pathValues))
       .filter((pathValue) => {
         const entry = workspaceState?.entries?.get(pathValue);
@@ -403,7 +384,9 @@ export class BaseIndexSnapshotStore {
       const markdownContent = isMarkdownFilePath(filePath)
         ? await this.vaultFileStore.readMarkdownFile(filePath)
         : null;
-      const rowRecord = this.createSnapshotRow(filePath, workspaceState, snapshot.wikiTargetIndex, markdownContent);
+      const rowRecord = this.createSnapshotRow(filePath, workspaceState, snapshot.wikiTargetIndex, markdownContent, {
+        targetPathAliases,
+      });
       this.removeRawTargetSourceContributions(snapshot, filePath);
       snapshot.rowsByPath.set(filePath, rowRecord.row);
       snapshot.forwardLinksByPath.set(filePath, rowRecord.forwardLinks);
@@ -489,6 +472,7 @@ export class BaseIndexSnapshotStore {
     const snapshot = this.indexSnapshot;
     const affectedTargetPaths = new Set();
     const affectedSourcePaths = new Set(markdownPathsToRefresh);
+    const targetPathAliases = createReferenceTargetAliasMap(renamedFileEntries);
     if (membershipChanged) {
       const membershipAffectedPaths = [
         ...deletedFilePaths,
@@ -543,7 +527,7 @@ export class BaseIndexSnapshotStore {
         ...createdFilePaths,
         ...renamedFileEntries.map((entry) => entry.newPath),
         ...affectedSourcePaths,
-      ]);
+      ], { targetPathAliases });
     } else {
       affectedSourcePaths.forEach((pathValue) => {
         this.removeSourceBacklinkContributions(snapshot, pathValue, affectedTargetPaths);

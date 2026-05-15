@@ -52,6 +52,57 @@
   font-weight: 600;
 }
 
+.preview-content .preview-heading-link-button {
+  display: inline-flex;
+  width: 1.18em;
+  min-width: 1.18em;
+  height: 1.18em;
+  margin-inline-start: 0.28em;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: color-mix(in oklab, var(--color-text-muted) 78%, transparent);
+  transform: translateY(-0.04em);
+  transition:
+    transform var(--transition-interactive),
+    background var(--transition-interactive),
+    box-shadow var(--transition-interactive),
+    color var(--transition-interactive),
+    opacity var(--transition-interactive);
+  vertical-align: middle;
+  opacity: 0;
+}
+
+.preview-content .preview-heading-link-button > svg {
+  width: 0.74em;
+  height: 0.74em;
+  stroke-width: 2;
+}
+
+.preview-content .preview-heading-link-button:hover {
+  background: color-mix(in oklab, var(--color-primary) 12%, transparent);
+  box-shadow: var(--shadow-accent-outline);
+  color: var(--color-primary);
+  transform: translateY(-0.04em) scale(1.04);
+}
+
+.preview-content h1:hover .preview-heading-link-button,
+.preview-content h2:hover .preview-heading-link-button,
+.preview-content h3:hover .preview-heading-link-button,
+.preview-content h4:hover .preview-heading-link-button,
+.preview-content h5:hover .preview-heading-link-button,
+.preview-content h6:hover .preview-heading-link-button,
+.preview-content .preview-heading-link-button:focus-visible {
+  opacity: 1;
+}
+
+.preview-content .preview-heading-link-button:focus-visible {
+  background: color-mix(in oklab, var(--color-primary) 14%, transparent);
+  box-shadow: var(--shadow-focus-compact);
+  color: var(--color-primary);
+  outline: 0;
+}
+
 .preview-content p {
   max-width: 72ch;
   margin-bottom: var(--space-4);

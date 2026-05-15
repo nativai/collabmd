@@ -138,6 +138,56 @@ export function buildCollaboratorsMap(awareness) {
   return collaborators;
 }
 
+export function buildRenderableCollaboratorsMap(collaborators) {
+  const renderable = new Map();
+  if (!(collaborators instanceof Map)) {
+    return renderable;
+  }
+
+  collaborators.forEach((collaborator, key) => {
+    if (!collaborator?.isCurrentUser) {
+      renderable.set(key, collaborator);
+    }
+  });
+
+  return renderable;
+}
+
+function serializeCollaboratorForRenderSignature(key, collaborator = {}) {
+  const pointer = collaborator.pointer || {};
+  const viewport = collaborator.viewport || {};
+  const selectedElementIds = collaborator.selectedElementIds && typeof collaborator.selectedElementIds === 'object'
+    ? Object.keys(collaborator.selectedElementIds).sort()
+    : [];
+
+  return [
+    key,
+    collaborator.button || 'up',
+    collaborator.color?.background || '',
+    collaborator.color?.stroke || '',
+    collaborator.id || '',
+    pointer.tool || '',
+    pointer.x ?? null,
+    pointer.y ?? null,
+    selectedElementIds,
+    collaborator.socketId || '',
+    collaborator.username || '',
+    viewport.scrollX ?? null,
+    viewport.scrollY ?? null,
+    viewport.zoom ?? null,
+  ];
+}
+
+export function getCollaboratorsRenderSignature(collaborators) {
+  if (!(collaborators instanceof Map) || collaborators.size === 0) {
+    return '';
+  }
+
+  return JSON.stringify([...collaborators.entries()]
+    .sort(([leftKey], [rightKey]) => String(leftKey).localeCompare(String(rightKey)))
+    .map(([key, collaborator]) => serializeCollaboratorForRenderSignature(key, collaborator)));
+}
+
 export function findCollaboratorByPeerId(collaborators, peerId) {
   if (!(collaborators instanceof Map) || !peerId) {
     return null;

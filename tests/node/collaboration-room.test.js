@@ -363,6 +363,38 @@ test('CollaborationRoom emits perf logs for hydrate and initial sync when enable
   assert.ok(roomPerfLogs.some((line) => line.includes('event=initial-sync') && line.includes('bytes=')));
 });
 
+test('CollaborationRoom logs oversized initial sync payloads', async (t) => {
+  const warnings = [];
+  const originalConsoleWarn = console.warn;
+  console.warn = (...args) => {
+    warnings.push(args.join(' '));
+  };
+  t.after(() => {
+    console.warn = originalConsoleWarn;
+  });
+
+  const room = new CollaborationRoom({
+    maxBufferedAmountBytes: 1024 * 1024,
+    maxInitialSyncBytes: 64,
+    name: 'large-sync-room.md',
+    onEmpty: () => {},
+    vaultFileStore: {
+      async readMarkdownFile() {
+        return 'large '.repeat(128);
+      },
+      async writeMarkdownFile() {},
+    },
+  });
+
+  await room.addClient(createSocket());
+
+  assert.ok(warnings.some((line) => (
+    line.includes('[room:large-sync-room.md]')
+    && line.includes('Initial sync payload')
+    && line.includes('exceeding 64 bytes')
+  )));
+});
+
 test('CollaborationRoom hydrates and persists markdown comment threads', async () => {
   const writes = [];
   const commentWrites = [];
