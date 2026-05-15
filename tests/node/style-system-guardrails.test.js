@@ -19,6 +19,7 @@ const ALLOWED_RUNTIME_CSS_VARIABLES = new Set([
   '--depth',
   '--preview-comment-rail-offset',
   '--preview-comment-rail-reserved',
+  '--sidebar-width',
 ]);
 
 async function collectFiles(dirPath, pattern) {
