@@ -1,4 +1,5 @@
 import {
+  exitSinglePageMode,
   getHashRoute,
   navigateToGitCommit,
   navigateToFile,
@@ -35,5 +36,9 @@ export class BrowserNavigationPort {
 
   navigateToGitFilePreview(payload) {
     navigateToGitFilePreview(payload);
+  }
+
+  exitSinglePageMode() {
+    exitSinglePageMode();
   }
 }

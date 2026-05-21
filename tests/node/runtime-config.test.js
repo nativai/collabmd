@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   createFileRouteHash,
+  exitSinglePageMode,
   getRuntimeConfig,
   getHashRoute,
   isCollabMdHashRoute,
@@ -225,4 +226,31 @@ test('runtime-config marks the single-page flag on file, git, and empty routes',
   const emptyRoute = getHashRoute();
   assert.equal(emptyRoute.type, 'empty');
   assert.equal(emptyRoute.singlePage, true);
+});
+
+test('runtime-config exitSinglePageMode strips the single param and preserves the rest', (t) => {
+  const previousWindow = globalThis.window;
+  globalThis.window = createWindowStub('#file=README.md&single=1');
+
+  t.after(() => {
+    globalThis.window = previousWindow;
+  });
+
+  exitSinglePageMode();
+  assert.equal(globalThis.window.location.hash, 'file=README.md');
+
+  globalThis.window.location.hash = '#file=docs%2Fguide.md&anchor=intro&line=7&single=1';
+  exitSinglePageMode();
+  assert.equal(
+    globalThis.window.location.hash,
+    'file=docs%2Fguide.md&anchor=intro&line=7',
+  );
+
+  globalThis.window.location.hash = '#single=1';
+  exitSinglePageMode();
+  assert.equal(globalThis.window.location.hash, '');
+
+  globalThis.window.location.hash = '#file=README.md';
+  exitSinglePageMode();
+  assert.equal(globalThis.window.location.hash, 'file=README.md');
 });

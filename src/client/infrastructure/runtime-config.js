@@ -153,3 +153,9 @@ export function navigateToGitFilePreview({ hash, path, currentFilePath = null } 
   params.set('hash', normalizedHash);
   window.location.hash = params.toString();
 }
+
+export function exitSinglePageMode() {
+  const params = getHashParamsFromRaw(window.location.hash);
+  params.delete('single');
+  window.location.hash = params.toString();
+}
