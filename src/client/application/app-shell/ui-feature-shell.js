@@ -291,6 +291,10 @@ function bindEvents() {
     this.runEditorCommand?.('openSearch');
   });
 
+  this.elements.singlePageExitButton?.addEventListener('click', () => {
+    this.navigation.exitSinglePageMode();
+  });
+
   this.elements.toolbarOverflowToggle?.addEventListener('click', (event) => {
     event.preventDefault();
     this.closePresencePanel?.();

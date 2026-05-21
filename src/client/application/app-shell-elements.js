@@ -59,6 +59,8 @@ export function bindAppShellElements(doc = document) {
     presencePanelStatus: doc.getElementById('presencePanelStatus'),
     searchFilesButton: doc.getElementById('searchFilesBtn'),
     shareButton: doc.getElementById('shareBtn'),
+    singlePageControls: doc.getElementById('singlePageControls'),
+    singlePageExitButton: doc.getElementById('singlePageExitBtn'),
     toastContainer: doc.getElementById('toastContainer'),
     toggleWrapButton: doc.getElementById('toggleWrapBtn'),
     userAvatars: doc.getElementById('userAvatars'),

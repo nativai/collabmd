@@ -19,3 +19,27 @@ html.single-page #backlinksInlinePanel,
 html.single-page #backlinksHeaderPanel {
   display: none !important;
 }
+
+/* Floating top-right control cluster for single-page mode. Mirrors the
+ * blurred/bordered surface used by the floating comments-drawer and
+ * outline-panel (see styles/layout/view-modes.css). */
+.single-page-controls {
+  position: fixed;
+  top: var(--space-3);
+  right: var(--space-3);
+  z-index: 30;
+  display: none;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-divider);
+  border-radius: calc(var(--radius-lg) + 2px);
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-md);
+}
+
+html.single-page .single-page-controls,
+html[data-single-page-pending] .single-page-controls {
+  display: flex;
+}

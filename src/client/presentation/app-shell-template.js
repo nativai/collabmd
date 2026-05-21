@@ -616,6 +616,31 @@ export function appShellTemplate() {
       </div>
     </div>
 
+    <div class="single-page-controls" id="singlePageControls" role="toolbar" aria-label="Single-page controls">
+      <div class=${segmentedControlClassNames({ pill: true, extra: 'single-page-controls__toggle' })} role="group" aria-label="Single-page view mode">
+        <button class=${segmentedButtonClassNames({ active: true, extra: 'view-btn' })} data-view="preview" aria-label="Preview view" aria-pressed="true" title="Preview view">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+          </svg>
+        </button>
+        <button class=${segmentedButtonClassNames({ extra: 'view-btn' })} data-view="split" aria-label="Edit view (split)" aria-pressed="false" title="Edit (split view)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+            <line x1="8" y1="8" x2="16" y2="8"></line>
+            <line x1="8" y1="12" x2="14" y2="12"></line>
+            <line x1="8" y1="16" x2="12" y2="16"></line>
+          </svg>
+        </button>
+      </div>
+      <button class=${iconButtonClassNames({ surface: true, extra: 'single-page-controls__exit' })} id="singlePageExitBtn" type="button" aria-label="Exit single-page mode" title="Exit single-page mode">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
     <div class="toast-container" id="toastContainer"></div>
 
     <div class="qs-overlay" id="quickSwitcher">
