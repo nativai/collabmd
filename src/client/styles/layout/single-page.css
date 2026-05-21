@@ -2,9 +2,9 @@
 /* Triggered by the `single=1` hash flag — strips all chrome so only the
  * rendered preview content remains. `.app-shell.single-page` is the canonical
  * marker; the matching `html.single-page` class lets us reach overlays like
- * `#quickSwitcher` that live outside `.app-shell`. `<html
- * data-single-page-pending>` covers the pre-mount window so chrome does not
- * flash before JS boots. */
+ * `#quickSwitcher` that live outside `.app-shell`. The
+ * `<html data-single-page-pending>` attribute covers the pre-mount window
+ * so chrome does not flash before JS boots. */
 
 html[data-single-page-pending] #sidebar,
 html[data-single-page-pending] .sidebar-resizer,
