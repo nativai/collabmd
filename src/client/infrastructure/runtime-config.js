@@ -10,6 +10,7 @@ import {
   getHashParamsFromRaw,
   HASH_ROUTE_KEYS,
   isCollabMdHashRoute,
+  isSinglePageFlagValue,
 } from '../domain/hash-routes.js';
 
 export function getRuntimeConfig() {
@@ -33,6 +34,7 @@ function normalizeDiffScope(scope) {
 
 export function getHashRoute() {
   const params = getHashParams();
+  const singlePage = params.has('single') && isSinglePageFlagValue(params.get('single'));
 
   if (params.has(HASH_ROUTE_KEYS.gitFilePreview)) {
     const historicalFilePath = params.get(HASH_ROUTE_KEYS.gitFilePreview) || null;
@@ -40,6 +42,7 @@ export function getHashRoute() {
       currentFilePath: params.get('current') || historicalFilePath,
       filePath: historicalFilePath,
       hash: params.get('hash') || null,
+      singlePage,
       type: 'git-file-preview',
     };
   }
@@ -47,12 +50,13 @@ export function getHashRoute() {
   if (params.has(HASH_ROUTE_KEYS.gitFileHistory)) {
     return {
       filePath: params.get(HASH_ROUTE_KEYS.gitFileHistory) || null,
+      singlePage,
       type: 'git-file-history',
     };
   }
 
   if (params.has(HASH_ROUTE_KEYS.gitHistory)) {
-    return { type: 'git-history' };
+    return { singlePage, type: 'git-history' };
   }
 
   if (params.has(HASH_ROUTE_KEYS.gitCommit)) {
@@ -60,6 +64,7 @@ export function getHashRoute() {
       hash: params.get(HASH_ROUTE_KEYS.gitCommit) || null,
       historyFilePath: params.get('history') || null,
       path: params.get('path') || null,
+      singlePage,
       type: 'git-commit',
     };
   }
@@ -69,6 +74,7 @@ export function getHashRoute() {
     return {
       filePath,
       scope: normalizeDiffScope(params.get('scope') || (filePath ? 'working-tree' : 'all')),
+      singlePage,
       type: 'git-diff',
     };
   }
@@ -81,11 +87,12 @@ export function getHashRoute() {
       filePath: params.get(HASH_ROUTE_KEYS.file),
       line: params.has('line') ? Number(params.get('line')) || null : null,
       matchLength: params.has('matchLength') ? Number(params.get('matchLength')) || null : null,
+      singlePage,
       type: 'file',
     };
   }
 
-  return { type: 'empty' };
+  return { singlePage, type: 'empty' };
 }
 
 export function navigateToFile(filePath, {

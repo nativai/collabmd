@@ -304,6 +304,56 @@ test('WorkspaceRouteController reveals the current file immediately for quick-sw
   assert.equal(events.some(([type]) => type === 'navigate'), false);
 });
 
+test('WorkspaceRouteController applies single-page class and forces preview view from the hash flag', async () => {
+  const classListTokens = new Set();
+  const appShell = {
+    classList: {
+      toggle(token, force) {
+        if (force) {
+          classListTokens.add(token);
+          return true;
+        }
+        classListTokens.delete(token);
+        return false;
+      },
+    },
+  };
+  const setViewCalls = [];
+  const layoutController = {
+    reset() {},
+    setView(view, options) {
+      setViewCalls.push([view, options ?? {}]);
+    },
+  };
+
+  const single = createController({
+    elements: {
+      activeFileName: { textContent: '' },
+      appShell,
+      diffPage: { classList: createClassListRecorder() },
+      editorPage: { classList: createClassListRecorder() },
+      emptyState: { classList: createClassListRecorder() },
+      markdownToolbar: { classList: createClassListRecorder() },
+      outlineToggle: { classList: createClassListRecorder() },
+      previewContent: { dataset: {}, innerHTML: '' },
+    },
+    layoutController,
+    navigation: {
+      getHashRoute: () => ({ filePath: 'README.md', singlePage: true, type: 'file' }),
+      navigateToFile() {},
+    },
+  });
+
+  await single.controller.handleHashChange();
+
+  assert.equal(classListTokens.has('single-page'), true);
+  assert.deepEqual(setViewCalls, [['preview', { persist: false }]]);
+
+  single.controller.applySinglePageMode(false);
+  assert.equal(classListTokens.has('single-page'), false);
+  assert.deepEqual(setViewCalls, [['preview', { persist: false }]]);
+});
+
 test('WorkspaceRouteController navigates instead of fast-revealing when draw.io text mode is active', () => {
   const { controller, events } = createController({
     navigation: {

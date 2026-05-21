@@ -1,0 +1,19 @@
+/* ===== SINGLE-PAGE MODE ===== */
+/* Triggered by the `single=1` hash flag — strips all chrome so only the
+ * rendered preview content remains. The class lands on `.app-shell` once the
+ * route resolves; `<html data-single-page-pending>` lets index.html hide chrome
+ * before JS boots so there is no flash of the sidebar/toolbar. */
+
+html[data-single-page-pending] #sidebar,
+html[data-single-page-pending] .sidebar-resizer,
+html[data-single-page-pending] header.toolbar,
+.app-shell.single-page #sidebar,
+.app-shell.single-page .sidebar-resizer,
+.app-shell.single-page header.toolbar,
+.app-shell.single-page #previewPane > .pane-header,
+.app-shell.single-page #quickSwitcher,
+.app-shell.single-page #backlinksPanel,
+.app-shell.single-page #backlinksInlinePanel,
+.app-shell.single-page #backlinksHeaderPanel {
+  display: none !important;
+}

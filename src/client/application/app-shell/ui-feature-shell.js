@@ -387,6 +387,9 @@ function handleDocumentKeydown(event) {
   }
 
   if (isPlainQuickSwitcherShortcut(event)) {
+    if (this.elements.appShell?.classList?.contains('single-page')) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     void this.toggleQuickSwitcher();

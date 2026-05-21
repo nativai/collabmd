@@ -17,6 +17,22 @@ export function getHashParamsFromRaw(hash = '') {
   return new URLSearchParams(normalizedHash);
 }
 
+export function isSinglePageFlagValue(value) {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  const normalized = String(value).trim();
+  if (!normalized) {
+    return false;
+  }
+  return normalized !== '0';
+}
+
+export function isSinglePageHash(hash = '') {
+  const params = getHashParamsFromRaw(hash);
+  return params.has('single') && isSinglePageFlagValue(params.get('single'));
+}
+
 function getNormalizedHash(hash = '') {
   const rawHash = String(hash ?? '');
   return rawHash.startsWith('#')

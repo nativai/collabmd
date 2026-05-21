@@ -35,6 +35,7 @@ test('runtime-config parses file history and file preview routes', (t) => {
 
   assert.deepEqual(getHashRoute(), {
     filePath: 'notes/today.md',
+    singlePage: false,
     type: 'git-file-history',
   });
 
@@ -43,6 +44,7 @@ test('runtime-config parses file history and file preview routes', (t) => {
     currentFilePath: 'docs/guide.md',
     filePath: 'docs/old-name.md',
     hash: 'abc1234',
+    singlePage: false,
     type: 'git-file-preview',
   });
 
@@ -51,6 +53,7 @@ test('runtime-config parses file history and file preview routes', (t) => {
     hash: 'abc1234',
     historyFilePath: 'docs/guide.md',
     path: 'docs/old-name.md',
+    singlePage: false,
     type: 'git-commit',
   });
 });
@@ -116,6 +119,7 @@ test('runtime-config parses and builds drawio text fallback routes', (t) => {
     filePath: 'diagrams/architecture.drawio',
     line: null,
     matchLength: null,
+    singlePage: false,
     type: 'file',
   });
 
@@ -138,6 +142,7 @@ test('runtime-config parses and builds file anchor routes', (t) => {
     filePath: 'MongoDB/migration-plan.md',
     line: null,
     matchLength: null,
+    singlePage: false,
     type: 'file',
   });
 
@@ -165,6 +170,7 @@ test('runtime-config parses and builds file text match routes', (t) => {
     filePath: 'docs/guide.md',
     line: 7,
     matchLength: 6,
+    singlePage: false,
     type: 'file',
   });
 
@@ -180,4 +186,43 @@ test('runtime-config distinguishes app-owned hash routes from document fragments
   assert.equal(isCollabMdHashRoute('#git-history'), false);
   assert.equal(isCollabMdHashRoute('#section-a'), false);
   assert.equal(isCollabMdHashRoute('#approach-b-pros'), false);
+});
+
+test('runtime-config marks the single-page flag on file, git, and empty routes', (t) => {
+  const previousWindow = globalThis.window;
+  globalThis.window = createWindowStub('#file=README.md');
+
+  t.after(() => {
+    globalThis.window = previousWindow;
+  });
+
+  assert.equal(getHashRoute().singlePage, false);
+
+  globalThis.window.location.hash = '#file=README.md&single=1';
+  const fileRoute = getHashRoute();
+  assert.equal(fileRoute.singlePage, true);
+  assert.equal(fileRoute.filePath, 'README.md');
+  assert.equal(fileRoute.type, 'file');
+
+  globalThis.window.location.hash = '#single=1&file=README.md';
+  assert.equal(getHashRoute().singlePage, true);
+
+  globalThis.window.location.hash = '#file=README.md&single=0';
+  assert.equal(getHashRoute().singlePage, false);
+
+  globalThis.window.location.hash = '#file=README.md&single=';
+  assert.equal(getHashRoute().singlePage, false);
+
+  globalThis.window.location.hash = '#file=README.md&single=true';
+  assert.equal(getHashRoute().singlePage, true);
+
+  globalThis.window.location.hash = '#git-history=1&single=1';
+  const gitHistoryRoute = getHashRoute();
+  assert.equal(gitHistoryRoute.type, 'git-history');
+  assert.equal(gitHistoryRoute.singlePage, true);
+
+  globalThis.window.location.hash = '#single=1';
+  const emptyRoute = getHashRoute();
+  assert.equal(emptyRoute.type, 'empty');
+  assert.equal(emptyRoute.singlePage, true);
 });

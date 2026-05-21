@@ -82,6 +82,7 @@ export class WorkspaceRouteController {
     }
 
     const route = this.navigation.getHashRoute();
+    this.applySinglePageMode(Boolean(route.singlePage));
     if (route.type === 'empty') {
       this.requestPreviewRouteAnchor?.(null);
       this.gitPanel.setSelection();
@@ -333,5 +334,20 @@ export class WorkspaceRouteController {
     this.videoEmbed?.detachForCommit();
     this.scrollSyncController.setLargeDocumentMode(false);
     this.scrollSyncController.invalidatePreviewBlocks();
+  }
+
+  applySinglePageMode(singlePage) {
+    const appShell = this.elements.appShell ?? null;
+    appShell?.classList?.toggle('single-page', singlePage);
+    if (typeof document !== 'undefined') {
+      document.documentElement?.classList?.toggle('single-page', singlePage);
+      if (document.documentElement?.removeAttribute) {
+        document.documentElement.removeAttribute('data-single-page-pending');
+      }
+    }
+
+    if (singlePage) {
+      this.layoutController?.setView?.('preview', { persist: false });
+    }
   }
 }

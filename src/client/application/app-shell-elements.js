@@ -1,5 +1,6 @@
 export function bindAppShellElements(doc = document) {
   return {
+    appShell: doc.querySelector('.app-shell'),
     currentUserName: doc.getElementById('currentUserName'),
     chatContainer: doc.getElementById('chatContainer'),
     chatEmptyState: doc.getElementById('chatEmptyState'),
