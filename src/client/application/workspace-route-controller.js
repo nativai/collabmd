@@ -74,6 +74,7 @@ export class WorkspaceRouteController {
     this.workspaceCoordinator = workspaceCoordinator;
     this.layoutController = layoutController;
     this.pendingTreeRevealPath = null;
+    this.wasSinglePage = false;
   }
 
   async handleHashChange() {
@@ -346,8 +347,9 @@ export class WorkspaceRouteController {
       }
     }
 
-    if (singlePage) {
+    if (singlePage && !this.wasSinglePage) {
       this.layoutController?.setView?.('preview', { persist: false });
     }
+    this.wasSinglePage = singlePage;
   }
 }

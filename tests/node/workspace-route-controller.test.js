@@ -354,6 +354,45 @@ test('WorkspaceRouteController applies single-page class and forces preview view
   assert.deepEqual(setViewCalls, [['preview', { persist: false }]]);
 });
 
+test('WorkspaceRouteController forces preview only on transition into single-page, not on repeated hashchanges', () => {
+  const setViewCalls = [];
+  const appShell = { classList: { toggle() {} } };
+  const layoutController = {
+    reset() {},
+    setView(view, options) {
+      setViewCalls.push([view, options ?? {}]);
+    },
+  };
+
+  const { controller } = createController({
+    elements: {
+      activeFileName: { textContent: '' },
+      appShell,
+      diffPage: { classList: createClassListRecorder() },
+      editorPage: { classList: createClassListRecorder() },
+      emptyState: { classList: createClassListRecorder() },
+      markdownToolbar: { classList: createClassListRecorder() },
+      outlineToggle: { classList: createClassListRecorder() },
+      previewContent: { dataset: {}, innerHTML: '' },
+    },
+    layoutController,
+  });
+
+  controller.applySinglePageMode(true);
+  assert.deepEqual(setViewCalls, [['preview', { persist: false }]]);
+
+  controller.applySinglePageMode(true);
+  controller.applySinglePageMode(true);
+  assert.deepEqual(setViewCalls, [['preview', { persist: false }]]);
+
+  controller.applySinglePageMode(false);
+  controller.applySinglePageMode(true);
+  assert.deepEqual(setViewCalls, [
+    ['preview', { persist: false }],
+    ['preview', { persist: false }],
+  ]);
+});
+
 test('WorkspaceRouteController navigates instead of fast-revealing when draw.io text mode is active', () => {
   const { controller, events } = createController({
     navigation: {
