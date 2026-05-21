@@ -1299,6 +1299,7 @@ test('opens .puml files with side-by-side PlantUML preview', async ({ page }) =>
 
   await openFile(page, 'sample-plantuml.puml');
 
+  await page.locator('.view-btn[data-view="split"]').click();
   await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'split');
   await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
   await expect(page.locator('#previewContent .plantuml-frame')).toContainText('standalone-puml');
@@ -1401,6 +1402,7 @@ test('refits standalone PlantUML diagrams on maximize, resize, and restore', asy
 test('opens .mmd files with side-by-side Mermaid preview', async ({ page }) => {
   await openFile(page, 'sample-mermaid.mmd');
 
+  await page.locator('.view-btn[data-view="split"]').click();
   await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'split');
   await expect(page.locator('#previewContent .mermaid-frame svg')).toBeVisible();
   await expect(page.locator('#previewContent .mermaid-zoom-btn[aria-label="Copy image"]')).toBeVisible();

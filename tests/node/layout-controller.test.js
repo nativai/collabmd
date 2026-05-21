@@ -173,7 +173,7 @@ test('LayoutController lets view requests intercept segmented button changes', (
     viewButtons.find((button) => button.dataset.view === 'editor')?.click();
 
     assert.deepEqual(requestedViews, ['editor']);
-    assert.equal(editorLayout.getAttribute('data-view'), 'split');
+    assert.equal(editorLayout.getAttribute('data-view'), 'preview');
   });
 });
 
@@ -187,7 +187,7 @@ test('LayoutController primes preferred view without applying it immediately', (
     controller.initialize();
     controller.primeView('editor');
 
-    assert.equal(editorLayout.getAttribute('data-view'), 'split');
+    assert.equal(editorLayout.getAttribute('data-view'), 'preview');
     controller.reset();
     assert.equal(editorLayout.getAttribute('data-view'), 'editor');
   });

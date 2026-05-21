@@ -1404,6 +1404,7 @@ test('keeps the preview container width stable when comments open in split mode'
     targetText: 'Welcome to the test vault. This is the top-level readme.',
   });
   await expect(page.locator('#commentsToggle')).toContainText('1');
+  await page.locator('.view-btn[data-view="split"]').click();
   await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'split');
 
   const widthBefore = await page.locator('#previewContainer').evaluate((element) => element.clientWidth);
@@ -1492,6 +1493,7 @@ test('hides passive preview markers in narrow split layouts while keeping commen
   await clearReadmeCollaborationSidecars();
   await openFile(page, 'README.md');
   await replaceEditorContent(page, README_TEST_DOCUMENT);
+  await page.locator('.view-btn[data-view="split"]').click();
   await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'split');
 
   await createComment(page, {
