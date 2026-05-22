@@ -1,5 +1,6 @@
 import { PreviewRenderer } from '../application/preview-renderer.js';
 import { ensureQuickSwitcherInstance, toggleQuickSwitcherInstance } from '../application/quick-switcher-loader.js';
+import { isSinglePageHash } from '../domain/hash-routes.js';
 import { WorkspaceRouteController } from '../application/workspace-route-controller.js';
 import { WikiLinkFileController } from '../application/wiki-link-file-controller.js';
 import { WorkspacePreviewController } from '../application/workspace-preview-controller.js';
@@ -339,6 +340,7 @@ export class CollabMdAppShell {
     this.previewRenderer = new PreviewRenderer({
       getContent: () => this.getPreviewSource(),
       getFileList: () => this.fileExplorer.flatDocumentFiles,
+      getInitialFrontmatterCollapsed: () => isSinglePageHash(window.location.hash),
       getWikiLinkAutoCreate: () => this.runtimeConfig.wikiLinkAutoCreate !== false,
       loadFileSource: async (filePath) => {
         const payload = await this.vaultApiClient.readFile(filePath);
