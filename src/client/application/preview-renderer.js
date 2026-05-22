@@ -10,6 +10,7 @@ export class PreviewRenderer {
   constructor({
     getContent,
     getFileList,
+    getInitialFrontmatterCollapsed = null,
     getSourceFilePath,
     getWikiLinkAutoCreate = null,
     loadFileSource = null,
@@ -25,6 +26,7 @@ export class PreviewRenderer {
   }) {
     this.getContent = getContent;
     this.getFileList = getFileList;
+    this.getInitialFrontmatterCollapsed = getInitialFrontmatterCollapsed;
     this.getSourceFilePath = getSourceFilePath;
     this.getWikiLinkAutoCreate = getWikiLinkAutoCreate;
     this.loadFileSource = loadFileSource;
@@ -45,7 +47,7 @@ export class PreviewRenderer {
     this.currentStats = null;
     this.isLargeDocument = false;
     this.hydrationPaused = false;
-    this.frontmatterCollapsed = false;
+    this.frontmatterCollapsed = Boolean(this.getInitialFrontmatterCollapsed?.());
 
     this.handlePreviewClick = (event) => {
       const frontmatterToggle = event.target.closest('.frontmatter-toggle');
@@ -165,7 +167,7 @@ export class PreviewRenderer {
     this.readyRenderVersion = 0;
     this.currentStats = null;
     this.isLargeDocument = false;
-    this.frontmatterCollapsed = false;
+    this.frontmatterCollapsed = Boolean(this.getInitialFrontmatterCollapsed?.());
     if (this.renderExecutor.hasPendingJob()) {
       this.resetWorker('Document changed');
     }

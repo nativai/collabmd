@@ -1,4 +1,14 @@
+import { isSinglePageHash } from '../../domain/hash-routes.js';
 import { USER_NAME_MAX_LENGTH, normalizeUserName } from '../../domain/room.js';
+
+const SINGLE_PAGE_VIEWER_NAME = 'viewer';
+
+function isInSinglePageMode() {
+  if (typeof window === 'undefined' || !window.location) {
+    return false;
+  }
+  return isSinglePageHash(window.location.hash);
+}
 
 /**
  * @typedef {object} UiIdentityContext
@@ -27,6 +37,10 @@ function isIdentityManagedByAuth() {
 
 /** @this {UiIdentityContext} */
 function openDisplayNameDialog({ mode = 'edit' } = {}) {
+  if (isInSinglePageMode()) {
+    return;
+  }
+
   if (this.isIdentityManagedByAuth()) {
     return;
   }
@@ -74,7 +88,8 @@ function openDisplayNameDialog({ mode = 'edit' } = {}) {
 /** @this {UiIdentityContext} */
 function promptForDisplayNameIfNeeded() {
   if (
-    !this.isTabActive
+    isInSinglePageMode()
+    || !this.isTabActive
     || this._hasPromptedForDisplayName
     || this.getStoredUserName()
     || this.isIdentityManagedByAuth()
@@ -132,6 +147,9 @@ function getCurrentUserName() {
 
 /** @this {UiIdentityContext} */
 function getStoredUserName() {
+  if (isInSinglePageMode()) {
+    return SINGLE_PAGE_VIEWER_NAME;
+  }
   return this.preferences.getUserName();
 }
 
