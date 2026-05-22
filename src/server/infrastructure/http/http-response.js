@@ -7,10 +7,25 @@ import {
 const COMPRESSIBLE_CONTENT_TYPE_PATTERN = /^(?:text\/|application\/(?:javascript|json|xml)|image\/svg\+xml)/i;
 const MIN_COMPRESSIBLE_BYTES = 1024;
 
+function readEmbedParents() {
+  return String(process.env.COLLABMD_EMBED_PARENTS ?? '')
+    .split(/\s+/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+// frame-ancestors replaces the legacy X-Frame-Options: SAMEORIGIN header.
+// Embedders allowlisted via COLLABMD_EMBED_PARENTS (space-separated origins,
+// e.g. "https://acpx.devbox.nativai.de"). When unset, only same-origin
+// embedding is permitted — matching the prior effective behaviour. The
+// ingress mTLS layer still gates who can reach this origin at all, so the
+// allowlist only loosens framing, not authentication.
+const FRAME_ANCESTORS_DIRECTIVE = `frame-ancestors ${["'self'", ...readEmbedParents()].join(' ')};`;
+
 export const SECURITY_HEADERS = {
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'X-Content-Type-Options': 'nosniff',
-  'X-Frame-Options': 'SAMEORIGIN',
+  'Content-Security-Policy': FRAME_ANCESTORS_DIRECTIVE,
 };
 
 export const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);

@@ -609,6 +609,7 @@ vite.config.mjs            Vite multi-page build and dev-server proxy config
 | `AUTH_OIDC_ALLOWED_EMAILS` | Comma-separated exact email allowlist for `AUTH_STRATEGY=oidc` | |
 | `AUTH_OIDC_ALLOWED_DOMAINS` | Comma-separated email domain allowlist for `AUTH_STRATEGY=oidc` | |
 | `BASE_PATH` | URL path prefix for subpath deployments | |
+| `COLLABMD_EMBED_PARENTS` | Space-separated list of parent origins permitted to iframe CollabMD (extends `frame-ancestors 'self'`). Unset means same-origin only. | |
 | `PLANTUML_SERVER_URL` | Upstream PlantUML server base URL used for server-side SVG rendering | `https://www.plantuml.com/plantuml` |
 | `COLLABMD_DRAWIO_BASE_URL` | diagrams.net base URL used for `.drawio` viewing and editing | `https://embed.diagrams.net` |
 | `COLLABMD_WIKI_LINK_AUTO_CREATE` | Create missing markdown files when clicking unresolved wiki-links; set to `false` to disable | `true` |
