@@ -78,32 +78,32 @@ export const lazyControllerFeature = {
   },
 
   loadBasesPreviewController() {
-    return import('../../presentation/bases-preview-controller.js')
+    return import('../presentation/bases-preview-controller.js')
       .then((module) => module.BasesPreviewController);
   },
 
   loadDrawioEmbedController() {
-    return import('../../presentation/drawio-embed-controller.js')
+    return import('../presentation/drawio-embed-controller.js')
       .then((module) => module.DrawioEmbedController);
   },
 
   loadExcalidrawEmbedController() {
-    return import('../../presentation/excalidraw-embed-controller.js')
+    return import('../presentation/excalidraw-embed-controller.js')
       .then((module) => module.ExcalidrawEmbedController);
   },
 
   loadGitPanelController() {
-    return import('../../presentation/git-panel-controller.js')
+    return import('../presentation/git-panel-controller.js')
       .then((module) => module.GitPanelController);
   },
 
   loadGitDiffViewController() {
-    return import('../../presentation/git-diff-view-controller.js')
+    return import('../presentation/git-diff-view-controller.js')
       .then((module) => module.GitDiffViewController);
   },
 
   loadFileHistoryViewController() {
-    return import('../../presentation/file-history-view-controller.js')
+    return import('../presentation/file-history-view-controller.js')
       .then((module) => module.FileHistoryViewController);
   },
 

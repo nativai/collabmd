@@ -10,7 +10,7 @@ import { chatFeature } from '../application/app-shell/chat-feature.js';
 import { commentsFeature } from '../application/app-shell/comments-feature.js';
 import { exportFeature } from '../application/app-shell/export-feature.js';
 import { gitFeature } from '../application/app-shell/git-feature.js';
-import { lazyControllerFeature } from '../application/app-shell/lazy-controller-feature.js';
+import { lazyControllerFeature } from './lazy-controller-feature.js';
 import { presenceFeature } from '../application/app-shell/presence-feature.js';
 import { uiFeature } from '../application/app-shell/ui-feature.js';
 import { workspaceFeature } from '../application/app-shell/workspace-feature.js';
