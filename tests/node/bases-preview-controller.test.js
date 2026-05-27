@@ -1295,7 +1295,10 @@ test('BasesPreviewController preserves properties search focus while typing', as
 
     await controller.renderEntry(entry);
 
-    const panelSlot = placeholder.querySelector('[data-base-shell-key="properties-search-focus"]').querySelector('[data-base-panel-slot]');
+    const renderedShell = placeholder.querySelector('[data-base-shell-key="properties-search-focus"]');
+    const panelSlot = renderedShell.querySelector('[data-base-panel-slot]');
+    const contentSlot = renderedShell.querySelector('[data-base-content]');
+    contentSlot.innerHTML = 'stable-results-body';
     const searchInput = panelSlot.querySelector('[data-base-properties-search]');
     searchInput.value = 'n';
     searchInput.selectionStart = 1;
@@ -1327,6 +1330,7 @@ test('BasesPreviewController preserves properties search focus while typing', as
 
     const nextSearchInput = panelSlot.querySelector('[data-base-properties-search]');
     assert.equal(entry.ui.propertySearch, 'n');
+    assert.equal(contentSlot.innerHTML, 'stable-results-body');
     assert.equal(globalThis.document.activeElement, nextSearchInput);
     assert.equal(nextSearchInput.selectionStart, 1);
     assert.equal(nextSearchInput.selectionEnd, 1);

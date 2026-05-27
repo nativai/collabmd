@@ -785,7 +785,7 @@ function syncFilterValueCombobox(entry, result, path, { fallbackToFullRender = t
 
   if (!input || !combobox || !rule || rule.type !== 'rule' || typeof input.insertAdjacentHTML !== 'function') {
     if (fallbackToFullRender) {
-      updateShellContent(entry, result);
+      updateShellPanel(entry, result);
     }
     return false;
   }
@@ -1080,7 +1080,14 @@ function markPlaceholderHydrated(placeholder) {
   placeholder.classList.remove('diagram-preview-shell');
 }
 
-function updateShellContent(entry, result) {
+function updateShellContent(entry, result, {
+  actions = true,
+  body = true,
+  meta = true,
+  panel = true,
+  summary = true,
+  tabs = true,
+} = {}) {
   const shell = findShellElement(entry);
   if (!shell?.querySelector) {
     entry.placeholder.innerHTML = renderShellHtml(result, entry);
@@ -1088,35 +1095,35 @@ function updateShellContent(entry, result) {
     return;
   }
 
-  const tabs = shell.querySelector('[data-base-tabs]');
-  if (tabs) {
-    tabs.innerHTML = renderViewTabs(result);
+  const tabsSlot = shell.querySelector('[data-base-tabs]');
+  if (tabs && tabsSlot) {
+    tabsSlot.innerHTML = renderViewTabs(result);
   }
 
-  const meta = shell.querySelector('[data-base-meta]');
-  if (meta) {
-    meta.textContent = `${String(result.totalRows ?? 0)} results`;
+  const metaSlot = shell.querySelector('[data-base-meta]');
+  if (meta && metaSlot) {
+    metaSlot.textContent = `${String(result.totalRows ?? 0)} results`;
   }
 
   const actionSlot = shell.querySelector('[data-base-action-slot]');
-  if (actionSlot) {
+  if (actions && actionSlot) {
     actionSlot.innerHTML = renderActionButtons(result, entry);
   }
 
   const panelSlot = shell.querySelector('[data-base-panel-slot]');
-  if (panelSlot) {
+  if (panel && panelSlot) {
     const panelState = capturePanelState(panelSlot);
     panelSlot.innerHTML = renderPanel(result, entry);
     restorePanelState(panelSlot, panelState);
   }
 
   const summarySlot = shell.querySelector('[data-base-summary-slot]');
-  if (summarySlot) {
+  if (summary && summarySlot) {
     summarySlot.innerHTML = renderSummaryBar(result.summaries);
   }
 
   const content = shell.querySelector('[data-base-content]');
-  if (content) {
+  if (body && content) {
     content.innerHTML = renderViewBody(result);
   }
 
@@ -1124,6 +1131,16 @@ function updateShellContent(entry, result) {
   if (input && input.value !== entry.search) {
     input.value = entry.search;
   }
+}
+
+function updateShellPanel(entry, result) {
+  updateShellContent(entry, result, {
+    actions: false,
+    body: false,
+    meta: false,
+    summary: false,
+    tabs: false,
+  });
 }
 
 function downloadBlob(blob, fileName = 'base.csv') {
@@ -1227,7 +1244,7 @@ export class BasesPreviewController {
         const panel = panelButton.dataset.basePanel || '';
         entry.ui.openPanel = entry.ui.openPanel === panel ? '' : panel;
         entry.ui.rawFilterText = serializeRawFilterText(getEditableViewConfig(entry.result).filters);
-        updateShellContent(entry, entry.result);
+        updateShellPanel(entry, entry.result);
         return;
       }
 
@@ -1289,7 +1306,7 @@ export class BasesPreviewController {
           entry.ui.rawFilterText = serializeRawFilterText(getEditableViewConfig(entry.result).filters);
           entry.ui.builderFilter = null;
         }
-        updateShellContent(entry, entry.result);
+        updateShellPanel(entry, entry.result);
         return;
       }
 
@@ -1363,7 +1380,7 @@ export class BasesPreviewController {
         }
 
         entry.ui.propertySearch = propertiesSearch.value || '';
-        updateShellContent(entry, entry.result);
+        updateShellPanel(entry, entry.result);
         return;
       }
 
@@ -1740,7 +1757,7 @@ export class BasesPreviewController {
           }
         });
         if (!synced) {
-          updateShellContent(entry, entry.result);
+          updateShellPanel(entry, entry.result);
         }
       }
     } catch {

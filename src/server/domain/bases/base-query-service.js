@@ -23,6 +23,14 @@ import { transformBaseSource } from './base-transform.js';
 
 export { serializeBaseDefinition } from './base-definition.js';
 
+const BASE_QUERY_ROW_CHUNK_SIZE = 50;
+
+function yieldToEventLoop() {
+  return new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+}
+
 function buildSortChain(activeView) {
   const entries = [];
   (activeView.sort ?? []).forEach((sortConfig) => {
@@ -296,7 +304,7 @@ export class BaseQueryService {
     };
   }
 
-  collectCandidateRows({
+  async collectCandidateRows({
     activeView,
     astCache = new Map(),
     columns = [],
@@ -318,46 +326,55 @@ export class BaseQueryService {
       && (activeView.summaries?.length ?? 0) === 0;
     const hardLimit = Math.min(effectiveLimit, effectiveMaxRows);
 
-    snapshot.filePaths.forEach((filePath) => {
-      const row = snapshot.rowsByPath.get(filePath);
-      if (!row) {
-        return;
-      }
+    const filePaths = snapshot.filePaths ?? [];
+    for (let chunkStart = 0; chunkStart < filePaths.length; chunkStart += BASE_QUERY_ROW_CHUNK_SIZE) {
+      const chunkEnd = Math.min(chunkStart + BASE_QUERY_ROW_CHUNK_SIZE, filePaths.length);
+      for (let index = chunkStart; index < chunkEnd; index += 1) {
+        const filePath = filePaths[index];
+        const row = snapshot.rowsByPath.get(filePath);
+        if (!row) {
+          continue;
+        }
 
-      const rowContext = this.createRowQueryContext({
-        astCache,
-        definition,
-        row,
-        snapshot,
-        thisFile,
-      });
-      if (!evaluateFilterNode(definition.filters, rowContext) || !evaluateFilterNode(activeView.filters, rowContext)) {
-        return;
-      }
-
-      const rawCells = {};
-      evaluatedPropertyIds.forEach((propertyId) => {
-        rawCells[propertyId] = getPropertyValue(propertyId, row, definition, snapshot, thisFile, rowContext);
-      });
-
-      const candidateRow = {
-        file: row.file,
-        rawCells,
-      };
-      if (!rowMatchesSearch(candidateRow, columns, search)) {
-        return;
-      }
-
-      if (canBoundDuringCollection) {
-        insertSortedBounded(rows, candidateRow, {
-          limit: hardLimit,
-          sortChain,
+        const rowContext = this.createRowQueryContext({
+          astCache,
+          definition,
+          row,
+          snapshot,
+          thisFile,
         });
-        return;
+        if (!evaluateFilterNode(definition.filters, rowContext) || !evaluateFilterNode(activeView.filters, rowContext)) {
+          continue;
+        }
+
+        const rawCells = {};
+        evaluatedPropertyIds.forEach((propertyId) => {
+          rawCells[propertyId] = getPropertyValue(propertyId, row, definition, snapshot, thisFile, rowContext);
+        });
+
+        const candidateRow = {
+          file: row.file,
+          rawCells,
+        };
+        if (!rowMatchesSearch(candidateRow, columns, search)) {
+          continue;
+        }
+
+        if (canBoundDuringCollection) {
+          insertSortedBounded(rows, candidateRow, {
+            limit: hardLimit,
+            sortChain,
+          });
+          continue;
+        }
+
+        rows.push(candidateRow);
       }
 
-      rows.push(candidateRow);
-    });
+      if (chunkEnd < filePaths.length) {
+        await yieldToEventLoop();
+      }
+    }
 
     return rows;
   }
@@ -455,7 +472,7 @@ export class BaseQueryService {
     const requestedLimit = Number.isInteger(context.activeView.limit) && context.activeView.limit > 0
       ? context.activeView.limit
       : null;
-    let rows = this.collectCandidateRows({
+    let rows = await this.collectCandidateRows({
       ...context,
       astCache,
       limit: requestedLimit,
@@ -538,7 +555,7 @@ export class BaseQueryService {
       },
     };
     const astCache = new Map();
-    const rows = this.collectCandidateRows({
+    const rows = await this.collectCandidateRows({
       ...propertyValueContext,
       astCache,
       evaluatedPropertyIds: [...new Set([

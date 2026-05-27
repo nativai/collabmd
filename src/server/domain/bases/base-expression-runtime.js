@@ -472,63 +472,65 @@ function invokeGlobalFunction(name, argNodes, scope, evaluate) {
   }
 }
 
-function invokeMethod(target, name, argNodes, scope, evaluate, rootContext) {
-  if (target?.__baseType === 'formula-namespace') {
-    if (argNodes.length > 0) {
-      throw new Error(`Formula namespace property "${name}" is not callable`);
-    }
-    return rootContext.resolveFormulaValue(name, target.row, target.evaluationState);
-  }
+const METHOD_NOT_HANDLED = Symbol('base-method-not-handled');
+const NULL_FALSE_METHODS = new Set([
+  'contains',
+  'containsAll',
+  'containsAny',
+  'endsWith',
+  'hasLink',
+  'hasProperty',
+  'hasTag',
+  'inFolder',
+  'linksTo',
+  'startsWith',
+]);
 
-  if (target == null) {
-    switch (name) {
-      case 'contains':
-      case 'containsAll':
-      case 'containsAny':
-      case 'endsWith':
-      case 'hasLink':
-      case 'hasProperty':
-      case 'hasTag':
-      case 'inFolder':
-      case 'linksTo':
-      case 'startsWith':
-        return false;
-      case 'isEmpty':
-        return true;
-      default:
-        break;
-    }
+function normalizeLinkComparablePath(value) {
+  if (value?.__baseType === 'file') {
+    return value.path;
   }
+  if (value?.__baseType === 'link') {
+    return value.path;
+  }
+  return String(value ?? '');
+}
 
-  if (Array.isArray(target)) {
-    if (name === 'contains') {
+function invokeNullMethod(name) {
+  if (NULL_FALSE_METHODS.has(name)) {
+    return false;
+  }
+  if (name === 'isEmpty') {
+    return true;
+  }
+  return METHOD_NOT_HANDLED;
+}
+
+function invokeArrayMethod(target, name, argNodes, scope, evaluate) {
+  switch (name) {
+    case 'contains': {
       const needle = evaluate(argNodes[0], scope);
       return target.some((entry) => valuesEqual(entry, needle));
     }
-    if (name === 'containsAll') {
+    case 'containsAll':
       return argNodes.every((node) => target.some((entry) => valuesEqual(entry, evaluate(node, scope))));
-    }
-    if (name === 'containsAny') {
+    case 'containsAny':
       return argNodes.some((node) => target.some((entry) => valuesEqual(entry, evaluate(node, scope))));
-    }
-    if (name === 'filter') {
+    case 'filter': {
       const predicate = argNodes[0];
       return target.filter((value, index) => Boolean(evaluate(predicate, scope.child({ index, value }))));
     }
-    if (name === 'flat') {
+    case 'flat':
       return target.flat();
-    }
-    if (name === 'isEmpty') {
+    case 'isEmpty':
       return target.length === 0;
-    }
-    if (name === 'join') {
+    case 'join':
       return target.map((entry) => toDisplayText(entry)).join(String(evaluate(argNodes[0], scope) ?? ''));
-    }
-    if (name === 'map') {
+    case 'map': {
       const mapper = argNodes[0];
       return target.map((value, index) => evaluate(mapper, scope.child({ index, value })));
     }
-    if (name === 'reduce') {
+    case 'reduce': {
       const reducer = argNodes[0];
       let accumulator = argNodes.length > 1 ? evaluate(argNodes[1], scope) : null;
       target.forEach((value, index) => {
@@ -536,16 +538,13 @@ function invokeMethod(target, name, argNodes, scope, evaluate, rootContext) {
       });
       return accumulator;
     }
-    if (name === 'reverse') {
+    case 'reverse':
       return [...target].reverse();
-    }
-    if (name === 'slice') {
+    case 'slice':
       return target.slice(Number(evaluate(argNodes[0], scope) ?? 0), argNodes[1] ? Number(evaluate(argNodes[1], scope)) : undefined);
-    }
-    if (name === 'sort') {
+    case 'sort':
       return [...target].sort(compareValues);
-    }
-    if (name === 'unique') {
+    case 'unique': {
       const uniqueValues = [];
       target.forEach((value) => {
         if (!uniqueValues.some((entry) => valuesEqual(entry, value))) {
@@ -554,123 +553,160 @@ function invokeMethod(target, name, argNodes, scope, evaluate, rootContext) {
       });
       return uniqueValues;
     }
+    default:
+      return METHOD_NOT_HANDLED;
   }
+}
 
-  if (typeof target === 'string') {
-    switch (name) {
-      case 'contains':
-        return target.toLowerCase().includes(String(evaluate(argNodes[0], scope) ?? '').toLowerCase());
-      case 'endsWith':
-        return target.endsWith(String(evaluate(argNodes[0], scope) ?? ''));
-      case 'isEmpty':
-        return target.length === 0;
-      case 'lower':
-        return target.toLowerCase();
-      case 'replace':
-        return target.replaceAll(String(evaluate(argNodes[0], scope) ?? ''), String(evaluate(argNodes[1], scope) ?? ''));
-      case 'split':
-        return target.split(String(evaluate(argNodes[0], scope) ?? ''));
-      case 'startsWith':
-        return target.startsWith(String(evaluate(argNodes[0], scope) ?? ''));
-      case 'title':
-        return target.replace(/\b\p{L}/gu, (match) => match.toUpperCase());
-      case 'trim':
-        return target.trim();
-      case 'upper':
-        return target.toUpperCase();
-      default:
-        break;
+function invokeStringMethod(target, name, argNodes, scope, evaluate) {
+  switch (name) {
+    case 'contains':
+      return target.toLowerCase().includes(String(evaluate(argNodes[0], scope) ?? '').toLowerCase());
+    case 'endsWith':
+      return target.endsWith(String(evaluate(argNodes[0], scope) ?? ''));
+    case 'isEmpty':
+      return target.length === 0;
+    case 'lower':
+      return target.toLowerCase();
+    case 'replace':
+      return target.replaceAll(String(evaluate(argNodes[0], scope) ?? ''), String(evaluate(argNodes[1], scope) ?? ''));
+    case 'split':
+      return target.split(String(evaluate(argNodes[0], scope) ?? ''));
+    case 'startsWith':
+      return target.startsWith(String(evaluate(argNodes[0], scope) ?? ''));
+    case 'title':
+      return target.replace(/\b\p{L}/gu, (match) => match.toUpperCase());
+    case 'trim':
+      return target.trim();
+    case 'upper':
+      return target.toUpperCase();
+    default:
+      return METHOD_NOT_HANDLED;
+  }
+}
+
+function invokeNumberMethod(target, name, argNodes, scope, evaluate) {
+  switch (name) {
+    case 'ceil':
+      return Math.ceil(target);
+    case 'floor':
+      return Math.floor(target);
+    case 'isEmpty':
+      return false;
+    case 'round': {
+      const precision = evaluate(argNodes[0], scope);
+      return Number.isFinite(precision)
+        ? Number(target.toFixed(Number(precision)))
+        : Math.round(target);
     }
+    case 'toFixed':
+      return target.toFixed(Number(evaluate(argNodes[0], scope) ?? 0));
+    default:
+      return METHOD_NOT_HANDLED;
   }
+}
 
-  if (typeof target === 'number') {
-    switch (name) {
-      case 'ceil':
-        return Math.ceil(target);
-      case 'floor':
-        return Math.floor(target);
-      case 'isEmpty':
-        return false;
-      case 'round':
-        return Number.isFinite(evaluate(argNodes[0], scope))
-          ? Number(target.toFixed(Number(evaluate(argNodes[0], scope))))
-          : Math.round(target);
-      case 'toFixed':
-        return target.toFixed(Number(evaluate(argNodes[0], scope) ?? 0));
-      default:
-        break;
-    }
-  }
-
+function invokeDateMethod(target, name, argNodes, scope, evaluate) {
   const asDate = parseDateValue(target);
-  if (asDate) {
-    switch (name) {
-      case 'format':
-        return formatDateValue(asDate, String(evaluate(argNodes[0], scope) ?? 'YYYY-MM-DD'));
-      case 'isEmpty':
-        return false;
-      default:
-        break;
-    }
+  if (!asDate) {
+    return METHOD_NOT_HANDLED;
   }
 
-  if (target?.__baseType === 'file') {
-    switch (name) {
-      case 'asLink':
-        return createLinkValue(target.path, {
-          display: typeof evaluate(argNodes[0], scope) === 'string' ? evaluate(argNodes[0], scope) : '',
-          exists: true,
-        });
-      case 'hasLink': {
-        const needle = evaluate(argNodes[0], scope);
-        const needlePath = needle?.__baseType === 'file'
-          ? needle.path
-          : (needle?.__baseType === 'link' ? needle.path : String(needle ?? ''));
-        return target.links.some((link) => link.path === needlePath || link.rawTarget === needlePath);
-      }
-      case 'hasProperty':
-        return Object.hasOwn(target.properties, String(evaluate(argNodes[0], scope) ?? ''));
-      case 'hasTag':
-        return argNodes.some((node) => {
-          const value = String(evaluate(node, scope) ?? '').replace(/^#/u, '');
-          return target.tags.some((tag) => tag === value || tag.startsWith(`${value}/`));
-        });
-      case 'inFolder': {
-        const folder = String(evaluate(argNodes[0], scope) ?? '').replace(/\/+$/u, '');
-        return !folder || target.folder === folder || target.folder.startsWith(`${folder}/`);
-      }
-      default:
-        break;
+  switch (name) {
+    case 'format':
+      return formatDateValue(asDate, String(evaluate(argNodes[0], scope) ?? 'YYYY-MM-DD'));
+    case 'isEmpty':
+      return false;
+    default:
+      return METHOD_NOT_HANDLED;
+  }
+}
+
+function invokeFileMethod(target, name, argNodes, scope, evaluate) {
+  switch (name) {
+    case 'asLink': {
+      const display = evaluate(argNodes[0], scope);
+      return createLinkValue(target.path, {
+        display: typeof display === 'string' ? display : '',
+        exists: true,
+      });
     }
+    case 'hasLink': {
+      const needlePath = normalizeLinkComparablePath(evaluate(argNodes[0], scope));
+      return target.links.some((link) => link.path === needlePath || link.rawTarget === needlePath);
+    }
+    case 'hasProperty':
+      return Object.hasOwn(target.properties, String(evaluate(argNodes[0], scope) ?? ''));
+    case 'hasTag':
+      return argNodes.some((node) => {
+        const value = String(evaluate(node, scope) ?? '').replace(/^#/u, '');
+        return target.tags.some((tag) => tag === value || tag.startsWith(`${value}/`));
+      });
+    case 'inFolder': {
+      const folder = String(evaluate(argNodes[0], scope) ?? '').replace(/\/+$/u, '');
+      return !folder || target.folder === folder || target.folder.startsWith(`${folder}/`);
+    }
+    default:
+      return METHOD_NOT_HANDLED;
+  }
+}
+
+function invokeLinkMethod(target, name, argNodes, scope, evaluate, rootContext) {
+  switch (name) {
+    case 'asFile':
+      return target.path ? rootContext.snapshot.rowsByPath.get(target.path)?.file ?? null : null;
+    case 'linksTo':
+      return target.path === normalizeLinkComparablePath(evaluate(argNodes[0], scope));
+    default:
+      return METHOD_NOT_HANDLED;
+  }
+}
+
+function invokeObjectMethod(target, name) {
+  switch (name) {
+    case 'isEmpty':
+      return Object.keys(target).length === 0;
+    case 'keys':
+      return Object.keys(target);
+    case 'values':
+      return Object.values(target);
+    default:
+      return METHOD_NOT_HANDLED;
+  }
+}
+
+function invokeMethod(target, name, argNodes, scope, evaluate, rootContext) {
+  if (target?.__baseType === 'formula-namespace') {
+    if (argNodes.length > 0) {
+      throw new Error(`Formula namespace property "${name}" is not callable`);
+    }
+    return rootContext.resolveFormulaValue(name, target.row, target.evaluationState);
   }
 
-  if (target?.__baseType === 'link') {
-    switch (name) {
-      case 'asFile':
-        return target.path ? rootContext.snapshot.rowsByPath.get(target.path)?.file ?? null : null;
-      case 'linksTo': {
-        const other = evaluate(argNodes[0], scope);
-        const otherPath = other?.__baseType === 'file'
-          ? other.path
-          : (other?.__baseType === 'link' ? other.path : String(other ?? ''));
-        return target.path === otherPath;
-      }
-      default:
-        break;
-    }
+  let result = METHOD_NOT_HANDLED;
+  if (target == null) {
+    result = invokeNullMethod(name);
+  } else if (Array.isArray(target)) {
+    result = invokeArrayMethod(target, name, argNodes, scope, evaluate);
+  } else if (typeof target === 'string') {
+    result = invokeStringMethod(target, name, argNodes, scope, evaluate);
+  } else if (typeof target === 'number') {
+    result = invokeNumberMethod(target, name, argNodes, scope, evaluate);
+  } else if (target?.__baseType === 'file') {
+    result = invokeFileMethod(target, name, argNodes, scope, evaluate);
+  } else if (target?.__baseType === 'link') {
+    result = invokeLinkMethod(target, name, argNodes, scope, evaluate, rootContext);
+  } else if (isPlainObject(target)) {
+    result = invokeObjectMethod(target, name);
   }
 
-  if (isPlainObject(target)) {
-    switch (name) {
-      case 'isEmpty':
-        return Object.keys(target).length === 0;
-      case 'keys':
-        return Object.keys(target);
-      case 'values':
-        return Object.values(target);
-      default:
-        break;
-    }
+  if (result !== METHOD_NOT_HANDLED) {
+    return result;
+  }
+
+  result = invokeDateMethod(target, name, argNodes, scope, evaluate);
+  if (result !== METHOD_NOT_HANDLED) {
+    return result;
   }
 
   throw new Error(`Unsupported method "${name}"`);
