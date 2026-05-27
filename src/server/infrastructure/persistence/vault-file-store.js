@@ -10,7 +10,7 @@ import {
   isMarkdownFilePath,
   isVaultFilePath,
 } from '../../../domain/file-kind.js';
-import { mapWithConcurrency } from '../../shared/async-utils.js';
+import { scanWorkspaceState as scanWorkspaceStateFromAdapter } from '../../domain/workspace-state.js';
 import { getEditableVaultContentKind } from './vault-content-adapter.js';
 import {
   INVALID_VAULT_FILE_PATH_ERROR,
@@ -23,6 +23,7 @@ import {
   toVaultRelativePath,
 } from './path-utils.js';
 import { SidecarStore } from './sidecar-store.js';
+import { createWorkspaceStateFileSystemAdapter } from '../workspace/workspace-state-file-system-adapter.js';
 
 const IMAGE_EXTENSION_TO_MIME_TYPE = Object.freeze({
   '.gif': 'image/gif',
@@ -51,7 +52,6 @@ const TEXT_FILE_MIME_TYPES = Object.freeze({
   mermaid: 'text/plain; charset=utf-8',
   plantuml: 'text/plain; charset=utf-8',
 });
-const WORKSPACE_SCAN_CONCURRENCY = 8;
 
 function createTransactionalPath(targetPath, label) {
   return `${targetPath}.collabmd-${label}-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
@@ -75,30 +75,6 @@ async function pathExists(pathValue) {
 
     throw error;
   }
-}
-
-function createWorkspaceEntry(relativePath, type) {
-  return {
-    fileKind: type === 'directory' ? null : getVaultTreeNodeType(relativePath),
-    name: basename(relativePath),
-    nodeType: type,
-    parentPath: dirname(relativePath).replace(/\\/g, '/') === '.'
-      ? ''
-      : dirname(relativePath).replace(/\\/g, '/'),
-    path: relativePath,
-    type: type === 'directory' ? 'directory' : getVaultTreeNodeType(relativePath),
-  };
-}
-
-function createWorkspaceMetadata(pathValue, type, info) {
-  return {
-    ctimeMs: Number(info.ctimeMs || 0),
-    inode: Number(info.ino || 0),
-    mtimeMs: Number(info.mtimeMs || 0),
-    path: pathValue,
-    size: type === 'directory' ? 0 : Number(info.size || 0),
-    type,
-  };
 }
 
 function replacePathPrefix(pathValue, oldPrefix, newPrefix) {
@@ -1236,102 +1212,8 @@ export class VaultFileStore {
   }
 
   async scanWorkspaceState() {
-    const entries = new Map();
-    const filePaths = [];
-    const metadata = new Map();
-    const markdownPaths = [];
-    let vaultFileCount = 0;
-
-    const visitDirectory = async (dirPath) => {
-      let dirEntries;
-      try {
-        dirEntries = await readdir(dirPath, { withFileTypes: true });
-      } catch {
-        return;
-      }
-
-      const sorted = sortDirectoryEntries(dirEntries);
-
-      await mapWithConcurrency(sorted, WORKSPACE_SCAN_CONCURRENCY, async (entry) => {
-        if (isIgnoredVaultEntry(entry.name)) {
-          return;
-        }
-
-        const fullPath = join(dirPath, entry.name);
-        const relativePath = toVaultRelativePath(this.vaultDir, fullPath).replace(/\\/g, '/');
-        const direntKind = entry.isDirectory()
-          ? 'directory'
-          : (entry.isFile() ? 'file' : null);
-
-        if (direntKind === 'directory') {
-          entries.set(relativePath, createWorkspaceEntry(relativePath, 'directory'));
-          try {
-            const info = await stat(fullPath);
-            metadata.set(relativePath, createWorkspaceMetadata(relativePath, 'directory', info));
-          } catch {
-            // Ignore transient directories that disappear during scans.
-          }
-          await visitDirectory(fullPath);
-          return;
-        }
-
-        if (direntKind === 'file') {
-          if (!isVaultFilePath(entry.name)) {
-            return;
-          }
-
-          entries.set(relativePath, createWorkspaceEntry(relativePath, 'file'));
-          filePaths.push(relativePath);
-          vaultFileCount += 1;
-          if (isMarkdownFilePath(relativePath)) {
-            markdownPaths.push(relativePath);
-          }
-          try {
-            const info = await stat(fullPath);
-            metadata.set(relativePath, createWorkspaceMetadata(relativePath, 'file', info));
-          } catch {
-            // Ignore transient files that disappear during scans.
-          }
-          return;
-        }
-
-        try {
-          const info = await stat(fullPath);
-          if (info.isDirectory()) {
-            entries.set(relativePath, createWorkspaceEntry(relativePath, 'directory'));
-            metadata.set(relativePath, createWorkspaceMetadata(relativePath, 'directory', info));
-            await visitDirectory(fullPath);
-            return;
-          }
-
-          if (!info.isFile() || !isVaultFilePath(entry.name)) {
-            return;
-          }
-
-          entries.set(relativePath, createWorkspaceEntry(relativePath, 'file'));
-          metadata.set(relativePath, createWorkspaceMetadata(relativePath, 'file', info));
-          filePaths.push(relativePath);
-          vaultFileCount += 1;
-          if (isMarkdownFilePath(relativePath)) {
-            markdownPaths.push(relativePath);
-          }
-        } catch {
-          // Ignore transient entries that disappear during scans.
-        }
-      });
-    };
-
-    await visitDirectory(this.vaultDir);
-    filePaths.sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
-    markdownPaths.sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
-
-    return {
-      entries,
-      filePaths,
-      metadata,
-      markdownPaths,
-      scannedAt: Date.now(),
-      vaultFileCount,
-    };
+    return scanWorkspaceStateFromAdapter(createWorkspaceStateFileSystemAdapter({
+      vaultDir: this.vaultDir,
+    }));
   }
 }

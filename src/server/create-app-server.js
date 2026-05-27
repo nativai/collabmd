@@ -24,6 +24,7 @@ import { WORKSPACE_ROOM_NAME } from '../domain/workspace-room.js';
 import { FileSystemSyncService } from './infrastructure/workspace/file-system-sync-service.js';
 import { WorkspaceMutationCoordinator } from './infrastructure/workspace/workspace-mutation-coordinator.js';
 import { createSignedCookieManager } from './auth/session-cookie.js';
+import { workspaceStateMetadataEqual } from './domain/workspace-state.js';
 
 function getDisplayHost(host) {
   return host === '127.0.0.1' ? 'localhost' : host;
@@ -44,36 +45,6 @@ function closeHttpServer(httpServer) {
       httpServer.closeIdleConnections();
     }
   });
-}
-
-function workspaceStateMetadataEqual(left = null, right = null) {
-  const leftMetadata = left?.metadata;
-  const rightMetadata = right?.metadata;
-  if (!(leftMetadata instanceof Map) || !(rightMetadata instanceof Map)) {
-    return false;
-  }
-
-  if (leftMetadata.size !== rightMetadata.size) {
-    return false;
-  }
-
-  for (const [pathValue, leftEntry] of leftMetadata.entries()) {
-    const rightEntry = rightMetadata.get(pathValue);
-    if (!rightEntry) {
-      return false;
-    }
-
-    if (
-      leftEntry.type !== rightEntry.type
-      || leftEntry.size !== rightEntry.size
-      || leftEntry.inode !== rightEntry.inode
-      || leftEntry.mtimeMs !== rightEntry.mtimeMs
-    ) {
-      return false;
-    }
-  }
-
-  return true;
 }
 
 export function createAppServer(config = loadConfig()) {
