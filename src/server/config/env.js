@@ -1,4 +1,5 @@
 import { resolve } from 'path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'url';
 
 import {
@@ -45,6 +46,14 @@ function parsePort(rawPort, fallbackPort) {
 function normalizeOptionalString(value) {
   const normalized = String(value ?? '').trim();
   return normalized.length > 0 ? normalized : '';
+}
+
+function parseBooleanFlag(value, fallbackValue = false) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!normalized) {
+    return fallbackValue;
+  }
+  return ['1', 'true', 'yes', 'on'].includes(normalized);
 }
 
 function resolveDrawioBaseUrl(value) {
@@ -273,6 +282,68 @@ function loadOidcConfig(overrides = {}, { basePath = '' } = {}) {
   };
 }
 
+function loadHostedConfig(overrides = {}, { authStrategy, vaultDir } = {}) {
+  const enabled = overrides.enabled ?? parseBooleanFlag(process.env.COLLABMD_HOSTED_ENABLED, false);
+  const metadataDbPath = resolveOptionalPath(
+    overrides.metadataDbPath
+    ?? process.env.COLLABMD_HOSTED_METADATA_DB_PATH,
+  ) || resolve(vaultDir, '.collabmd/hosted.sqlite');
+  const claimOverrides = overrides.claim ?? {};
+  const githubAppOverrides = overrides.githubApp ?? {};
+  const githubAppPrivateKeyFile = resolveOptionalPath(
+    githubAppOverrides.privateKeyFile
+    ?? process.env.COLLABMD_GITHUB_APP_PRIVATE_KEY_FILE,
+  );
+  const githubAppPrivateKeyInput = normalizeOptionalString(
+    githubAppOverrides.privateKey
+    ?? process.env.COLLABMD_GITHUB_APP_PRIVATE_KEY,
+  );
+  const githubAppPrivateKey = githubAppPrivateKeyInput
+    || (enabled && githubAppPrivateKeyFile ? readFileSync(githubAppPrivateKeyFile, 'utf8') : '');
+
+  if (enabled && authStrategy !== AUTH_STRATEGY_OIDC) {
+    throw new Error('Hosted workspace mode requires AUTH_STRATEGY=oidc.');
+  }
+
+  return {
+    claim: {
+      email: normalizeOptionalString(
+        claimOverrides.email
+        ?? process.env.COLLABMD_HOSTED_CLAIM_EMAIL,
+      ),
+      token: normalizeOptionalString(
+        claimOverrides.token
+        ?? process.env.COLLABMD_HOSTED_CLAIM_TOKEN,
+      ),
+    },
+    enabled,
+    githubApp: {
+      apiBaseUrl: normalizeOptionalString(
+        githubAppOverrides.apiBaseUrl
+        ?? process.env.COLLABMD_GITHUB_API_BASE_URL,
+      ) || 'https://api.github.com',
+      appId: normalizeOptionalString(
+        githubAppOverrides.appId
+        ?? process.env.COLLABMD_GITHUB_APP_ID,
+      ),
+      appSlug: normalizeOptionalString(
+        githubAppOverrides.appSlug
+        ?? process.env.COLLABMD_GITHUB_APP_SLUG,
+      ),
+      flowCookieName: normalizeOptionalString(
+        githubAppOverrides.flowCookieName
+        ?? process.env.COLLABMD_GITHUB_SETUP_FLOW_COOKIE_NAME,
+      ) || 'collabmd_github_setup_flow',
+      htmlBaseUrl: normalizeOptionalString(
+        githubAppOverrides.htmlBaseUrl
+        ?? process.env.COLLABMD_GITHUB_HTML_BASE_URL,
+      ) || 'https://github.com',
+      privateKey: githubAppPrivateKey,
+    },
+    metadataDbPath,
+  };
+}
+
 export function loadConfig(overrides = {}) {
   const nodeEnv = process.env.NODE_ENV || 'development';
   const vaultDir = resolveConfiguredVaultDir(overrides);
@@ -293,6 +364,7 @@ export function loadConfig(overrides = {}) {
     ? loadOidcConfig(authOverrides.oidc, { basePath })
     : null;
   const git = loadGitConfig(overrides.git);
+  const hosted = loadHostedConfig(overrides.hosted, { authStrategy, vaultDir });
   const build = loadBuildInfo({
     explicitBuildId: process.env.COLLABMD_BUILD_ID,
     projectRoot,
@@ -321,6 +393,7 @@ export function loadConfig(overrides = {}) {
     httpHeadersTimeoutMs: parsePositiveInt(process.env.HTTP_HEADERS_TIMEOUT_MS, 60_000),
     httpKeepAliveTimeoutMs: parsePositiveInt(process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS, 5_000),
     httpRequestTimeoutMs: parsePositiveInt(process.env.HTTP_REQUEST_TIMEOUT_MS, 30_000),
+    hosted,
     git,
     gitEnabled: git.enabled,
     maxArchiveEntries: parsePositiveInt(process.env.COLLABMD_MAX_ARCHIVE_ENTRIES, 10_000),

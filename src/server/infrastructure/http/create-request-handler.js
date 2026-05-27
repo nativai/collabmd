@@ -1,5 +1,6 @@
 import { createAuthApiHandler } from './create-auth-api-handler.js';
 import { createGitApiHandler } from './create-git-api-handler.js';
+import { createHostedApiHandler } from './create-hosted-api-handler.js';
 import { createEsmProxyHandler } from './create-esm-proxy-handler.js';
 import { createStaticHandler } from './create-static-handler.js';
 import { createVaultApiHandler } from './create-vault-api-handler.js';
@@ -49,10 +50,17 @@ export function createRequestHandler(
   testControls = { wsRoomHydrateDelayMs: 0 },
   workspaceMutationCoordinator = null,
   fileSystemSyncService = null,
+  hostedWorkspaceService = null,
+  githubSetupFlow = null,
 ) {
   const handleEsmProxy = createEsmProxyHandler();
   const handleStaticRequest = createStaticHandler(config, authService, searchService);
   const handleAuthApi = createAuthApiHandler({ authService });
+  const handleHostedApi = createHostedApiHandler({
+    authService,
+    githubSetupFlow,
+    hostedWorkspaceService,
+  });
   const handleGitApi = createGitApiHandler({
     authService,
     backlinkIndex,
@@ -177,6 +185,10 @@ export function createRequestHandler(
       return;
     }
 
+    if (await handleHostedApi(req, res, requestUrl)) {
+      return;
+    }
+
     if (await handleEsmProxy(req, res, requestUrl)) {
       return;
     }
@@ -185,6 +197,14 @@ export function createRequestHandler(
       const authorization = authService.authorizeApiRequest(req);
       if (!authorization.ok) {
         jsonResponse(req, res, authorization.statusCode, authorization.body);
+        return;
+      }
+
+      const hostedAuthorization = await hostedWorkspaceService?.authorizeWorkspaceAccess?.({
+        user: authService.getAuthenticatedUser?.(req) ?? null,
+      });
+      if (hostedAuthorization && !hostedAuthorization.ok) {
+        jsonResponse(req, res, hostedAuthorization.statusCode, hostedAuthorization.body);
         return;
       }
     }
