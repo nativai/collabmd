@@ -10,6 +10,7 @@ import { chatFeature } from '../application/app-shell/chat-feature.js';
 import { commentsFeature } from '../application/app-shell/comments-feature.js';
 import { exportFeature } from '../application/app-shell/export-feature.js';
 import { gitFeature } from '../application/app-shell/git-feature.js';
+import { lazyControllerFeature } from '../application/app-shell/lazy-controller-feature.js';
 import { presenceFeature } from '../application/app-shell/presence-feature.js';
 import { uiFeature } from '../application/app-shell/ui-feature.js';
 import { workspaceFeature } from '../application/app-shell/workspace-feature.js';
@@ -26,14 +27,8 @@ import { TabActivityLock } from '../infrastructure/tab-activity-lock.js';
 import { vaultApiClient } from '../infrastructure/vault-api-client.js';
 import { WorkspaceSyncClient } from '../infrastructure/workspace-sync-client.js';
 import { BacklinksPanel } from '../presentation/backlinks-panel.js';
-import { BasesPreviewController } from '../presentation/bases-preview-controller.js';
 import { CommentUiController } from '../presentation/comment-ui-controller.js';
-import { DrawioEmbedController } from '../presentation/drawio-embed-controller.js';
-import { ExcalidrawEmbedController } from '../presentation/excalidraw-embed-controller.js';
 import { FileExplorerController } from '../presentation/file-explorer-controller.js';
-import { FileHistoryViewController } from '../presentation/file-history-view-controller.js';
-import { GitDiffViewController } from '../presentation/git-diff-view-controller.js';
-import { GitPanelController } from '../presentation/git-panel-controller.js';
 import { LayoutController } from '../presentation/layout-controller.js';
 import { OutlineController } from '../presentation/outline-controller.js';
 import { ScrollSyncController } from '../presentation/scroll-sync-controller.js';
@@ -98,6 +93,21 @@ export class CollabMdAppShell {
   handleGitResetSubmit(...args) { return gitFeature.handleGitResetSubmit.apply(this, args); }
   openGitCommitDialog(...args) { return gitFeature.openGitCommitDialog.apply(this, args); }
   handleGitCommitSubmit(...args) { return gitFeature.handleGitCommitSubmit.apply(this, args); }
+  reportLazyControllerError(...args) { return lazyControllerFeature.reportLazyControllerError.apply(this, args); }
+  loadBasesPreviewController(...args) { return lazyControllerFeature.loadBasesPreviewController.apply(this, args); }
+  loadDrawioEmbedController(...args) { return lazyControllerFeature.loadDrawioEmbedController.apply(this, args); }
+  loadExcalidrawEmbedController(...args) { return lazyControllerFeature.loadExcalidrawEmbedController.apply(this, args); }
+  loadGitPanelController(...args) { return lazyControllerFeature.loadGitPanelController.apply(this, args); }
+  loadGitDiffViewController(...args) { return lazyControllerFeature.loadGitDiffViewController.apply(this, args); }
+  loadFileHistoryViewController(...args) { return lazyControllerFeature.loadFileHistoryViewController.apply(this, args); }
+  createLazyBasesPreviewController(...args) { return lazyControllerFeature.createLazyBasesPreviewController.apply(this, args); }
+  createLazyDrawioEmbedController(...args) { return lazyControllerFeature.createLazyDrawioEmbedController.apply(this, args); }
+  createLazyExcalidrawEmbedController(...args) { return lazyControllerFeature.createLazyExcalidrawEmbedController.apply(this, args); }
+  createLazyGitPanelController(...args) { return lazyControllerFeature.createLazyGitPanelController.apply(this, args); }
+  createLazyGitDiffViewController(...args) { return lazyControllerFeature.createLazyGitDiffViewController.apply(this, args); }
+  createLazyFileHistoryViewController(...args) { return lazyControllerFeature.createLazyFileHistoryViewController.apply(this, args); }
+  ensureGitControllers(...args) { return lazyControllerFeature.ensureGitControllers.apply(this, args); }
+  scheduleGitControllerPrewarm(...args) { return lazyControllerFeature.scheduleGitControllerPrewarm.apply(this, args); }
   updateGlobalUsers(...args) { return presenceFeature.updateGlobalUsers.apply(this, args); }
   updateFileAwareness(...args) { return presenceFeature.updateFileAwareness.apply(this, args); }
   closePresencePanel(...args) { return presenceFeature.closePresencePanel.apply(this, args); }
@@ -252,6 +262,7 @@ export class CollabMdAppShell {
     this.quickSwitcher = null;
     this.quickSwitcherModulePromise = null;
     this.fileExplorerReadyPromise = Promise.resolve();
+    this._gitControllerPrewarmHandle = null;
     this.mobileBreakpointQuery = window.matchMedia('(max-width: 768px)');
     this.pendingWorkspaceRequestIds = new Set();
     this._fileOpenPerf = null;
@@ -289,23 +300,7 @@ export class CollabMdAppShell {
       pendingWorkspaceRequestIds: this.pendingWorkspaceRequestIds,
       toastController: this.toastController,
     });
-    this.gitPanel = new GitPanelController({
-      enabled: this.runtimeConfig.gitEnabled !== false,
-      gitApiClient: this.gitApiClient,
-      onCommitStaged: () => this.openGitCommitDialog(),
-      onOpenPullBackup: (filePath) => filePath && this.navigation.navigateToFile(filePath),
-      onPullBranch: () => this.pullGitBranch(),
-      onPushBranch: () => this.pushGitBranch(),
-      onRepoChange: (isGitRepo, status) => this.handleGitRepoChange(isGitRepo, status),
-      onResetFile: (filePath, { scope }) => this.openGitResetDialog(filePath, { scope }),
-      onSelectCommit: (hash, { path }) => this.handleGitCommitSelection(hash, { closeSidebarOnMobile: true, path }),
-      onSelectDiff: (filePath, { scope }) => this.handleGitDiffSelection(filePath, { closeSidebarOnMobile: true, scope }),
-      onStageFile: (filePath, { scope }) => this.stageGitFile(filePath, { scope }),
-      onUnstageFile: (filePath, { scope }) => this.unstageGitFile(filePath, { scope }),
-      onViewAllDiff: () => this.handleGitDiffSelection(null, { closeSidebarOnMobile: true, scope: 'all' }),
-      searchInput: this.elements.gitSearchInput,
-      toastController: this.toastController,
-    });
+    this.gitPanel = this.createLazyGitPanelController();
     this.outlineController = new OutlineController({
       mobileBreakpointQuery: this.mobileBreakpointQuery,
       onNavigateToHeading: ({ sourceLine }) => {
@@ -318,19 +313,7 @@ export class CollabMdAppShell {
     this.videoEmbed = new VideoEmbedController({
       previewElement: this.elements.previewContent,
     });
-    this.basesPreview = new BasesPreviewController({
-      getActiveFilePath: () => this.currentFilePath,
-      getSession: () => this.session,
-      onOpenFile: (filePath) => filePath && this.navigation.navigateToFile(filePath),
-      previewElement: this.elements.previewContent,
-      replaceBaseSource: ({ path, source }) => {
-        if (path && path === this.currentFilePath) {
-          this.session?.replaceText?.(source);
-        }
-      },
-      toastController: this.toastController,
-      vaultApiClient: this.vaultApiClient,
-    });
+    this.basesPreview = this.createLazyBasesPreviewController();
     this.imageLightbox = new ImageLightboxController({
       previewElement: this.elements.previewContent,
     });
@@ -406,29 +389,8 @@ export class CollabMdAppShell {
       onFileSelect: (filePath) => this.handleFileSelection(filePath, { closeSidebarOnMobile: true }),
       panelElement: this.elements.backlinksPanel,
     });
-    this.excalidrawEmbed = new ExcalidrawEmbedController({
-      getLocalUser: () => this.lobby.getLocalUser(),
-      getTheme: () => this.themeController.getTheme(),
-      onOpenFile: (filePath) => filePath && this.navigation.navigateToFile(filePath),
-      onToggleQuickSwitcher: () => {
-        void this.toggleQuickSwitcher();
-      },
-      previewContainer: this.elements.previewContainer,
-      previewElement: this.elements.previewContent,
-      toastController: this.toastController,
-    });
-    this.drawioEmbed = new DrawioEmbedController({
-      getLocalUser: () => this.lobby.getLocalUser(),
-      getTheme: () => this.themeController.getTheme(),
-      onOpenFile: (filePath) => filePath && this.navigation.navigateToFile(filePath),
-      onOpenTextFile: (filePath) => filePath && this.navigation.navigateToFile(filePath, { drawioMode: 'text' }),
-      onToggleQuickSwitcher: () => {
-        void this.toggleQuickSwitcher();
-      },
-      previewContainer: this.elements.previewContainer,
-      previewElement: this.elements.previewContent,
-      toastController: this.toastController,
-    });
+    this.excalidrawEmbed = this.createLazyExcalidrawEmbedController();
+    this.drawioEmbed = this.createLazyDrawioEmbedController();
     this.commentUi = new CommentUiController({
       commentSelectionButton: this.elements.commentSelectionButton,
       commentsDrawer: this.elements.commentsDrawer,
@@ -477,38 +439,8 @@ export class CollabMdAppShell {
       vaultApiClient: this.vaultApiClient,
       wikiLinkAutoCreate: this.runtimeConfig.wikiLinkAutoCreate !== false,
     });
-    this.gitDiffView = new GitDiffViewController({
-      gitApiClient: this.gitApiClient,
-      onBackToHistory: ({ historyFilePath } = {}) => {
-        if (historyFilePath) {
-          this.navigation.navigateToGitFileHistory({ filePath: historyFilePath });
-          return;
-        }
-        this.navigation.navigateToGitHistory();
-      },
-      onCommitStaged: () => this.openGitCommitDialog(),
-      onOpenFile: (filePath) => filePath && this.navigation.navigateToFile(filePath),
-      onStageFile: (filePath, { scope }) => this.stageGitFile(filePath, { scope }),
-      onUnstageFile: (filePath, { scope }) => this.unstageGitFile(filePath, { scope }),
-      toastController: this.toastController,
-    });
-    this.fileHistoryView = new FileHistoryViewController({
-      diffRenderer: this.gitDiffView,
-      gitApiClient: this.gitApiClient,
-      onOpenCommitDiff: (hash, { historyFilePath, path }) => this.handleGitCommitSelection(hash, {
-        closeSidebarOnMobile: false,
-        historyFilePath,
-        path,
-      }),
-      onOpenFile: (filePath) => filePath && this.navigation.navigateToFile(filePath),
-      onOpenPreview: ({ hash, path, currentFilePath }) => this.handleGitFilePreviewSelection({
-        hash,
-        path,
-        currentFilePath,
-      }),
-      onOpenWorkspaceDiff: (filePath) => this.handleGitDiffSelection(filePath, { closeSidebarOnMobile: false, scope: 'all' }),
-      toastController: this.toastController,
-    });
+    this.gitDiffView = this.createLazyGitDiffViewController();
+    this.fileHistoryView = this.createLazyFileHistoryViewController();
     this.tabActivityLock = new TabActivityLock({
       onActivated: ({ takeover }) => this.handleTabActivated({ takeover }),
       onBlocked: () => this.handleTabBlocked({ reason: 'active-elsewhere' }),

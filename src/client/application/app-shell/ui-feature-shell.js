@@ -53,9 +53,6 @@ function initialize() {
   this.layoutController.initialize();
   this.scrollSyncController.initialize();
   this.fileExplorer.initialize();
-  this.gitPanel.initialize();
-  this.gitDiffView.initialize();
-  this.fileHistoryView.initialize();
   this.initializePreviewLayoutObserver();
   this.syncIdentityManagementUi();
   this.syncCurrentUserName();
@@ -64,7 +61,6 @@ function initialize() {
   this.syncChatNotificationButton();
   this.syncFileHistoryButton({ mode: 'empty' });
   this.renderChat();
-  void this.gitPanel.refresh({ force: true });
   this.elements.chatInput?.setAttribute('maxlength', String(this.lobbyChatMessageMaxLength));
   this.bindEvents();
   this.restoreSidebarState();
@@ -81,6 +77,7 @@ function initialize() {
 
   this.fileExplorerReadyPromise = this.fileExplorer.refresh().then(() => {
     this.fileExplorerReady = true;
+    this.scheduleGitControllerPrewarm?.();
     if (this.isTabActive) {
       return this.handleHashChange();
     }

@@ -169,6 +169,7 @@ export const gitFeature = {
   },
 
   async showGitDiff({ filePath = null, scope = 'all' } = {}) {
+    await this.ensureGitControllers?.();
     this.clearStaticPreviewDocument?.();
     this.gitPanel.setSelection(filePath ? { path: filePath, scope, source: 'workspace' } : {});
     this.gitPanel.setMode('changes');
@@ -183,6 +184,7 @@ export const gitFeature = {
   },
 
   async showGitCommit({ hash, path = null, historyFilePath = null } = {}) {
+    await this.ensureGitControllers?.();
     this.clearStaticPreviewDocument?.();
     this.gitPanel.setMode('history');
     this.gitPanel.setSelection(hash ? { commitHash: hash, path, source: 'commit' } : { source: 'commit' });
@@ -197,6 +199,7 @@ export const gitFeature = {
   },
 
   async showGitHistory() {
+    await this.ensureGitControllers?.();
     this.clearStaticPreviewDocument?.();
     this.gitPanel.setMode('history');
     this.gitPanel.setSelection({ source: 'commit' });
@@ -209,6 +212,7 @@ export const gitFeature = {
   },
 
   async showGitFileHistory({ filePath = null } = {}) {
+    await this.ensureGitControllers?.();
     if (!filePath) {
       this.workspaceRouteController?.showEmptyState?.();
       return;
@@ -336,6 +340,7 @@ export const gitFeature = {
   },
 
   async refreshGitAfterAction({ filePath = null, preferredScope = null } = {}) {
+    await this.ensureGitControllers?.();
     await this.gitPanel.refresh({ force: true });
 
     const route = this.navigation.getHashRoute();

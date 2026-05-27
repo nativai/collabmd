@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { gitFeature } from '../../src/client/application/app-shell/git-feature.js';
 import { uiFeatureIdentityMethods } from '../../src/client/application/app-shell/ui-feature-identity.js';
 import { uiFeatureShellMethods } from '../../src/client/application/app-shell/ui-feature-shell.js';
 import { uiFeatureSidebarMethods } from '../../src/client/application/app-shell/ui-feature-sidebar.js';
 import { uiFeatureToolbarMethods } from '../../src/client/application/app-shell/ui-feature-toolbar.js';
 import { ensureQuickSwitcherInstance } from '../../src/client/application/quick-switcher-loader.js';
+import { CollabMdAppShell } from '../../src/client/bootstrap/collabmd-app-shell.js';
 
 function createSidebarContext({ gitRepoAvailable = true, mobile = false } = {}) {
   document.body.innerHTML = `
@@ -45,6 +47,7 @@ describe('uiFeature browser helpers', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('switches sidebar tabs and updates visibility state', () => {
@@ -56,6 +59,131 @@ describe('uiFeature browser helpers', () => {
     expect(context.elements.gitSidebarTab.classList.contains('active')).toBe(true);
     expect(document.getElementById('gitPanel').classList.contains('hidden')).toBe(false);
     expect(context.gitPanel.setActive).toHaveBeenCalledWith(true);
+  });
+
+  it('prewarms lazy Git by refreshing repo status after the controller loads', async () => {
+    const refresh = vi.fn(async () => {});
+    let idleCallback = null;
+    const requestIdleCallback = vi.fn((callback) => {
+      idleCallback = callback;
+      return 42;
+    });
+    vi.stubGlobal('requestIdleCallback', requestIdleCallback);
+
+    const context = Object.create(CollabMdAppShell.prototype);
+    Object.assign(context, {
+      _gitControllerPrewarmHandle: null,
+      gitPanel: {
+        ensure: vi.fn(async () => ({ refresh })),
+      },
+      reportLazyControllerError: vi.fn(),
+      runtimeConfig: { gitEnabled: true },
+    });
+
+    context.scheduleGitControllerPrewarm({ timeout: 123 });
+    idleCallback();
+    await Promise.resolve();
+
+    expect(requestIdleCallback).toHaveBeenCalledWith(expect.any(Function), { timeout: 123 });
+    expect(context.gitPanel.ensure).toHaveBeenCalledTimes(1);
+    expect(refresh).toHaveBeenCalledWith({ force: true });
+    expect(context.reportLazyControllerError).not.toHaveBeenCalled();
+    expect(context._gitControllerPrewarmHandle).toBeNull();
+  });
+
+  it('schedules Git controller prewarm after the initial file explorer refresh', async () => {
+    const scheduleGitControllerPrewarm = vi.fn();
+    const handleHashChange = vi.fn();
+    const context = {
+      bindEvents: vi.fn(),
+      createResizeHandler: () => vi.fn(),
+      elements: {
+        chatInput: document.createElement('textarea'),
+      },
+      fileExplorer: {
+        initialize: vi.fn(),
+        refresh: vi.fn(async () => {}),
+      },
+      handleHashChange,
+      initializeExportBridge: vi.fn(),
+      initializePreviewLayoutObserver: vi.fn(),
+      initializeVersionMonitoring: vi.fn(),
+      initializeVisualViewportBinding: vi.fn(),
+      isTabActive: true,
+      layoutController: {
+        initialize: vi.fn(),
+      },
+      lobbyChatMessageMaxLength: 500,
+      outlineController: {
+        initialize: vi.fn(),
+      },
+      previewRenderer: {
+        applyTheme: vi.fn(),
+        scheduleWorkerPrewarm: vi.fn(),
+      },
+      renderChat: vi.fn(),
+      restoreSidebarState: vi.fn(),
+      scheduleEditorSessionPrewarm: vi.fn(),
+      scheduleGitControllerPrewarm,
+      scrollSyncController: {
+        initialize: vi.fn(),
+      },
+      syncChatNotificationButton: vi.fn(),
+      syncCurrentUserName: vi.fn(),
+      syncFileHistoryButton: vi.fn(),
+      syncIdentityManagementUi: vi.fn(),
+      syncToolbarOverflowVisibility: vi.fn(),
+      syncWrapToggle: vi.fn(),
+      tabActivityLock: {
+        initialize: vi.fn(),
+        tryActivate: vi.fn(),
+      },
+      themeController: {
+        getTheme: () => 'dark',
+        initialize: vi.fn(),
+      },
+    };
+    uiFeatureShellMethods.initialize.call(context);
+    await context.fileExplorerReadyPromise;
+
+    expect(context.fileExplorer.refresh).toHaveBeenCalledTimes(1);
+    expect(scheduleGitControllerPrewarm).toHaveBeenCalledTimes(1);
+    expect(handleHashChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('reveals the Git tab when repo status detection reports a Git repository', () => {
+    document.body.innerHTML = `
+      <div id="sidebar-tabs" class="hidden"></div>
+      <button id="git-tab" class="hidden"></button>
+    `;
+    const status = { summary: { changedFiles: 2 } };
+    const context = {
+      activeSidebarTab: 'files',
+      currentFilePath: 'README.md',
+      elements: {
+        gitSidebarTab: document.getElementById('git-tab'),
+        sidebarTabs: document.getElementById('sidebar-tabs'),
+      },
+      gitDiffView: {
+        setRepoStatus: vi.fn(),
+      },
+      navigation: {
+        getHashRoute: () => ({ type: 'file' }),
+      },
+      setSidebarTab: vi.fn(),
+      syncFileHistoryButton: vi.fn(),
+    };
+    Object.assign(context, {
+      handleGitRepoChange: gitFeature.handleGitRepoChange,
+    });
+
+    context.handleGitRepoChange(true, status);
+
+    expect(context.gitRepoAvailable).toBe(true);
+    expect(context.elements.sidebarTabs.classList.contains('hidden')).toBe(false);
+    expect(context.elements.gitSidebarTab.classList.contains('hidden')).toBe(false);
+    expect(context.elements.gitSidebarTab.classList.contains('has-changes')).toBe(true);
+    expect(context.gitDiffView.setRepoStatus).toHaveBeenCalledWith(status);
   });
 
   it('collapses the sidebar for mobile restores', () => {
