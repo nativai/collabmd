@@ -11,7 +11,7 @@ import {
   isVaultFilePath,
 } from '../../../domain/file-kind.js';
 import { mapWithConcurrency } from '../../shared/async-utils.js';
-import { getVaultContentAdapter } from './vault-content-adapter.js';
+import { getEditableVaultContentKind } from './vault-content-adapter.js';
 import {
   INVALID_VAULT_FILE_PATH_ERROR,
   isIgnoredVaultEntry,
@@ -390,7 +390,7 @@ export class VaultFileStore {
       return null;
     }
 
-    const adapter = getVaultContentAdapter(absolute);
+    const adapter = getEditableVaultContentKind(filePath);
     if (!adapter) {
       return null;
     }
@@ -415,15 +415,24 @@ export class VaultFileStore {
     }
   }
 
-  async writeContentFile(filePath, content, expectedKind, { invalidateCollaborationSnapshot = true } = {}) {
+  async readEditableVaultContent(filePath) {
     const resolved = this.resolveAdapter(filePath);
-    if (!resolved || resolved.adapter.kind !== expectedKind) {
-      return {
-        ok: false,
-        error: resolved?.adapter?.invalidPathError ?? getVaultContentAdapter(filePath)?.invalidPathError ?? INVALID_VAULT_FILE_PATH_ERROR,
-      };
+    if (!resolved) {
+      return null;
     }
 
+    try {
+      return await readFile(resolved.absolute, 'utf-8');
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
+  async writeResolvedContentFile(resolved, filePath, content, { invalidateCollaborationSnapshot = true } = {}) {
     try {
       await this.runManagedWrite([filePath], async () => {
         await mkdir(dirname(resolved.absolute), { recursive: true });
@@ -436,6 +445,30 @@ export class VaultFileStore {
     } catch (error) {
       return { ok: false, error: error.message };
     }
+  }
+
+  async writeContentFile(filePath, content, expectedKind, { invalidateCollaborationSnapshot = true } = {}) {
+    const resolved = this.resolveAdapter(filePath);
+    if (!resolved || resolved.adapter.kind !== expectedKind) {
+      return {
+        ok: false,
+        error: resolved?.adapter?.invalidPathError ?? getEditableVaultContentKind(filePath)?.invalidPathError ?? INVALID_VAULT_FILE_PATH_ERROR,
+      };
+    }
+
+    return this.writeResolvedContentFile(resolved, filePath, content, { invalidateCollaborationSnapshot });
+  }
+
+  async writeEditableVaultContent(filePath, content, { invalidateCollaborationSnapshot = true } = {}) {
+    const resolved = this.resolveAdapter(filePath);
+    if (!resolved) {
+      return {
+        ok: false,
+        error: getEditableVaultContentKind(filePath)?.invalidPathError ?? INVALID_VAULT_FILE_PATH_ERROR,
+      };
+    }
+
+    return this.writeResolvedContentFile(resolved, filePath, content, { invalidateCollaborationSnapshot });
   }
 
   async readMarkdownFile(filePath) {
@@ -681,7 +714,7 @@ export class VaultFileStore {
     if (!resolved) {
       return {
         ok: false,
-        error: getVaultContentAdapter(filePath)?.invalidPathError ?? INVALID_VAULT_FILE_PATH_ERROR,
+        error: getEditableVaultContentKind(filePath)?.invalidPathError ?? INVALID_VAULT_FILE_PATH_ERROR,
       };
     }
 

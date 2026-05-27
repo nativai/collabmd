@@ -3,14 +3,7 @@ import { readdir } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { join } from 'node:path';
 
-import {
-  isBaseFilePath,
-  isDrawioFilePath,
-  isExcalidrawFilePath,
-  isImageAttachmentFilePath,
-  isMermaidFilePath,
-  isPlantUmlFilePath,
-} from '../../../domain/file-kind.js';
+import { isImageAttachmentFilePath } from '../../../domain/file-kind.js';
 import { isIgnoredVaultEntry } from '../persistence/path-utils.js';
 import { parseJsonBody } from './request-body.js';
 import { jsonResponse, sendResponse, sendStreamResponse } from './http-response.js';
@@ -56,30 +49,6 @@ function createDownloadHeaders(fileName, contentType) {
     'Content-Type': contentType,
     'X-Content-Type-Options': 'nosniff',
   };
-}
-
-function selectReadOperation(vaultFileStore, filePath) {
-  if (isExcalidrawFilePath(filePath)) {
-    return vaultFileStore.readExcalidrawFile(filePath);
-  }
-
-  if (isBaseFilePath(filePath)) {
-    return vaultFileStore.readBaseFile(filePath);
-  }
-
-  if (isDrawioFilePath(filePath)) {
-    return vaultFileStore.readDrawioFile(filePath);
-  }
-
-  if (isMermaidFilePath(filePath)) {
-    return vaultFileStore.readMermaidFile(filePath);
-  }
-
-  if (isPlantUmlFilePath(filePath)) {
-    return vaultFileStore.readPlantUmlFile(filePath);
-  }
-
-  return vaultFileStore.readMarkdownFile(filePath);
 }
 
 async function streamDirectoryArchive(req, res, {
@@ -290,7 +259,7 @@ async function handleFileRead(req, res, requestUrl, { vaultFileStore }) {
   }
 
   try {
-    const content = await selectReadOperation(vaultFileStore, filePath);
+    const content = await vaultFileStore.readEditableVaultContent(filePath);
     if (content === null) {
       jsonResponse(req, res, 404, { error: 'File not found' });
       return;

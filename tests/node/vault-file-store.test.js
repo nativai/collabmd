@@ -332,6 +332,49 @@ test('VaultFileStore reads and writes Mermaid files', async (t) => {
   assert.equal(updated, 'flowchart TD\n  B --> C\n');
 });
 
+test('VaultFileStore reads and writes editable vault content by path kind', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  await store.createFile('views/tasks.base', 'views:\n  - type: table\n');
+  await store.createFile('diagrams/flow.mmd', 'flowchart TD\n  A --> B\n');
+  await store.createFile('diagrams/sequence.plantuml', '@startuml\nAlice -> Bob: Hi\n@enduml\n');
+
+  assert.equal(
+    await store.readEditableVaultContent('views/tasks.base'),
+    'views:\n  - type: table\n',
+  );
+  assert.equal(
+    await store.readEditableVaultContent('diagrams/flow.mmd'),
+    'flowchart TD\n  A --> B\n',
+  );
+  assert.equal(
+    await store.readEditableVaultContent('diagrams/sequence.plantuml'),
+    '@startuml\nAlice -> Bob: Hi\n@enduml\n',
+  );
+
+  const writeResult = await store.writeEditableVaultContent('diagrams/flow.mmd', 'flowchart TD\n  B --> C\n');
+  assert.equal(writeResult.ok, true);
+  assert.equal(await store.readMermaidFile('diagrams/flow.mmd'), 'flowchart TD\n  B --> C\n');
+});
+
+test('VaultFileStore editable vault content preserves read and write validation behavior', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  assert.equal(await store.readEditableVaultContent('missing.md'), null);
+  assert.equal(await store.readEditableVaultContent('secret.txt'), null);
+  assert.equal(await store.readEditableVaultContent('../outside.base'), null);
+
+  const unsupportedWrite = await store.writeEditableVaultContent('secret.txt', 'plain text');
+  assert.equal(unsupportedWrite.ok, false);
+  assert.match(unsupportedWrite.error, /must end in \.md, .*\.png, .*\.svg/i);
+
+  const invalidBaseWrite = await store.writeEditableVaultContent('../outside.base', 'views:\n');
+  assert.equal(invalidBaseWrite.ok, false);
+  assert.equal(invalidBaseWrite.error, 'Invalid file path — must end in .base');
+});
+
 test('VaultFileStore reads and writes .plantuml files', async (t) => {
   const { store, cleanup } = await createVaultStore();
   t.after(cleanup);

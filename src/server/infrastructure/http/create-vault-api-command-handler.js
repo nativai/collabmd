@@ -1,10 +1,3 @@
-import {
-  isBaseFilePath,
-  isDrawioFilePath,
-  isExcalidrawFilePath,
-  isMermaidFilePath,
-  isPlantUmlFilePath,
-} from '../../../domain/file-kind.js';
 import { createWorkspaceChange } from '../../../domain/workspace-change.js';
 import { basename } from 'node:path';
 import { createRequestError, getRequestErrorStatusCode } from './http-errors.js';
@@ -49,30 +42,6 @@ function decodeHeaderMetadata(value) {
   } catch {
     throw createRequestError(400, 'Invalid attachment metadata header encoding');
   }
-}
-
-function selectWriteOperation(vaultFileStore, filePath, content) {
-  if (isExcalidrawFilePath(filePath)) {
-    return vaultFileStore.writeExcalidrawFile(filePath, content);
-  }
-
-  if (isBaseFilePath(filePath)) {
-    return vaultFileStore.writeBaseFile(filePath, content);
-  }
-
-  if (isDrawioFilePath(filePath)) {
-    return vaultFileStore.writeDrawioFile(filePath, content);
-  }
-
-  if (isMermaidFilePath(filePath)) {
-    return vaultFileStore.writeMermaidFile(filePath, content);
-  }
-
-  if (isPlantUmlFilePath(filePath)) {
-    return vaultFileStore.writePlantUmlFile(filePath, content);
-  }
-
-  return vaultFileStore.writeMarkdownFile(filePath, content);
 }
 
 function readRequestId(req) {
@@ -133,7 +102,7 @@ async function handleWriteFile({ vaultFileStore, workspaceMutationCoordinator },
       return true;
     }
 
-    const result = await selectWriteOperation(vaultFileStore, body.path, body.content);
+    const result = await vaultFileStore.writeEditableVaultContent(body.path, body.content);
     if (!result.ok) {
       jsonResponse(req, res, 400, { error: result.error });
       return true;
