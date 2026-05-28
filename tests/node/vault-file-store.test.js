@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { access, mkdtemp, mkdir, rm, writeFile } from 'fs/promises';
+import { access, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import sharp from 'sharp';
@@ -194,6 +194,27 @@ test('VaultFileStore persists content, comments, and snapshot as one staged coll
   assert.equal(result.ok, true);
   assert.equal(await store.readMarkdownFile('README.md'), '# Updated atomically\n');
   assert.deepEqual(await store.readCommentThreads('README.md'), threads);
+  assert.deepEqual(Array.from(await store.readCollaborationSnapshot('README.md') ?? []), Array.from(snapshot));
+});
+
+test('VaultFileStore persists collaboration sidecars without touching vault content', async (t) => {
+  const { store, cleanup, vaultDir } = await createVaultStore();
+  t.after(cleanup);
+
+  await writeFile(join(vaultDir, 'README.md'), '# Readme\r\n', 'utf-8');
+  const beforeStat = await stat(join(vaultDir, 'README.md'));
+  const snapshot = Uint8Array.from([4, 5, 6]);
+
+  const result = await store.persistCollaborationState('README.md', {
+    commentThreads: [],
+    includeContent: false,
+    snapshot,
+  });
+
+  const afterStat = await stat(join(vaultDir, 'README.md'));
+  assert.equal(result.ok, true);
+  assert.equal(await readFile(join(vaultDir, 'README.md'), 'utf-8'), '# Readme\r\n');
+  assert.equal(afterStat.mtimeMs, beforeStat.mtimeMs);
   assert.deepEqual(Array.from(await store.readCollaborationSnapshot('README.md') ?? []), Array.from(snapshot));
 });
 

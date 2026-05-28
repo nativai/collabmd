@@ -684,6 +684,7 @@ export class VaultFileStore {
   async persistCollaborationState(filePath, {
     commentThreads = [],
     content = '',
+    includeContent = true,
     snapshot = null,
   } = {}) {
     const resolved = this.resolveAdapter(filePath);
@@ -706,13 +707,13 @@ export class VaultFileStore {
         targetPath: this.sidecarStore.getSnapshotPath(filePath),
         value: snapshot ? Buffer.from(snapshot) : null,
       },
-      {
+      includeContent ? {
         kind: 'write',
         targetPath: resolved.absolute,
         value: content,
         writeOptions: 'utf-8',
-      },
-    ].filter((operation) => operation.targetPath);
+      } : null,
+    ].filter((operation) => operation?.targetPath);
 
     const stagedWrites = [];
     const committedOperations = [];
