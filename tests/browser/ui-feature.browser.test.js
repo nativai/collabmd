@@ -6,7 +6,7 @@ import { uiFeatureShellMethods } from '../../src/client/application/app-shell/ui
 import { uiFeatureSidebarMethods } from '../../src/client/application/app-shell/ui-feature-sidebar.js';
 import { uiFeatureToolbarMethods } from '../../src/client/application/app-shell/ui-feature-toolbar.js';
 import { ensureQuickSwitcherInstance } from '../../src/client/application/quick-switcher-loader.js';
-import { CollabMdAppShell } from '../../src/client/bootstrap/collabmd-app-shell.js';
+import { createAppShellFeatureSurface } from '../../src/client/bootstrap/app-shell-feature-surface.js';
 
 function createSidebarContext({ gitRepoAvailable = true, mobile = false } = {}) {
   document.body.innerHTML = `
@@ -70,17 +70,17 @@ describe('uiFeature browser helpers', () => {
     });
     vi.stubGlobal('requestIdleCallback', requestIdleCallback);
 
-    const context = Object.create(CollabMdAppShell.prototype);
-    Object.assign(context, {
+    const context = {
       _gitControllerPrewarmHandle: null,
       gitPanel: {
         ensure: vi.fn(async () => ({ refresh })),
       },
       reportLazyControllerError: vi.fn(),
       runtimeConfig: { gitEnabled: true },
-    });
+    };
+    const featureSurface = createAppShellFeatureSurface(context);
 
-    context.scheduleGitControllerPrewarm({ timeout: 123 });
+    featureSurface.scheduleGitControllerPrewarm({ timeout: 123 });
     idleCallback();
     await Promise.resolve();
 
