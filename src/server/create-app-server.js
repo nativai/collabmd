@@ -22,7 +22,8 @@ import { attachCollaborationGateway } from './infrastructure/websocket/attach-co
 import { isDrawioLeaseRoom } from '../domain/drawio-room.js';
 import { WORKSPACE_ROOM_NAME } from '../domain/workspace-room.js';
 import { FileSystemSyncService } from './infrastructure/workspace/file-system-sync-service.js';
-import { WorkspaceMutationCoordinator } from './infrastructure/workspace/workspace-mutation-coordinator.js';
+import { WorkspaceReconciliation } from './application/workspace-reconciliation.js';
+import { createWorkspaceStateFileSystemAdapter } from './infrastructure/workspace/workspace-state-file-system-adapter.js';
 import { createSignedCookieManager } from './auth/session-cookie.js';
 import { workspaceStateMetadataEqual } from './domain/workspace-state.js';
 
@@ -122,11 +123,14 @@ export function createAppServer(config = loadConfig()) {
       return room;
     },
   });
-  workspaceMutationCoordinator = new WorkspaceMutationCoordinator({
+  workspaceMutationCoordinator = new WorkspaceReconciliation({
     backlinkIndex,
     baseQueryService,
     roomRegistry,
     vaultFileStore,
+    workspaceStateAdapter: createWorkspaceStateFileSystemAdapter({
+      vaultDir: vaultFileStore.vaultDir,
+    }),
   });
   vaultFileStore.setManagedWriteTracker(workspaceMutationCoordinator);
   fileSystemSyncService = new FileSystemSyncService({
