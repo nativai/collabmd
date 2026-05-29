@@ -19,6 +19,7 @@ import { TabActivityLock } from '../infrastructure/tab-activity-lock.js';
 import { vaultApiClient } from '../infrastructure/vault-api-client.js';
 import { WorkspaceSyncClient } from '../infrastructure/workspace-sync-client.js';
 import { BacklinksPanel } from '../presentation/backlinks-panel.js';
+import { CommentOverviewController } from '../presentation/comment-overview-controller.js';
 import { CommentUiController } from '../presentation/comment-ui-controller.js';
 import { FileExplorerController } from '../presentation/file-explorer-controller.js';
 import { LayoutController } from '../presentation/layout-controller.js';
@@ -93,6 +94,7 @@ export class CollabMdAppShell {
       onTreeChange: (tree, metadata = {}) => {
         const wasReady = this.fileExplorerReady;
         this.fileExplorer.setTree(tree, metadata);
+        this.features.handleCommentOverviewWorkspaceTreeChange?.();
         this.fileExplorerReady = true;
         if (!wasReady && this.isTabActive) {
           void this.features.handleHashChange();
@@ -111,6 +113,15 @@ export class CollabMdAppShell {
       onFileSelect: (filePath) => this.features.handleFileSelection(filePath, { closeSidebarOnMobile: true }),
       pendingWorkspaceRequestIds: this.pendingWorkspaceRequestIds,
       toastController: this.toastController,
+    });
+    this.commentsOverview = new CommentOverviewController({
+      onOverviewChange: (_overview, { threadCounts }) => {
+        this.fileExplorer.setThreadCounts(threadCounts);
+      },
+      onThreadSelect: (payload) => this.features.openCommentOverviewThread(payload),
+      panelElement: this.elements.commentOverviewPanel,
+      toastController: this.toastController,
+      vaultApiClient: this.vaultApiClient,
     });
     this.gitPanel = this.features.createLazyGitPanelController();
     this.outlineController = new OutlineController({
@@ -213,14 +224,14 @@ export class CollabMdAppShell {
       onWillOpenDrawer: () => this.outlineController.close(),
       previewContainer: this.elements.previewContainer,
       previewElement: this.elements.previewContent,
-      onCreateThread: ({ anchor, body }) => this.session?.createCommentThread({ anchor, body }),
+      onCreateThread: ({ anchor, body }) => this.features.createCommentThread({ anchor, body }),
       onNavigateToLine: (lineNumber) => {
         this.scrollSyncController.suspendSync(250);
         this.session?.scrollToLine(lineNumber, 0.2);
       },
-      onReplyToThread: (threadId, body) => this.session?.replyToCommentThread(threadId, body),
+      onReplyToThread: (threadId, body) => this.features.replyToCommentThread(threadId, body),
       onToggleReaction: (threadId, messageId, emoji) => this.session?.toggleCommentReaction(threadId, messageId, emoji),
-      onResolveThread: (threadId) => this.session?.deleteCommentThread(threadId),
+      onResolveThread: (threadId) => this.features.resolveCommentThread(threadId),
     });
     this.workspacePreviewController = new WorkspacePreviewController({
       backlinksPanel: this.backlinksPanel,

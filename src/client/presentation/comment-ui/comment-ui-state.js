@@ -227,6 +227,28 @@ function closeDrawer() {
 }
 
 /** @this {CommentUiStateContext} */
+function openThreadFromOverview(threadId) {
+  if (!threadId || !this.supported) {
+    return false;
+  }
+
+  const group = this.getThreadGroups().find((candidate) => (
+    candidate.threads.some((thread) => thread.id === threadId)
+  ));
+  if (!group) {
+    return false;
+  }
+
+  this.onNavigateToLine?.(group.anchor?.startLine ?? 1);
+  this.openThreadGroup(group, {
+    anchor: group.anchor,
+    origin: 'editor',
+    sourceRect: this.session?.getCommentAnchorClientRect?.(group.anchor) ?? null,
+  });
+  return true;
+}
+
+/** @this {CommentUiStateContext} */
 function getThreadGroups() {
   const groups = new Map();
   this.threads.forEach((thread) => {
@@ -283,6 +305,7 @@ export const commentUiStateMethods = {
   closeDrawer,
   getThreadGroups,
   handleEditorContentChange,
+  openThreadFromOverview,
   scheduleSelectionReveal,
   setCurrentFile,
   setDrawerOpen,

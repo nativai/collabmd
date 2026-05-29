@@ -53,6 +53,7 @@ function initialize() {
   this.layoutController.initialize();
   this.scrollSyncController.initialize();
   this.fileExplorer.initialize();
+  this.commentsOverview?.initialize?.();
   this.initializePreviewLayoutObserver();
   this.syncIdentityManagementUi();
   this.syncCurrentUserName();
@@ -77,6 +78,7 @@ function initialize() {
 
   this.fileExplorerReadyPromise = this.fileExplorer.refresh().then(() => {
     this.fileExplorerReady = true;
+    void this.commentsOverview?.refresh?.();
     this.scheduleGitControllerPrewarm?.();
     if (this.isTabActive) {
       return this.handleHashChange();
@@ -321,6 +323,10 @@ function bindEvents() {
       return;
     }
     this.setSidebarTab('git');
+  });
+
+  this.elements.commentsSidebarTab?.addEventListener('click', () => {
+    this.setSidebarTab('comments');
   });
 
   document.addEventListener('pointerdown', (event) => {

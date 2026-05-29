@@ -9,7 +9,9 @@ import {
   isImageAttachmentFilePath,
   isMarkdownFilePath,
   isVaultFilePath,
+  supportsCommentsForFilePath,
 } from '../../../domain/file-kind.js';
+import { createCommentOverview } from '../../domain/comment-overview.js';
 import { scanWorkspaceState as scanWorkspaceStateFromAdapter } from '../../domain/workspace-state.js';
 import { getEditableVaultContentKind } from './vault-content-adapter.js';
 import {
@@ -786,6 +788,17 @@ export class VaultFileStore {
 
   async readCommentThreads(filePath) {
     return this.sidecarStore.readCommentThreads(filePath);
+  }
+
+  async readCommentOverview() {
+    const snapshot = await this.scanWorkspaceState();
+    const commentSupportedFilePaths = snapshot.filePaths.filter((filePath) => (
+      supportsCommentsForFilePath(filePath)
+    ));
+    const entries = await this.sidecarStore.listCommentThreadEntries({
+      filePaths: commentSupportedFilePaths,
+    });
+    return createCommentOverview(entries);
   }
 
   async writeCommentThreads(filePath, threads = []) {

@@ -1,7 +1,7 @@
 /**
  * @typedef {object} UiSidebarContext
  * @property {string} activeSidebarTab
- * @property {{ sidebar?: HTMLElement | null, filesSidebarTab?: HTMLElement | null, gitSidebarTab?: HTMLElement | null, fileSearch?: HTMLElement | null, gitSearch?: HTMLElement | null }} elements
+ * @property {{ sidebar?: HTMLElement | null, filesSidebarTab?: HTMLElement | null, commentsSidebarTab?: HTMLElement | null, gitSidebarTab?: HTMLElement | null, fileSearch?: HTMLElement | null, gitSearch?: HTMLElement | null, commentOverviewPanel?: HTMLElement | null }} elements
  * @property {{ setSidebarVisible(showSidebar: boolean): void, getSidebarVisible(): string | null | undefined }} preferences
  * @property {{ setActive(active: boolean): void }} gitPanel
  * @property {boolean} gitRepoAvailable
@@ -74,17 +74,26 @@ function applySidebarVisibility(showSidebar) {
 
 /** @this {UiSidebarContext} */
 function setSidebarTab(tab) {
-  const nextTab = tab === 'git' && this.gitRepoAvailable ? 'git' : 'files';
+  const nextTab = tab === 'git' && this.gitRepoAvailable
+    ? 'git'
+    : tab === 'comments'
+      ? 'comments'
+      : 'files';
   this.activeSidebarTab = nextTab;
 
   this.elements.filesSidebarTab?.classList.toggle('active', nextTab === 'files');
+  this.elements.commentsSidebarTab?.classList.toggle('active', nextTab === 'comments');
   this.elements.gitSidebarTab?.classList.toggle('active', nextTab === 'git');
   document.getElementById('fileTree')?.classList.toggle('hidden', nextTab !== 'files');
   this.elements.fileSearch?.classList.toggle('hidden', nextTab !== 'files');
+  this.elements.commentOverviewPanel?.classList.toggle('hidden', nextTab !== 'comments');
   this.elements.gitSearch?.classList.toggle('hidden', nextTab !== 'git');
   document.getElementById('gitPanel')?.classList.toggle('active', nextTab === 'git');
   document.getElementById('gitPanel')?.classList.toggle('hidden', nextTab !== 'git');
   this.gitPanel.setActive(nextTab === 'git');
+  if (nextTab === 'comments') {
+    this.refreshCommentOverviewForSidebarOpen?.();
+  }
 }
 
 export const uiFeatureSidebarMethods = {

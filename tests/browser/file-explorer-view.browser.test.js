@@ -60,6 +60,25 @@ describe('FileExplorerView mobile interactions', () => {
     expect(onFileContextMenu.mock.calls[0][1]).toEqual({ filePath: 'README.md', type: 'file' });
   });
 
+  it('renders file-level open comment counts', () => {
+    const view = createView();
+
+    view.render({
+      activeFilePath: null,
+      threadCounts: new Map([['README.md', 2]]),
+      expandedDirs: new Set(),
+      reset: true,
+      searchMatches: [],
+      searchQuery: '',
+      tree: [{ name: 'README.md', path: 'README.md', type: 'file' }],
+    });
+
+    const item = document.querySelector('.file-tree-file');
+    expect(item.classList.contains('has-comments')).toBe(true);
+    expect(item.dataset.threadCount).toBe('2');
+    expect(item.querySelector('.file-tree-comment-count').textContent).toBe('2');
+  });
+
   it('cancels a long press when the pointer moves like a scroll gesture', () => {
     vi.useFakeTimers();
     const onFileContextMenu = vi.fn();

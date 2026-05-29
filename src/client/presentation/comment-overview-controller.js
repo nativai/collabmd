@@ -1,0 +1,238 @@
+import { stripVaultFileExtension } from '../../domain/file-kind.js';
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function getPathLeaf(pathValue = '') {
+  return String(pathValue)
+    .split('/')
+    .filter(Boolean)
+    .pop() || '';
+}
+
+function getParentPath(pathValue = '') {
+  const normalized = String(pathValue ?? '').replace(/\/+$/u, '');
+  const separatorIndex = normalized.lastIndexOf('/');
+  return separatorIndex >= 0 ? normalized.slice(0, separatorIndex) : '';
+}
+
+function formatLineLabel(anchor = {}) {
+  const startLine = Number(anchor.startLine || 0);
+  const endLine = Number(anchor.endLine || startLine);
+  if (!Number.isFinite(startLine) || startLine <= 0) {
+    return 'No source anchor';
+  }
+
+  return startLine === endLine ? `Line ${startLine}` : `Lines ${startLine}-${endLine}`;
+}
+
+export class CommentOverviewController {
+  constructor({
+    panelElement,
+    toastController = null,
+    vaultApiClient,
+    onOverviewChange = null,
+    onThreadSelect = null,
+  }) {
+    this.panel = panelElement;
+    this.toastController = toastController;
+    this.vaultApiClient = vaultApiClient;
+    this.onOverviewChange = onOverviewChange;
+    this.onThreadSelect = onThreadSelect;
+    this.overview = { files: [], generatedAt: 0, totalThreadCount: 0 };
+    this.loading = false;
+    this.errorMessage = '';
+    this.refreshPromise = null;
+    this.timeFormatter = new Intl.DateTimeFormat(undefined, {
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      month: 'short',
+    });
+  }
+
+  initialize() {
+    this.render();
+  }
+
+  getThreadCounts() {
+    return new Map(
+      asArray(this.overview.files).map((file) => [file.filePath, Number(file.threadCount || 0)]),
+    );
+  }
+
+  async refresh() {
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.loading = true;
+    this.render();
+    this.refreshPromise = (async () => {
+      try {
+        const payload = await this.vaultApiClient.readCommentOverview();
+        this.errorMessage = '';
+        this.setOverview(payload?.overview ?? payload ?? {});
+      } catch (error) {
+        console.error('[comments] Failed to load comment overview:', error.message);
+        this.errorMessage = 'Unable to load open comments.';
+        this.toastController?.show?.('Failed to load comments');
+      } finally {
+        this.loading = false;
+        this.refreshPromise = null;
+        this.render();
+      }
+    })();
+
+    return this.refreshPromise;
+  }
+
+  setOverview(overview = {}) {
+    this.errorMessage = '';
+    this.overview = {
+      files: asArray(overview.files),
+      generatedAt: Number(overview.generatedAt || 0),
+      totalThreadCount: Number(overview.totalThreadCount || 0),
+    };
+    this.onOverviewChange?.(this.overview, {
+      threadCounts: this.getThreadCounts(),
+    });
+    this.render();
+  }
+
+  render() {
+    if (!this.panel) {
+      return;
+    }
+
+    this.panel.replaceChildren();
+
+    if (this.errorMessage) {
+      const error = document.createElement('div');
+      error.className = 'comment-overview-empty';
+      error.textContent = this.errorMessage;
+      this.panel.appendChild(error);
+      return;
+    }
+
+    if (this.loading && asArray(this.overview.files).length === 0) {
+      const loading = document.createElement('div');
+      loading.className = 'comment-overview-empty';
+      loading.textContent = 'Loading open comments...';
+      this.panel.appendChild(loading);
+      return;
+    }
+
+    const files = asArray(this.overview.files);
+    if (files.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'comment-overview-empty';
+      empty.textContent = 'No open comments';
+      this.panel.appendChild(empty);
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    files.forEach((file) => {
+      fragment.appendChild(this.createFileGroup(file));
+    });
+    this.panel.appendChild(fragment);
+  }
+
+  createFileGroup(file) {
+    const section = document.createElement('section');
+    section.className = 'comment-overview-file';
+
+    const header = document.createElement('div');
+    header.className = 'comment-overview-file-header';
+
+    const titleWrap = document.createElement('div');
+    titleWrap.className = 'comment-overview-file-title-wrap';
+
+    const title = document.createElement('h3');
+    title.className = 'comment-overview-file-title';
+    title.textContent = stripVaultFileExtension(getPathLeaf(file.filePath));
+
+    const parent = document.createElement('span');
+    parent.className = 'comment-overview-file-path';
+    parent.textContent = getParentPath(file.filePath) || file.filePath;
+
+    const count = document.createElement('span');
+    count.className = 'comment-overview-file-count';
+    count.textContent = String(file.threadCount || asArray(file.threads).length);
+
+    titleWrap.append(title, parent);
+    header.append(titleWrap, count);
+    section.appendChild(header);
+
+    asArray(file.threads).forEach((thread) => {
+      section.appendChild(this.createThreadButton(file.filePath, thread));
+    });
+
+    return section;
+  }
+
+  createThreadButton(filePath, thread) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'comment-overview-thread';
+    button.addEventListener('click', () => {
+      this.onThreadSelect?.({
+        anchor: thread.anchor,
+        filePath,
+        threadId: thread.id,
+      });
+    });
+
+    const header = document.createElement('div');
+    header.className = 'comment-overview-thread-header';
+
+    const line = document.createElement('span');
+    line.className = 'comment-overview-thread-line';
+    line.textContent = formatLineLabel(thread.anchor);
+
+    const meta = document.createElement('span');
+    meta.className = 'comment-overview-thread-meta';
+    meta.textContent = this.formatTimestamp(thread.latestActivityAt);
+    header.append(line, meta);
+
+    const body = document.createElement('div');
+    body.className = 'comment-overview-thread-body';
+
+    const quote = document.createElement('span');
+    quote.className = 'comment-overview-thread-quote';
+    quote.textContent = thread.anchor?.quote || 'Source anchored comment';
+
+    const preview = document.createElement('p');
+    preview.className = 'comment-overview-thread-preview';
+    preview.textContent = thread.latestMessage?.bodyPreview || '';
+    body.append(preview, quote);
+
+    const footer = document.createElement('div');
+    footer.className = 'comment-overview-thread-footer';
+    const author = document.createElement('span');
+    author.className = 'comment-overview-thread-author';
+    author.textContent = thread.latestMessage?.userName || thread.createdByName || 'Anonymous';
+    const replies = document.createElement('span');
+    replies.className = 'comment-overview-thread-message-count';
+    const messageCount = Number(thread.messageCount || 0);
+    replies.textContent = `${messageCount} message${messageCount === 1 ? '' : 's'}`;
+    footer.append(author, replies);
+
+    button.append(header, body, footer);
+    return button;
+  }
+
+  formatTimestamp(value) {
+    if (!Number.isFinite(value)) {
+      return '';
+    }
+
+    try {
+      return this.timeFormatter.format(new Date(value));
+    } catch {
+      return '';
+    }
+  }
+}

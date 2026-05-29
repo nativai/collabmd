@@ -18,6 +18,7 @@ export class FileExplorerController {
     this.toastController = toastController;
     this.vaultClient = vaultClient;
     this.state = new FileTreeState();
+    this.threadCounts = new Map();
     this.view = new FileExplorerView({
       mobileBreakpointQuery,
       onDirectorySelect: (pathValue) => {
@@ -90,6 +91,13 @@ export class FileExplorerController {
     this.renderTree();
   }
 
+  setThreadCounts(threadCounts = new Map()) {
+    this.threadCounts = threadCounts instanceof Map
+      ? new Map(threadCounts)
+      : new Map(Object.entries(threadCounts ?? {}));
+    this.renderTree();
+  }
+
   revealFile(filePath, { clearSearch = false } = {}) {
     if (clearSearch) {
       this.state.setSearchQuery('');
@@ -119,6 +127,7 @@ export class FileExplorerController {
       reset,
       searchMatches: this.state.getSearchMatches(),
       searchQuery: this.state.searchQuery,
+      threadCounts: this.threadCounts,
       tree: this.state.tree,
     });
   }

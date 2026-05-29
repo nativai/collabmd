@@ -74,6 +74,7 @@ export class WorkspaceRouteController {
     this.workspaceCoordinator = workspaceCoordinator;
     this.layoutController = layoutController;
     this.pendingTreeRevealPath = null;
+    this.preserveSidebarTabRoutePath = null;
   }
 
   async handleHashChange() {
@@ -125,7 +126,12 @@ export class WorkspaceRouteController {
       return;
     }
 
-    this.setSidebarTab('files');
+    if (this.preserveSidebarTabRoutePath === route.filePath) {
+      this.preserveSidebarTabRoutePath = null;
+    } else {
+      this.preserveSidebarTabRoutePath = null;
+      this.setSidebarTab('files');
+    }
     await this.openFile(route.filePath, { drawioMode: route.drawioMode || null });
     this.revealEditorMatch(route);
     this.requestPreviewRouteAnchor?.(route.anchor ?? null, route.filePath);
@@ -276,6 +282,10 @@ export class WorkspaceRouteController {
     if (shouldRevealInTree) {
       this.revealFileInTree(filePath, { clearSearch: true });
     }
+  }
+
+  preserveSidebarTabForNextFileRoute(filePath) {
+    this.preserveSidebarTabRoutePath = filePath || null;
   }
 
   cleanupSession() {

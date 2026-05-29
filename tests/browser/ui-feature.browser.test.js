@@ -12,8 +12,10 @@ function createSidebarContext({ gitRepoAvailable = true, mobile = false } = {}) 
   document.body.innerHTML = `
     <aside id="sidebar"></aside>
     <button id="files-tab"></button>
+    <button id="comments-tab"></button>
     <button id="git-tab"></button>
     <section id="fileTree"></section>
+    <section id="commentOverviewPanel"></section>
     <section id="gitPanel"></section>
     <div id="file-search"></div>
     <div id="git-search"></div>
@@ -24,6 +26,8 @@ function createSidebarContext({ gitRepoAvailable = true, mobile = false } = {}) 
     elements: {
       fileSearch: document.getElementById('file-search'),
       filesSidebarTab: document.getElementById('files-tab'),
+      commentsSidebarTab: document.getElementById('comments-tab'),
+      commentOverviewPanel: document.getElementById('commentOverviewPanel'),
       gitSearch: document.getElementById('git-search'),
       gitSidebarTab: document.getElementById('git-tab'),
       sidebar: document.getElementById('sidebar'),
@@ -31,6 +35,7 @@ function createSidebarContext({ gitRepoAvailable = true, mobile = false } = {}) 
     gitPanel: {
       setActive: vi.fn(),
     },
+    refreshCommentOverviewForSidebarOpen: vi.fn(),
     gitRepoAvailable,
     mobileBreakpointQuery: { matches: mobile },
     preferences: {
@@ -59,6 +64,19 @@ describe('uiFeature browser helpers', () => {
     expect(context.elements.gitSidebarTab.classList.contains('active')).toBe(true);
     expect(document.getElementById('gitPanel').classList.contains('hidden')).toBe(false);
     expect(context.gitPanel.setActive).toHaveBeenCalledWith(true);
+  });
+
+  it('switches to the comments sidebar tab and refreshes the overview', () => {
+    const context = createSidebarContext();
+
+    context.setSidebarTab('comments');
+
+    expect(context.activeSidebarTab).toBe('comments');
+    expect(context.elements.commentsSidebarTab.classList.contains('active')).toBe(true);
+    expect(document.getElementById('commentOverviewPanel').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('fileTree').classList.contains('hidden')).toBe(true);
+    expect(context.gitPanel.setActive).toHaveBeenCalledWith(false);
+    expect(context.refreshCommentOverviewForSidebarOpen).toHaveBeenCalledTimes(1);
   });
 
   it('prewarms lazy Git by refreshing repo status after the controller loads', async () => {

@@ -87,7 +87,7 @@ export const gitFeature = {
 
   handleGitRepoChange(isGitRepo, status = null) {
     this.gitRepoAvailable = Boolean(isGitRepo);
-    this.elements.sidebarTabs?.classList.toggle('hidden', !this.gitRepoAvailable);
+    this.elements.sidebarTabs?.classList.remove('hidden');
     this.elements.gitSidebarTab?.classList.toggle('hidden', !this.gitRepoAvailable);
     
     const hasChanges = isGitRepo && status?.summary?.changedFiles > 0;
