@@ -93,7 +93,7 @@ test('QuickSwitcherController keeps a bounded top-12 result set and rebuilds cor
   assert.deepEqual(controller.filteredFiles, ['archive/guide-special.md']);
 });
 
-test('QuickSwitcherController shows unavailable text search when ripgrep is missing', (t) => {
+test('QuickSwitcherController falls back to name search when ripgrep is unavailable', (t) => {
   const elements = installDocumentStub(t);
 
   const controller = new QuickSwitcherController({
@@ -112,7 +112,11 @@ test('QuickSwitcherController shows unavailable text search when ripgrep is miss
   controller.input.value = 'needle';
   controller.setMode('text', { preserveInput: true });
 
-  assert.match(controller.hint.textContent, /requires ripgrep/i);
+  // UX6: a content-search query with no ripgrep must not dead-end — it falls over to Files mode
+  // with the same query and tells the user, rather than showing a bare error.
+  assert.equal(controller.mode, 'files');
+  assert.equal(controller.contentFallbackActive, true);
+  assert.match(controller.hint.textContent, /searching names instead/i);
 });
 
 test('QuickSwitcherController preserves the query when switching search modes', (t) => {
@@ -121,8 +125,9 @@ test('QuickSwitcherController preserves the query when switching search modes', 
 
   const controller = new QuickSwitcherController({
     getFileList: () => ['README.md'],
-    getSearchConfig: () => ({ available: false, minQueryLength: 2 }),
+    getSearchConfig: () => ({ available: true, minQueryLength: 2 }),
     onFileSelect() {},
+    searchText: async () => ({ files: [] }),
   });
 
   controller.input = elements.get('quickSwitcherInput');

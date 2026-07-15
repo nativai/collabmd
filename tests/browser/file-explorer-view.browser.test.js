@@ -333,6 +333,28 @@ describe('FileExplorerView bounded search rendering', () => {
     expect(document.querySelector('.file-tree-search-summary').textContent).toBe('8 matches');
   });
 
+  it('renders a middle-truncated folder breadcrumb on search result rows', () => {
+    const view = createView();
+
+    view.render({
+      activeFilePath: null,
+      expandedDirs: new Set(),
+      reset: true,
+      searchMatches: [
+        { name: 'SKILL.md', path: 'Operating System/Skills/operating-system/SKILL.md', type: 'file' },
+        { name: 'notes.md', path: 'notes.md', type: 'file' },
+      ],
+      searchQuery: 'skill',
+      tree: [],
+    });
+
+    const rows = document.querySelectorAll('.file-tree-search-results .file-tree-file');
+    const deepCrumb = rows[0].querySelector('.file-tree-breadcrumb');
+    expect(deepCrumb.textContent).toBe('Operating System/…/operating-system');
+    // A root-level file has no containing folder — no breadcrumb.
+    expect(rows[1].querySelector('.file-tree-breadcrumb')).toBeNull();
+  });
+
   it('ranks filename matches ahead of path-only matches', () => {
     const view = createView();
 
@@ -452,6 +474,66 @@ describe('FileExplorerController search debounce', () => {
 
     expect(renderSpy).toHaveBeenCalledTimes(1);
     expect(controller.state.searchQuery).toBe('guide');
+  });
+});
+
+describe('FileExplorerController tree controls', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  function createController() {
+    document.body.innerHTML = `
+      <input id="fileSearchInput">
+      <nav id="fileTree"></nav>
+    `;
+    const controller = new FileExplorerController({
+      mobileBreakpointQuery: { matches: false },
+      onFileDelete: vi.fn(),
+      onFileSelect: vi.fn(),
+      toastController: { show: vi.fn() },
+      vaultClient: { readTree: vi.fn() },
+    });
+    controller.setTree([{
+      children: [{
+        children: [
+          { name: 'guide.md', path: 'docs/guides/guide.md', type: 'file' },
+        ],
+        name: 'guides',
+        path: 'docs/guides',
+        type: 'directory',
+      }],
+      name: 'docs',
+      path: 'docs',
+      type: 'directory',
+    }], { reset: true });
+    return controller;
+  }
+
+  it('collapses every expanded folder back to the top level', () => {
+    const controller = createController();
+    controller.state.expandDirectoryPath('docs/guides');
+    controller.renderTree({ reset: true });
+    expect(document.querySelectorAll('.file-tree-children').length).toBeGreaterThan(0);
+
+    controller.collapseAll();
+
+    expect(controller.state.expandedDirs.size).toBe(0);
+    expect(document.querySelectorAll('.file-tree-children')).toHaveLength(0);
+    expect(document.querySelectorAll('.file-tree-dir')).toHaveLength(1); // only top-level 'docs'
+  });
+
+  it('reveal-active re-expands the active file ancestors after a collapse', () => {
+    const controller = createController();
+    controller.setActiveFile('docs/guides/guide.md');
+    controller.collapseAll();
+    expect(controller.state.expandedDirs.size).toBe(0);
+
+    controller.revealActiveFile();
+
+    expect([...controller.state.expandedDirs].sort()).toEqual(['docs', 'docs/guides']);
+    expect(document.querySelector('.file-tree-file.active')?.dataset.path).toBe('docs/guides/guide.md');
   });
 });
 

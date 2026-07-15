@@ -72,7 +72,7 @@ export class QuickSwitcherTextSearchRunner {
       return;
     }
 
-    onState?.('Searching...');
+    onState?.('Searching…');
     this.timer = setTimeout(() => {
       void this.run({
         isActive,

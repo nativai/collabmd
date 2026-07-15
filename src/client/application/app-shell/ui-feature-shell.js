@@ -1,5 +1,9 @@
 import { supportsBacklinksForFilePath } from '../../../domain/file-kind.js';
-import { isPlainQuickSwitcherShortcut } from '../../domain/keyboard-shortcuts.js';
+import {
+  isInlineSearchFocusShortcut,
+  isPlainQuickSwitcherShortcut,
+  isRevealActiveFileShortcut,
+} from '../../domain/keyboard-shortcuts.js';
 import { createFileRouteHash, isCollabMdHashRoute } from '../../domain/hash-routes.js';
 
 const VERSION_RELOAD_TOAST_DURATION_MS = 0;
@@ -400,6 +404,30 @@ function handleDocumentKeydown(event) {
     event.preventDefault();
     event.stopPropagation();
     void this.toggleQuickSwitcher();
+    return;
+  }
+
+  if (isInlineSearchFocusShortcut(event)) {
+    if (this.elements.appShell?.classList?.contains('single-page')) {
+      return;
+    }
+    const searchInput = document.getElementById('fileSearchInput');
+    if (searchInput) {
+      event.preventDefault();
+      event.stopPropagation();
+      searchInput.focus();
+      searchInput.select?.();
+    }
+    return;
+  }
+
+  if (isRevealActiveFileShortcut(event)) {
+    if (this.elements.appShell?.classList?.contains('single-page')) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.fileExplorer?.revealActiveFile?.();
   }
 }
 

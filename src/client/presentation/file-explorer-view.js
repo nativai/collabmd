@@ -19,6 +19,17 @@ function getParentPath(pathValue) {
   return separatorIndex >= 0 ? normalized.slice(0, separatorIndex) : '';
 }
 
+// Breadcrumb for a search-result row (DESIGN §3.1): the containing folder path, middle-truncated
+// so both the top-level and the leaf folder stay visible ("Operating System/…/Bricks") — the
+// disambiguator when many files share a name across the vault.
+function middleTruncatePath(folderPath) {
+  const segments = String(folderPath ?? '').split('/').filter(Boolean);
+  if (segments.length <= 2) {
+    return segments.join('/');
+  }
+  return `${segments[0]}/…/${segments[segments.length - 1]}`;
+}
+
 function findNodeByPath(nodes = [], pathValue = '') {
   for (const node of nodes) {
     if (node.path === pathValue) {
@@ -143,10 +154,25 @@ export class FileExplorerView {
     });
   }
 
-  revealFile(filePath) {
+  revealFile(filePath, { center = false } = {}) {
     const fileItem = Array.from(this.treeContainer?.querySelectorAll('.file-tree-file') ?? [])
       .find((element) => element.dataset.path === filePath);
-    fileItem?.scrollIntoView({ block: 'nearest' });
+    if (!fileItem) {
+      return;
+    }
+
+    if (center && this.treeContainer) {
+      // Center the row by setting scrollTop directly — scrollIntoView can break the embedded
+      // preview iframe (DESIGN §6.1). Use rect deltas so it is robust to the offsetParent chain.
+      const container = this.treeContainer;
+      const containerRect = container.getBoundingClientRect();
+      const itemRect = fileItem.getBoundingClientRect();
+      const offsetWithinContainer = (itemRect.top - containerRect.top) + container.scrollTop;
+      container.scrollTop = offsetWithinContainer - (container.clientHeight / 2) + (itemRect.height / 2);
+      return;
+    }
+
+    fileItem.scrollIntoView({ block: 'nearest' });
   }
 
   revealDirectory(dirPath) {
@@ -309,6 +335,7 @@ export class FileExplorerView {
 
       fragment.appendChild(this.createFileItem({
         activeFilePath,
+        breadcrumbPath: getParentPath(match.path),
         depth: 0,
         filePath: match.path,
         fileType: match.type || (getVaultTreeNodeType(match.path) ?? 'file'),
@@ -535,7 +562,7 @@ export class FileExplorerView {
     });
   }
 
-  createFileItem({ activeFilePath, depth, filePath, fileType = 'file', name }) {
+  createFileItem({ activeFilePath, depth, filePath, fileType = 'file', name, breadcrumbPath = null }) {
     const button = document.createElement('button');
     button.className = 'file-tree-item file-tree-file';
     const threadCount = Number(this.threadCounts.get(filePath) ?? 0);
@@ -578,9 +605,14 @@ export class FileExplorerView {
     if (threadCount > 0) {
       button.dataset.threadCount = String(threadCount);
     }
+    const breadcrumb = breadcrumbPath ? middleTruncatePath(breadcrumbPath) : '';
+    if (breadcrumb) {
+      button.classList.add('file-tree-file-with-breadcrumb');
+    }
     button.innerHTML = `
       ${this.getFileIconSvg({ isBase, isDrawio, isExcalidraw, isImage, isMermaid, isPlantUml })}
       <span class="file-tree-name">${escapeHtml(stripVaultFileExtension(name))}</span>
+      ${breadcrumb ? `<span class="file-tree-breadcrumb" title="${escapeHtml(breadcrumbPath)}">${escapeHtml(breadcrumb)}</span>` : ''}
       ${threadCount > 0 ? `<span class="file-tree-comment-count" aria-label="${threadCount} open comment thread${threadCount === 1 ? '' : 's'}">${threadCount}</span>` : ''}
     `;
     this.configureDragSource(button, { path: filePath, type: 'file' });

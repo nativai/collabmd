@@ -73,6 +73,34 @@ export class FileExplorerController {
   initialize() {
     this.view.initialize();
     this.actionController.initialize();
+    this.bindTreeControls();
+  }
+
+  bindTreeControls() {
+    document.getElementById('revealActiveFileBtn')?.addEventListener('click', () => {
+      this.revealActiveFile();
+    });
+    document.getElementById('collapseAllBtn')?.addEventListener('click', () => {
+      this.collapseAll();
+    });
+  }
+
+  collapseAll() {
+    this.cancelSearchDebounce();
+    this.state.expandedDirs.clear();
+    this.state.setSearchQuery('');
+    this.renderTree({ reset: true });
+  }
+
+  revealActiveFile() {
+    const filePath = this.state.activeFilePath;
+    if (!filePath) {
+      return;
+    }
+
+    // setActiveFile re-expands the file's ancestor directories; clearing search returns to the
+    // tree view; centering (not scrollIntoView) avoids disturbing the preview iframe (DESIGN §6.1).
+    this.revealFile(filePath, { center: true, clearSearch: true });
   }
 
   scheduleSearch(value) {
@@ -120,7 +148,7 @@ export class FileExplorerController {
     this.renderTree();
   }
 
-  revealFile(filePath, { clearSearch = false } = {}) {
+  revealFile(filePath, { clearSearch = false, center = false } = {}) {
     if (clearSearch) {
       this.cancelSearchDebounce();
       this.state.setSearchQuery('');
@@ -128,7 +156,7 @@ export class FileExplorerController {
 
     this.state.setActiveFile(filePath);
     this.renderTree({ reset: clearSearch });
-    this.view.revealFile(filePath);
+    this.view.revealFile(filePath, { center });
   }
 
   revealDirectory(dirPath) {

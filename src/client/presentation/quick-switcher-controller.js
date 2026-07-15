@@ -66,6 +66,7 @@ export class QuickSwitcherController {
     this.selectedTextIndex = 0;
     this.isOpen = false;
     this.mode = 'files';
+    this.contentFallbackActive = false;
     this.textResults = null;
     this.textResultItems = [];
     this.textSearchRunner = new QuickSwitcherTextSearchRunner({
@@ -197,6 +198,7 @@ export class QuickSwitcherController {
   setMode(mode = 'files', { preserveInput = false } = {}) {
     const normalizedMode = mode === 'text' ? 'text' : 'files';
     this.mode = normalizedMode;
+    this.contentFallbackActive = false;
     this.selectedIndex = 0;
     this.selectedTextIndex = 0;
 
@@ -312,17 +314,29 @@ export class QuickSwitcherController {
     if (!this.resultsList) return;
     this.resultsList.innerHTML = '';
 
+    const fallbackNotice = this.contentFallbackActive
+      ? 'Content search unavailable — searching names instead'
+      : '';
+
     if (this.filteredFiles.length === 0) {
       if (this.hint) {
-        this.hint.textContent = query ? 'No files found' : 'No files in vault';
+        this.hint.textContent = fallbackNotice || (query ? 'No files found' : 'No files in vault');
         this.hint.classList.remove('hidden');
       }
       return;
     }
 
     if (this.hint) {
-      if (this.fileMatchTotal > this.filteredFiles.length) {
-        this.hint.textContent = `${this.fileMatchTotal} matches · showing top ${this.filteredFiles.length} · keep typing to narrow`;
+      let hintText = '';
+      const truncated = this.fileMatchTotal > this.filteredFiles.length;
+      if (fallbackNotice) {
+        hintText = truncated ? `${fallbackNotice} · ${this.fileMatchTotal} matches` : fallbackNotice;
+      } else if (truncated) {
+        hintText = `${this.fileMatchTotal} matches · showing top ${this.filteredFiles.length} · keep typing to narrow`;
+      }
+
+      if (hintText) {
+        this.hint.textContent = hintText;
         this.hint.classList.remove('hidden');
       } else {
         this.hint.classList.add('hidden');
@@ -395,9 +409,35 @@ export class QuickSwitcherController {
     this.textSearchRunner.abort({ invalidate });
   }
 
+  // UX6 — switch to Files (name) search with the current query when content search can't run,
+  // so the user still gets an answer instead of a bare "requires ripgrep" dead-end. Updates the
+  // chrome inline (no setMode recursion) and flags the fallback so renderResults explains it.
+  fallBackToFilesSearch() {
+    this.abortTextSearch();
+    this.contentFallbackActive = true;
+    this.mode = 'files';
+    this.selectedIndex = 0;
+    this.modeTabs.forEach((tab) => {
+      const isActive = tab.dataset.qsMode === 'files';
+      tab.classList.toggle('active', isActive);
+      tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    if (this.input) {
+      this.input.placeholder = 'Search files...';
+    }
+    this.filterFiles();
+  }
+
   scheduleTextSearch() {
     const query = this.input?.value.trim() ?? '';
     const searchConfig = this.getSearchConfig?.() ?? {};
+
+    // UX6 — content search backend unavailable: never dead-end on a bare error. Fall the query
+    // over to name search and tell the user, so they still get an answer.
+    if (query && !searchConfig.available) {
+      this.fallBackToFilesSearch();
+      return;
+    }
 
     this.textResults = null;
     this.textResultItems = [];

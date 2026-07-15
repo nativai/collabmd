@@ -155,6 +155,24 @@
   display: none;
 }
 
+.file-tree-breadcrumb {
+  flex-shrink: 1;
+  min-width: 0;
+  margin-left: auto;
+  padding-left: var(--space-2);
+  overflow: hidden;
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+
+.file-tree-file-with-breadcrumb .file-tree-name {
+  flex-shrink: 0;
+  max-width: 60%;
+}
+
 .file-tree-root-drop-zone {
   display: block;
   margin: 0 var(--space-2);

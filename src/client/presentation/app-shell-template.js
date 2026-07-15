@@ -44,6 +44,22 @@ export function appShellTemplate() {
                 <span class="sidebar-create-btn-label">Create</span>
               </button>
             </div>
+            <button class=${iconButtonClassNames()} id="revealActiveFileBtn" aria-label="Reveal active file" title="Reveal active file in tree (⌘⇧E)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="7"></circle>
+                <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"></circle>
+                <line x1="12" y1="2" x2="12" y2="5"></line>
+                <line x1="12" y1="19" x2="12" y2="22"></line>
+                <line x1="2" y1="12" x2="5" y2="12"></line>
+                <line x1="19" y1="12" x2="22" y2="12"></line>
+              </svg>
+            </button>
+            <button class=${iconButtonClassNames()} id="collapseAllBtn" aria-label="Collapse all folders" title="Collapse all folders">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="7 13 12 8 17 13"></polyline>
+                <polyline points="7 18 12 13 17 18"></polyline>
+              </svg>
+            </button>
             <button class=${iconButtonClassNames()} id="refreshFilesBtn" aria-label="Refresh" title="Refresh file list">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                 <polyline points="23 4 23 10 17 10"></polyline>
