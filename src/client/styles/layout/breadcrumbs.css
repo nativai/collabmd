@@ -95,6 +95,16 @@ button.breadcrumb-crumb.active {
   white-space: nowrap;
 }
 
+/* Opt-in clickable leaf (reusable-view consumers that pass onNavigateToFile). */
+.breadcrumb-crumb--leaf-interactive {
+  cursor: pointer;
+}
+
+button.breadcrumb-crumb--leaf-interactive:hover,
+button.breadcrumb-crumb--leaf-interactive:focus-visible {
+  background: var(--color-surface-offset);
+}
+
 .breadcrumb-crumb--overflow {
   font-weight: 600;
   letter-spacing: 0.04em;
