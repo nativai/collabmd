@@ -23,6 +23,7 @@ import { BacklinksPanel } from '../presentation/backlinks-panel.js';
 import { CommentOverviewController } from '../presentation/comment-overview-controller.js';
 import { CommentUiController } from '../presentation/comment-ui-controller.js';
 import { FileExplorerController } from '../presentation/file-explorer-controller.js';
+import { BreadcrumbBarController } from '../presentation/breadcrumb-bar-controller.js';
 import { LayoutController } from '../presentation/layout-controller.js';
 import { SidebarResizerController } from '../presentation/sidebar-resizer-controller.js';
 import { OutlineController } from '../presentation/outline-controller.js';
@@ -116,6 +117,12 @@ export class CollabMdAppShell {
       onFileSelect: (filePath) => this.features.handleFileSelection(filePath, { closeSidebarOnMobile: true }),
       pendingWorkspaceRequestIds: this.pendingWorkspaceRequestIds,
       toastController: this.toastController,
+    });
+    this.breadcrumbController = new BreadcrumbBarController({
+      container: this.elements.breadcrumbBar,
+      isEmbedMode: () => document.documentElement?.classList?.contains('single-page') ?? false,
+      onNavigateToFolder: (dirPath) => this.features.revealDirectoryInTree(dirPath),
+      onNavigateToFile: (filePath) => this.features.handleFileSelection(filePath, { revealInTree: true }),
     });
     this.commentsOverview = new CommentOverviewController({
       onOverviewChange: (_overview, { threadCounts }) => {
@@ -451,7 +458,10 @@ export class CollabMdAppShell {
   get session() { return this._session; }
   set session(value) { this._session = value; }
   get currentFilePath() { return this.stateStore.get('currentFilePath'); }
-  set currentFilePath(value) { this.stateStore.set('currentFilePath', value); }
+  set currentFilePath(value) {
+    this.stateStore.set('currentFilePath', value);
+    this.breadcrumbController?.update(value);
+  }
   get currentDrawioMode() { return this.stateStore.get('currentDrawioMode'); }
   set currentDrawioMode(value) { this.stateStore.set('currentDrawioMode', value ?? null); }
   get globalUsers() { return this.stateStore.get('globalUsers'); }

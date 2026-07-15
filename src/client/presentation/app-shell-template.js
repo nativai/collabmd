@@ -359,6 +359,7 @@ export function appShellTemplate() {
         </div>
 
         <div id="editor-page" class="editor-page hidden">
+          <nav id="breadcrumbBar" class="breadcrumb-bar hidden" aria-label="Breadcrumb"></nav>
           <div class="editor-layout" id="editorLayout" data-view="split">
             <div class="editor-pane" id="editorPane">
               <div class="pane-header">

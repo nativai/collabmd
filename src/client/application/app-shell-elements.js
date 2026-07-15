@@ -41,6 +41,7 @@ export function bindAppShellElements(doc = document) {
     exportPdfButton: doc.getElementById('exportPdfBtn'),
     markdownToolbar: doc.getElementById('markdownToolbar'),
     editorPage: doc.getElementById('editor-page'),
+    breadcrumbBar: doc.getElementById('breadcrumbBar'),
     diffPage: doc.getElementById('diff-page'),
     fileSearch: doc.getElementById('fileSearch'),
     fileHistoryButton: doc.getElementById('fileHistoryBtn'),
