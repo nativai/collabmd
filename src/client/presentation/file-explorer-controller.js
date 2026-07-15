@@ -4,6 +4,11 @@ import { FileActionController } from './file-action-controller.js';
 import { FileTreeState } from './file-tree-state.js';
 import { FileExplorerView } from './file-explorer-view.js';
 
+// Coalesce fast typing so an intermediate keystroke (each of which can match a huge
+// slice of the wisdom corpus) does not trigger a render. Aligned with the quick-switcher's
+// DEFAULT_SEARCH_DEBOUNCE_MS for consistency.
+const SEARCH_INPUT_DEBOUNCE_MS = 220;
+
 export class FileExplorerController {
   constructor({
     mobileBreakpointQuery = window.matchMedia('(max-width: 768px)'),
@@ -19,9 +24,11 @@ export class FileExplorerController {
     this.vaultClient = vaultClient;
     this.state = new FileTreeState();
     this.threadCounts = new Map();
+    this.searchDebounceTimer = 0;
     this.view = new FileExplorerView({
       mobileBreakpointQuery,
       onDirectorySelect: (pathValue) => {
+        this.cancelSearchDebounce();
         this.state.expandDirectoryPath(pathValue);
         this.state.setSearchQuery('');
         this.renderTree({ reset: true });
@@ -44,8 +51,7 @@ export class FileExplorerController {
       },
       onValidateDrop: (payload) => this.actionController.canMoveEntryByDrop(payload),
       onSearchChange: (value) => {
-        this.state.setSearchQuery(value);
-        this.renderTree();
+        this.scheduleSearch(value);
       },
       onTreeContextMenu: (event) => {
         this.view.showContextMenu(event, this.actionController.createContextMenuItems());
@@ -67,6 +73,22 @@ export class FileExplorerController {
   initialize() {
     this.view.initialize();
     this.actionController.initialize();
+  }
+
+  scheduleSearch(value) {
+    this.cancelSearchDebounce();
+    this.searchDebounceTimer = window.setTimeout(() => {
+      this.searchDebounceTimer = 0;
+      this.state.setSearchQuery(value);
+      this.renderTree();
+    }, SEARCH_INPUT_DEBOUNCE_MS);
+  }
+
+  cancelSearchDebounce() {
+    if (this.searchDebounceTimer) {
+      window.clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = 0;
+    }
   }
 
   async refresh() {
@@ -100,6 +122,7 @@ export class FileExplorerController {
 
   revealFile(filePath, { clearSearch = false } = {}) {
     if (clearSearch) {
+      this.cancelSearchDebounce();
       this.state.setSearchQuery('');
     }
 

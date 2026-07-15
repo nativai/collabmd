@@ -40,6 +40,13 @@ const MOBILE_LONG_PRESS_DELAY_MS = 420;
 const MOBILE_LONG_PRESS_MOVE_TOLERANCE_PX = 10;
 const DRAG_AUTO_EXPAND_DELAY_MS = 700;
 
+// Search-result rendering is bounded so a match set of any size (queries like "a"
+// match ~20k nodes in the wisdom corpus) never builds 100k+ DOM nodes synchronously.
+// We render an initial window and append further batches only as the user scrolls.
+const SEARCH_RESULT_INITIAL_WINDOW = 100;
+const SEARCH_RESULT_SCROLL_BATCH = 100;
+const SEARCH_RESULT_SCROLL_APPEND_THRESHOLD_PX = 280;
+
 export class FileExplorerView {
   constructor({
     mobileBreakpointQuery = window.matchMedia('(max-width: 768px)'),
@@ -79,6 +86,8 @@ export class FileExplorerView {
     this.autoExpandTargetPath = '';
     this.rootDropZone = null;
     this.threadCounts = new Map();
+    this.searchRenderContext = null;
+    this.searchSummaryElement = null;
   }
 
   initialize() {
@@ -120,6 +129,7 @@ export class FileExplorerView {
     });
     this.treeContainer?.addEventListener('scroll', () => {
       this.cancelLongPress();
+      this.maybeAppendSearchResults();
     }, { passive: true });
     this.treeContainer?.addEventListener('dragover', (event) => {
       this.handleTreeDragOver(event);
@@ -225,14 +235,49 @@ export class FileExplorerView {
     this.resetTreeIndexes();
     this.treeContainer.innerHTML = '';
     this.rootDropZone = null;
+    this.searchRenderContext = null;
+    this.searchSummaryElement = null;
+    this.treeContainer.scrollTop = 0;
 
     if (matches.length === 0) {
       this.treeContainer.innerHTML = '<div class="file-tree-empty">No matches</div>';
       return;
     }
 
+    const summary = document.createElement('div');
+    summary.className = 'file-tree-search-summary';
+    this.searchSummaryElement = summary;
+    this.treeContainer.appendChild(summary);
+
+    const resultsList = document.createElement('div');
+    resultsList.className = 'file-tree-search-results';
+    this.treeContainer.appendChild(resultsList);
+
+    this.searchRenderContext = {
+      activeFilePath,
+      matches,
+      rendered: 0,
+      resultsList,
+    };
+
+    this.appendSearchResults(SEARCH_RESULT_INITIAL_WINDOW);
+  }
+
+  appendSearchResults(count) {
+    const context = this.searchRenderContext;
+    if (!context) {
+      return;
+    }
+
+    const { activeFilePath, matches, resultsList } = context;
+    const end = Math.min(context.rendered + count, matches.length);
+    if (end <= context.rendered) {
+      return;
+    }
+
     const fragment = document.createDocumentFragment();
-    for (const match of matches) {
+    for (let index = context.rendered; index < end; index += 1) {
+      const match = matches[index];
       if (match.type === 'directory') {
         fragment.appendChild(this.createSearchDirectoryItem(match));
         continue;
@@ -246,13 +291,45 @@ export class FileExplorerView {
         name: match.name || getPathLeaf(match.path),
       }));
     }
-    this.treeContainer.appendChild(fragment);
+    resultsList.appendChild(fragment);
+    context.rendered = end;
+    this.updateSearchSummary();
+  }
+
+  updateSearchSummary() {
+    const context = this.searchRenderContext;
+    const summary = this.searchSummaryElement;
+    if (!context || !summary) {
+      return;
+    }
+
+    const total = context.matches.length;
+    const noun = total === 1 ? 'match' : 'matches';
+    summary.textContent = context.rendered >= total
+      ? `${total} ${noun}`
+      : `${total} ${noun} — showing first ${context.rendered}, scroll for more`;
+  }
+
+  maybeAppendSearchResults() {
+    const context = this.searchRenderContext;
+    if (!context || context.rendered >= context.matches.length || !this.treeContainer) {
+      return;
+    }
+
+    const remaining = this.treeContainer.scrollHeight
+      - this.treeContainer.scrollTop
+      - this.treeContainer.clientHeight;
+    if (remaining <= SEARCH_RESULT_SCROLL_APPEND_THRESHOLD_PX) {
+      this.appendSearchResults(SEARCH_RESULT_SCROLL_BATCH);
+    }
   }
 
   renderFullTree(tree, { activeFilePath, expandedDirs }) {
     this.resetTreeIndexes();
     this.treeContainer.innerHTML = '';
     this.rootDropZone = null;
+    this.searchRenderContext = null;
+    this.searchSummaryElement = null;
 
     if (tree.length === 0) {
       this.treeContainer.innerHTML = '<div class="file-tree-empty">No vault files found</div>';

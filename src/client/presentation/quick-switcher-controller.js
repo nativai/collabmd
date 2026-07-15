@@ -59,6 +59,7 @@ export class QuickSwitcherController {
     this.modeTabs = Array.from(document.querySelectorAll?.('[data-qs-mode]') ?? []);
 
     this.filteredFiles = [];
+    this.fileMatchTotal = 0;
     this.fileCorpus = [];
     this.lastFileListRef = null;
     this.selectedIndex = 0;
@@ -240,14 +241,17 @@ export class QuickSwitcherController {
       this.filteredFiles = this.fileCorpus
         .slice(0, MAX_VISIBLE_RESULTS)
         .map((entry) => entry.filePath);
+      this.fileMatchTotal = this.fileCorpus.length;
     } else {
       const ranked = [];
+      let matchTotal = 0;
       this.fileCorpus.forEach((entry) => {
         const score = this.fuzzyScore(entry, query);
         if (score <= 0) {
           return;
         }
 
+        matchTotal += 1;
         const rankedEntry = { filePath: entry.filePath, score };
         let inserted = false;
         for (let index = 0; index < ranked.length; index += 1) {
@@ -269,6 +273,7 @@ export class QuickSwitcherController {
       });
 
       this.filteredFiles = ranked.map((entry) => entry.filePath);
+      this.fileMatchTotal = matchTotal;
     }
 
     this.selectedIndex = 0;
@@ -316,7 +321,12 @@ export class QuickSwitcherController {
     }
 
     if (this.hint) {
-      this.hint.classList.add('hidden');
+      if (this.fileMatchTotal > this.filteredFiles.length) {
+        this.hint.textContent = `Showing top ${this.filteredFiles.length} of ${this.fileMatchTotal} matches — refine to narrow`;
+        this.hint.classList.remove('hidden');
+      } else {
+        this.hint.classList.add('hidden');
+      }
     }
 
     const fragment = document.createDocumentFragment();

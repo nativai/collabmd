@@ -275,6 +275,160 @@ describe('FileExplorerView drag and drop', () => {
   });
 });
 
+describe('FileExplorerView bounded search rendering', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  it('caps the rendered search result DOM regardless of match count', () => {
+    const view = createView();
+
+    const matches = Array.from({ length: 5000 }, (_, index) => ({
+      name: `file${index}.md`,
+      path: `dir/file${index}.md`,
+      type: 'file',
+    }));
+
+    view.render({
+      activeFilePath: null,
+      expandedDirs: new Set(),
+      reset: true,
+      searchMatches: matches,
+      searchQuery: 'file',
+      tree: [],
+    });
+
+    const rendered = document.querySelectorAll('.file-tree-search-results .file-tree-file');
+    expect(rendered).toHaveLength(100);
+
+    // The whole subtree stays far below the 105k nodes the unbounded render built.
+    const nodeCount = document.getElementById('fileTree').querySelectorAll('*').length;
+    expect(nodeCount).toBeLessThan(1000);
+
+    const summary = document.querySelector('.file-tree-search-summary');
+    expect(summary.textContent).toContain('5000 matches');
+    expect(summary.textContent).toContain('showing first 100');
+  });
+
+  it('shows an exact count when every match fits in the first window', () => {
+    const view = createView();
+
+    const matches = Array.from({ length: 8 }, (_, index) => ({
+      name: `note${index}.md`,
+      path: `dir/note${index}.md`,
+      type: 'file',
+    }));
+
+    view.render({
+      activeFilePath: null,
+      expandedDirs: new Set(),
+      reset: true,
+      searchMatches: matches,
+      searchQuery: 'note',
+      tree: [],
+    });
+
+    expect(document.querySelectorAll('.file-tree-search-results .file-tree-file')).toHaveLength(8);
+    expect(document.querySelector('.file-tree-search-summary').textContent).toBe('8 matches');
+  });
+
+  it('appends the next window on demand without rebuilding rendered rows', () => {
+    const view = createView();
+
+    const matches = Array.from({ length: 350 }, (_, index) => ({
+      name: `file${index}.md`,
+      path: `dir/file${index}.md`,
+      type: 'file',
+    }));
+
+    view.render({
+      activeFilePath: null,
+      expandedDirs: new Set(),
+      reset: true,
+      searchMatches: matches,
+      searchQuery: 'file',
+      tree: [],
+    });
+
+    expect(document.querySelectorAll('.file-tree-search-results .file-tree-file')).toHaveLength(100);
+
+    view.appendSearchResults(100);
+    expect(document.querySelectorAll('.file-tree-search-results .file-tree-file')).toHaveLength(200);
+    expect(document.querySelector('.file-tree-search-summary').textContent).toContain('showing first 200');
+
+    view.appendSearchResults(100);
+    view.appendSearchResults(100);
+    expect(document.querySelectorAll('.file-tree-search-results .file-tree-file')).toHaveLength(350);
+    expect(document.querySelector('.file-tree-search-summary').textContent).toBe('350 matches');
+  });
+});
+
+describe('FileExplorerController search debounce', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  function createController() {
+    document.body.innerHTML = `
+      <input id="fileSearchInput">
+      <nav id="fileTree"></nav>
+    `;
+
+    const controller = new FileExplorerController({
+      mobileBreakpointQuery: { matches: true },
+      onFileDelete: vi.fn(),
+      onFileSelect: vi.fn(),
+      toastController: { show: vi.fn() },
+      vaultClient: { readTree: vi.fn() },
+    });
+
+    controller.setTree([
+      { name: 'guide.md', path: 'docs/guide.md', type: 'file' },
+      { name: 'readme.md', path: 'docs/readme.md', type: 'file' },
+    ], { reset: true });
+
+    return controller;
+  }
+
+  it('renders search results only after the debounce interval elapses', () => {
+    vi.useFakeTimers();
+    const controller = createController();
+
+    controller.scheduleSearch('guide');
+    expect(document.querySelector('.file-tree-search-summary')).toBeNull();
+
+    vi.advanceTimersByTime(220);
+
+    expect(document.querySelector('.file-tree-search-summary')).not.toBeNull();
+    expect(document.querySelectorAll('.file-tree-search-results .file-tree-file')).toHaveLength(1);
+    expect(document.querySelector('.file-tree-search-results .file-tree-file').dataset.path)
+      .toBe('docs/guide.md');
+  });
+
+  it('coalesces rapid keystrokes into a single render of the latest query', () => {
+    vi.useFakeTimers();
+    const controller = createController();
+    const renderSpy = vi.spyOn(controller, 'renderTree');
+
+    controller.scheduleSearch('g');
+    vi.advanceTimersByTime(100);
+    controller.scheduleSearch('guide');
+    vi.advanceTimersByTime(100);
+
+    // The first keystroke's timer was cancelled — nothing rendered yet.
+    expect(renderSpy).not.toHaveBeenCalled();
+    expect(document.querySelector('.file-tree-search-summary')).toBeNull();
+
+    vi.advanceTimersByTime(120);
+
+    expect(renderSpy).toHaveBeenCalledTimes(1);
+    expect(controller.state.searchQuery).toBe('guide');
+  });
+});
+
 describe('File explorer reveal behavior', () => {
   afterEach(() => {
     vi.restoreAllMocks();
