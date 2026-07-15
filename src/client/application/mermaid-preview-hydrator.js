@@ -1,20 +1,12 @@
-import { clamp } from '../domain/vault-utils.js';
-import { setDiagramActionButtonIcon } from '../domain/diagram-action-icons.js';
 import {
   createDiagramExportFileNames,
-  downloadBlob,
-  rasterizeSvgMarkupToPngBlob,
   renderMermaidExportSvgMarkup,
-  writeBlobToClipboard,
 } from './diagram-preview-export.js';
 import { DiagramPreviewHydrator } from './diagram-preview-hydrator.js';
 import {
   createMermaidPlaceholderCard,
   createMermaidPlaceholderCardWithMessage,
-  easeOutCubic,
-  getFrameViewportSize,
   MERMAID_BATCH_SIZE,
-  MERMAID_ZOOM,
   normalizeMermaidSvg,
 } from './preview-diagram-utils.js';
 
@@ -41,137 +33,19 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     });
     this.renderer = renderer;
     this.currentTheme = document.documentElement?.dataset.theme === 'light' ? 'light' : 'dark';
+    this.diagramChrome = renderer.diagramChrome;
     this.loader = null;
     this.runtime = null;
-    this.shellRefits = new WeakMap();
-    this.shellResizeObservers = new WeakMap();
-    this.resizeObservers = new Set();
-    this.activeMaximizedShell = null;
-    this.maximizedRoot = null;
   }
 
   destroy() {
     this.cancelHydration();
     this.preservedShells.clear();
-    this.clearActiveShell();
-    this.disconnectResizeObservers();
-    this.maximizedRoot?.remove();
-    this.maximizedRoot = null;
   }
 
   cancelHydration() {
     super.cancelHydration();
-
-    const activeShell = this.syncActiveShell();
-    if (!activeShell) {
-      return;
-    }
-
-    this.restoreShellMount(activeShell);
-    activeShell.classList.remove('is-maximized');
-    this.clearActiveShell();
-    document.body.classList.remove('mermaid-maximized-open');
-  }
-
-  clearActiveShell() {
-    this.activeMaximizedShell = null;
-    if (this.maximizedRoot && this.maximizedRoot.childElementCount === 0) {
-      this.maximizedRoot.hidden = true;
-    }
-  }
-
-  disconnectResizeObservers() {
-    this.resizeObservers.forEach((observer) => observer.disconnect());
-    this.resizeObservers.clear();
-    this.shellResizeObservers = new WeakMap();
-  }
-
-  disconnectShellResizeObserver(shell) {
-    const observer = this.shellResizeObservers.get(shell);
-    if (!observer) {
-      return;
-    }
-
-    observer.disconnect();
-    this.resizeObservers.delete(observer);
-    this.shellResizeObservers.delete(shell);
-  }
-
-  attachShellResizeObserver(shell, frame, onResize) {
-    this.disconnectShellResizeObserver(shell);
-    if (typeof ResizeObserver !== 'function' || !shell?.isConnected || !(frame instanceof HTMLElement)) {
-      return;
-    }
-
-    const observer = new ResizeObserver(() => onResize());
-    observer.observe(frame);
-    observer.observe(shell);
-    this.shellResizeObservers.set(shell, observer);
-    this.resizeObservers.add(observer);
-  }
-
-  syncActiveShell() {
-    if (
-      this.activeMaximizedShell?.isConnected
-      && this.activeMaximizedShell.classList.contains('is-maximized')
-    ) {
-      return this.activeMaximizedShell;
-    }
-
-    this.clearActiveShell();
-    return null;
-  }
-
-  ensureMaximizedRoot() {
-    if (this.maximizedRoot?.isConnected && this.maximizedRoot.parentElement === document.body) {
-      return this.maximizedRoot;
-    }
-
-    let maximizedRoot = document.body.querySelector('[data-mermaid-maximized-root="true"]');
-    if (!maximizedRoot) {
-      maximizedRoot = document.createElement('div');
-      maximizedRoot.dataset.mermaidMaximizedRoot = 'true';
-      maximizedRoot.className = 'mermaid-maximized-root';
-      document.body.appendChild(maximizedRoot);
-    }
-
-    this.maximizedRoot = maximizedRoot;
-    return maximizedRoot;
-  }
-
-  mountShellInMaximizedRoot(shell) {
-    if (!shell) {
-      return;
-    }
-
-    const maximizedRoot = this.ensureMaximizedRoot();
-    maximizedRoot.hidden = false;
-    shell._mermaidRestoreParent = shell.parentElement || null;
-    shell._mermaidRestoreNextSibling = shell.nextSibling || null;
-    maximizedRoot.appendChild(shell);
-  }
-
-  restoreShellMount(shell) {
-    if (!shell) {
-      return;
-    }
-
-    const restoreParent = shell._mermaidRestoreParent;
-    const restoreNextSibling = shell._mermaidRestoreNextSibling;
-    if (restoreParent?.isConnected) {
-      if (restoreNextSibling?.parentElement === restoreParent) {
-        restoreParent.insertBefore(shell, restoreNextSibling);
-      } else {
-        restoreParent.appendChild(shell);
-      }
-    }
-
-    shell._mermaidRestoreParent = null;
-    shell._mermaidRestoreNextSibling = null;
-
-    if (this.maximizedRoot && this.maximizedRoot.childElementCount === 0) {
-      this.maximizedRoot.hidden = true;
-    }
+    this.diagramChrome?.cancelActiveShell?.('mermaid');
   }
 
   applyTheme(theme) {
@@ -250,7 +124,7 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     if (restoredMaximizedShell) {
       document.body.classList.add('mermaid-maximized-open');
     }
-    this.syncActiveShell();
+    this.diagramChrome?.syncActiveShell?.();
   }
 
   async prepareHydrationBatch() {
@@ -397,8 +271,8 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     }
 
     const hydratedShells = Array.from(previewElement.querySelectorAll('.mermaid-shell[data-mermaid-hydrated="true"]'));
-    const activeShell = this.syncActiveShell();
-    if (activeShell && !hydratedShells.includes(activeShell)) {
+    const activeShell = this.diagramChrome?.syncActiveShell?.();
+    if (activeShell?.classList?.contains('mermaid-shell') && !hydratedShells.includes(activeShell)) {
       hydratedShells.push(activeShell);
     }
     if (hydratedShells.length === 0) {
@@ -406,8 +280,7 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     }
 
     hydratedShells.forEach((shell) => {
-      this.disconnectShellResizeObserver(shell);
-      this.shellRefits.delete(shell);
+      this.diagramChrome?.destroyShell?.(shell);
       shell.removeAttribute('data-mermaid-hydrated');
       shell.querySelector(':scope > .mermaid-toolbar')?.remove();
       shell.querySelector(':scope > .mermaid-frame')?.remove();
@@ -429,82 +302,13 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     }
   }
 
-  async copyExportImage(shell, exportFileNames) {
-    try {
-      const { pngFileName } = exportFileNames();
-      const pngBlob = await rasterizeSvgMarkupToPngBlob(await this.renderExportSvgMarkup(shell));
-      try {
-        await writeBlobToClipboard(pngBlob);
-        this.renderer.toastController?.show?.('Diagram copied');
-      } catch {
-        downloadBlob(pngBlob, pngFileName);
-        this.renderer.toastController?.show?.('Clipboard image copy is unavailable here. Downloaded PNG instead.');
-      }
-    } catch {
-      this.renderer.toastController?.show?.('Failed to copy diagram');
-    }
-  }
-
-  async downloadExportSvg(shell, exportFileNames) {
-    try {
-      const { svgFileName } = exportFileNames();
-      const svgBlob = new Blob([await this.renderExportSvgMarkup(shell)], { type: 'image/svg+xml;charset=utf-8' });
-      downloadBlob(svgBlob, svgFileName);
-      this.renderer.toastController?.show?.('Diagram download started');
-    } catch {
-      this.renderer.toastController?.show?.('Failed to download diagram');
-    }
-  }
-
   enhanceDiagram(shell, renderedDiagram) {
     const svg = renderedDiagram.querySelector('svg');
     if (!svg) {
       renderedDiagram.remove();
       return;
     }
-    const toolbar = document.createElement('div');
-    toolbar.className = 'mermaid-toolbar diagram-preview-toolbar';
-    const leftGroup = document.createElement('div');
-    leftGroup.className = 'diagram-preview-toolbar-group diagram-preview-toolbar-group--zoom';
-    const rightGroup = document.createElement('div');
-    rightGroup.className = 'diagram-preview-toolbar-group diagram-preview-toolbar-group--actions';
-
-    const decreaseButton = this.createZoomButton('−', 'Zoom out');
-    const increaseButton = this.createZoomButton('+', 'Zoom in');
-    const resetButton = this.createZoomButton('', 'Reset zoom', { icon: 'fit' });
-    const copyButton = this.createZoomButton('', 'Copy image', { icon: 'copy' });
-    const downloadButton = this.createZoomButton('', 'Download SVG', { icon: 'download' });
-    const maximizeButton = this.createZoomButton('', 'Maximize diagram', { icon: 'maximize' });
-    maximizeButton.classList.add('mermaid-maximize-btn');
-    const zoomLabel = document.createElement('span');
-    zoomLabel.className = 'mermaid-zoom-label diagram-preview-zoom-label';
-    zoomLabel.setAttribute('aria-live', 'polite');
-
-    leftGroup.append(decreaseButton, zoomLabel, resetButton, increaseButton);
-    rightGroup.append(copyButton, downloadButton, maximizeButton);
-    toolbar.append(leftGroup, rightGroup);
-
-    const frame = document.createElement('div');
-    frame.className = 'mermaid-frame diagram-preview-frame';
-
     const { width: baseWidth, height: baseHeight } = normalizeMermaidSvg(svg);
-    let currentZoom = MERMAID_ZOOM.default;
-    let defaultZoom = 1;
-    let zoomAnimationFrameId = null;
-    let resetZoomFrameId = null;
-    let layoutFrameId = null;
-    let hasManualZoom = false;
-    let lastAutoFitViewportWidth = 0;
-    let isPanning = false;
-    let activePointerId = null;
-    let panStartX = 0;
-    let panStartY = 0;
-    let panStartScrollLeft = 0;
-    let panStartScrollTop = 0;
-
-    svg.style.display = 'block';
-    svg.style.margin = '0 auto';
-    svg.style.maxWidth = 'none';
 
     const exportFileNames = () => createDiagramExportFileNames({
       currentFilePath: this.renderer.getSourceFilePath?.() ?? '',
@@ -512,324 +316,22 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
       sourceLine: shell.getAttribute('data-source-line') || '',
       targetPath: shell.dataset.mermaidTarget || '',
     });
-
-    const calculateDefaultZoom = () => {
-      const viewport = getFrameViewportSize(frame);
-      if (!Number.isFinite(baseWidth) || baseWidth <= 0 || viewport.width <= 0) {
-        return MERMAID_ZOOM.default;
-      }
-
-      const fittedZoom = viewport.width / baseWidth;
-      if (!Number.isFinite(fittedZoom) || fittedZoom <= 0) {
-        return MERMAID_ZOOM.default;
-      }
-
-      return clamp(fittedZoom, MERMAID_ZOOM.min, MERMAID_ZOOM.max);
-    };
-
-    const applyZoom = (nextZoom) => {
-      currentZoom = clamp(nextZoom, MERMAID_ZOOM.min, MERMAID_ZOOM.max);
-      svg.style.width = `${baseWidth * currentZoom}px`;
-      svg.style.height = `${baseHeight * currentZoom}px`;
-
-      zoomLabel.textContent = `${Math.round(currentZoom * 100)}%`;
-
-      decreaseButton.disabled = currentZoom <= MERMAID_ZOOM.min;
-      increaseButton.disabled = currentZoom >= MERMAID_ZOOM.max;
-
-      const viewport = getFrameViewportSize(frame);
-      const isPannable = (baseWidth * currentZoom) > viewport.width || (baseHeight * currentZoom) > viewport.height;
-      frame.classList.toggle('is-pannable', isPannable);
-      svg.style.margin = isPannable ? '0' : '0 auto';
-    };
-
-    const getViewportCenter = () => ({
-      x: frame.scrollLeft + (frame.clientWidth / 2),
-      y: frame.scrollTop + (frame.clientHeight / 2),
-    });
-
-    const restoreViewportCenter = (previousZoom, nextZoom, center) => {
-      if (previousZoom === 0) {
-        return;
-      }
-
-      const scale = nextZoom / previousZoom;
-      frame.scrollLeft = (center.x * scale) - (frame.clientWidth / 2);
-      frame.scrollTop = (center.y * scale) - (frame.clientHeight / 2);
-    };
-
-    const animateZoomTo = (nextZoom) => {
-      const targetZoom = clamp(nextZoom, MERMAID_ZOOM.min, MERMAID_ZOOM.max);
-      const startZoom = currentZoom;
-
-      if (targetZoom === startZoom) {
-        return;
-      }
-
-      const center = getViewportCenter();
-      const startedAt = performance.now();
-
-      if (zoomAnimationFrameId) {
-        cancelAnimationFrame(zoomAnimationFrameId);
-      }
-
-      const tick = (now) => {
-        const progress = clamp((now - startedAt) / MERMAID_ZOOM.animationDurationMs, 0, 1);
-        const easedProgress = easeOutCubic(progress);
-        const animatedZoom = startZoom + ((targetZoom - startZoom) * easedProgress);
-
-        applyZoom(animatedZoom);
-        restoreViewportCenter(startZoom, animatedZoom, center);
-
-        if (progress < 1) {
-          zoomAnimationFrameId = requestAnimationFrame(tick);
-          return;
-        }
-
-        zoomAnimationFrameId = null;
-        applyZoom(targetZoom);
-        restoreViewportCenter(startZoom, targetZoom, center);
-      };
-
-      zoomAnimationFrameId = requestAnimationFrame(tick);
-    };
-
-    const zoomBy = (delta) => {
-      hasManualZoom = true;
-      animateZoomTo(currentZoom + delta);
-    };
-
-    const resetZoomToFit = ({ animate = false } = {}) => {
-      defaultZoom = calculateDefaultZoom();
-      hasManualZoom = false;
-      lastAutoFitViewportWidth = getFrameViewportSize(frame).width;
-
-      if (animate && Math.abs(defaultZoom - currentZoom) > 0.001) {
-        animateZoomTo(defaultZoom);
-        return;
-      }
-
-      if (zoomAnimationFrameId) {
-        cancelAnimationFrame(zoomAnimationFrameId);
-        zoomAnimationFrameId = null;
-      }
-
-      applyZoom(defaultZoom);
-      frame.scrollLeft = 0;
-      frame.scrollTop = 0;
-    };
-
-    const scheduleResetZoomToFit = ({ force = false } = {}) => {
-      if (resetZoomFrameId) {
-        cancelAnimationFrame(resetZoomFrameId);
-      }
-      if (layoutFrameId) {
-        cancelAnimationFrame(layoutFrameId);
-      }
-
-      resetZoomFrameId = requestAnimationFrame(() => {
-        layoutFrameId = requestAnimationFrame(() => {
-          layoutFrameId = requestAnimationFrame(() => {
-            layoutFrameId = null;
-            resetZoomFrameId = null;
-            if (!shell.isConnected) {
-              return;
-            }
-
-            const viewportWidth = getFrameViewportSize(frame).width;
-            const viewportChanged = Math.abs(viewportWidth - lastAutoFitViewportWidth) > 1;
-            if (!force && hasManualZoom) {
-              return;
-            }
-            if (!force && viewportWidth > 0 && lastAutoFitViewportWidth > 0 && !viewportChanged) {
-              return;
-            }
-
-            resetZoomToFit();
-          });
-        });
-      });
-    };
-
-    this.shellRefits.set(shell, scheduleResetZoomToFit);
-    this.attachShellResizeObserver(shell, frame, () => scheduleResetZoomToFit());
-
-    decreaseButton.addEventListener('click', () => zoomBy(-MERMAID_ZOOM.step));
-    increaseButton.addEventListener('click', () => zoomBy(MERMAID_ZOOM.step));
-    resetButton.addEventListener('click', () => {
-      scheduleResetZoomToFit({ force: true });
-    });
-    copyButton.addEventListener('click', () => this.copyExportImage(shell, exportFileNames));
-    downloadButton.addEventListener('click', () => this.downloadExportSvg(shell, exportFileNames));
-
-    const syncMaximizeButtonState = () => {
-      const isMaximized = shell.classList.contains('is-maximized');
-      setDiagramActionButtonIcon(maximizeButton, isMaximized ? 'restore' : 'maximize');
-      const label = isMaximized ? 'Restore diagram size' : 'Maximize diagram';
-      maximizeButton.setAttribute('aria-label', label);
-      maximizeButton.title = label;
-    };
-
-    const setMaximizedState = (shouldMaximize) => {
-      if (shouldMaximize) {
-        const activeContainer = this.syncActiveShell();
-        if (activeContainer && activeContainer !== shell) {
-          this.restoreShellMount(activeContainer);
-          activeContainer.classList.remove('is-maximized');
-          if (this.activeMaximizedShell === activeContainer) {
-            this.clearActiveShell();
-          }
-          this.shellRefits.get(activeContainer)?.();
-          const activeButton = activeContainer.querySelector('.mermaid-maximize-btn');
-          if (activeButton) {
-            setDiagramActionButtonIcon(activeButton, 'maximize');
-            activeButton.setAttribute('aria-label', 'Maximize diagram');
-            activeButton.title = 'Maximize diagram';
-          }
-        }
-        this.mountShellInMaximizedRoot(shell);
-        shell.classList.add('is-maximized');
-        this.activeMaximizedShell = shell;
-        document.body.classList.add('mermaid-maximized-open');
-        syncMaximizeButtonState();
-        scheduleResetZoomToFit({ force: true });
-        return;
-      }
-
-      this.restoreShellMount(shell);
-      shell.classList.remove('is-maximized');
-      if (this.activeMaximizedShell === shell) {
-        this.clearActiveShell();
-      }
-      if (!this.syncActiveShell()) {
-        document.body.classList.remove('mermaid-maximized-open');
-      }
-      syncMaximizeButtonState();
-      scheduleResetZoomToFit({ force: true });
-    };
-
-    syncMaximizeButtonState();
-    maximizeButton.addEventListener('click', () => {
-      setMaximizedState(!shell.classList.contains('is-maximized'));
-    });
-
-    const stopPanning = () => {
-      if (!isPanning) {
-        return;
-      }
-
-      isPanning = false;
-      frame.classList.remove('is-dragging');
-      window.removeEventListener('pointerup', stopPanning, true);
-      window.removeEventListener('pointercancel', stopPanning, true);
-      window.removeEventListener('mouseup', stopPanning, true);
-      window.removeEventListener('touchend', stopPanning, true);
-      window.removeEventListener('touchcancel', stopPanning, true);
-      window.removeEventListener('blur', stopPanning, true);
-
-      if (activePointerId !== null && typeof frame.releasePointerCapture === 'function') {
-        try {
-          frame.releasePointerCapture(activePointerId);
-        } catch {
-          // Ignore capture release issues during drag end.
-        }
-      }
-
-      activePointerId = null;
-    };
-
-    frame.addEventListener('pointerdown', (event) => {
-      if (event.button !== 0 || !frame.classList.contains('is-pannable')) {
-        return;
-      }
-
-      if (zoomAnimationFrameId) {
-        cancelAnimationFrame(zoomAnimationFrameId);
-        zoomAnimationFrameId = null;
-      }
-
-      isPanning = true;
-      activePointerId = event.pointerId;
-      panStartX = event.clientX;
-      panStartY = event.clientY;
-      panStartScrollLeft = frame.scrollLeft;
-      panStartScrollTop = frame.scrollTop;
-
-      frame.classList.add('is-dragging');
-      window.addEventListener('pointerup', stopPanning, true);
-      window.addEventListener('pointercancel', stopPanning, true);
-      window.addEventListener('mouseup', stopPanning, true);
-      window.addEventListener('touchend', stopPanning, true);
-      window.addEventListener('touchcancel', stopPanning, true);
-      window.addEventListener('blur', stopPanning, true);
-      if (typeof frame.setPointerCapture === 'function') {
-        try {
-          frame.setPointerCapture(event.pointerId);
-        } catch {
-          // Safari can reject pointer capture during rapid layout transitions.
-        }
-      }
-      event.preventDefault();
-    });
-
-    frame.addEventListener('pointermove', (event) => {
-      if (!isPanning) {
-        return;
-      }
-
-      frame.scrollLeft = panStartScrollLeft - (event.clientX - panStartX);
-      frame.scrollTop = panStartScrollTop - (event.clientY - panStartY);
-    });
-
-    frame.addEventListener('pointerup', stopPanning);
-    frame.addEventListener('pointercancel', stopPanning);
-    frame.addEventListener('lostpointercapture', stopPanning);
-    frame.addEventListener('mouseleave', stopPanning);
-    frame.addEventListener('mouseup', stopPanning);
-    frame.addEventListener('touchend', stopPanning);
-    frame.addEventListener('touchcancel', stopPanning);
-
-    frame.appendChild(svg);
-    const sourceNode = shell.querySelector('.mermaid-source');
     renderedDiagram.remove();
-    shell.replaceChildren();
-    if (sourceNode) {
-      sourceNode.hidden = true;
-      shell.appendChild(sourceNode);
-    }
-    shell.append(toolbar, frame);
-
-    scheduleResetZoomToFit({ force: true });
+    this.diagramChrome.mount(shell, {
+      baseHeight,
+      baseWidth,
+      diagramElement: svg,
+      exportFileNames,
+      exportSvgMarkup: () => this.renderExportSvgMarkup(shell),
+      kind: 'mermaid',
+      sourceSelector: '.mermaid-source',
+    });
   }
 
   scheduleActiveRefit() {
-    const activeShell = this.syncActiveShell();
-    if (activeShell) {
-      this.shellRefits.get(activeShell)?.();
-      return;
-    }
-
-    const previewElement = this.renderer.previewElement;
-    if (!previewElement) {
-      return;
-    }
-
-    Array.from(previewElement.querySelectorAll('.mermaid-shell[data-mermaid-hydrated="true"]')).forEach((shell) => {
-      this.shellRefits.get(shell)?.();
+    this.diagramChrome?.scheduleActiveRefit?.({
+      kind: 'mermaid',
+      root: this.renderer.previewElement,
     });
-  }
-
-  createZoomButton(label, ariaLabel, { icon = '' } = {}) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'mermaid-zoom-btn ui-preview-action';
-    button.setAttribute('aria-label', ariaLabel);
-    button.title = ariaLabel;
-    if (icon) {
-      setDiagramActionButtonIcon(button, icon);
-    } else {
-      button.textContent = label;
-    }
-    return button;
   }
 }

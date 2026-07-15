@@ -7,7 +7,7 @@ import {
   isPlantUmlFilePath,
 } from '../../../domain/file-kind.js';
 
-export class VaultContentAdapter {
+export class EditableVaultContentKind {
   constructor({
     invalidPathError,
     kind,
@@ -24,38 +24,38 @@ export class VaultContentAdapter {
 }
 
 const adapters = [
-  new VaultContentAdapter({
+  new EditableVaultContentKind({
     invalidPathError: 'Invalid file path',
     kind: 'markdown',
     matches: isMarkdownFilePath,
   }),
-  new VaultContentAdapter({
+  new EditableVaultContentKind({
     invalidPathError: 'Invalid file path — must end in .base',
     kind: 'base',
     matches: isBaseFilePath,
   }),
-  new VaultContentAdapter({
+  new EditableVaultContentKind({
     invalidPathError: 'Invalid file path — must end in .excalidraw',
     kind: 'excalidraw',
     matches: isExcalidrawFilePath,
   }),
-  new VaultContentAdapter({
+  new EditableVaultContentKind({
     invalidPathError: 'Invalid file path — must end in .drawio',
     kind: 'drawio',
     matches: isDrawioFilePath,
   }),
-  new VaultContentAdapter({
+  new EditableVaultContentKind({
     invalidPathError: 'Invalid file path — must end in .mmd or .mermaid',
     kind: 'mermaid',
     matches: isMermaidFilePath,
   }),
-  new VaultContentAdapter({
+  new EditableVaultContentKind({
     invalidPathError: 'Invalid file path — must end in .puml or .plantuml',
     kind: 'plantuml',
     matches: isPlantUmlFilePath,
   }),
 ];
 
-export function getVaultContentAdapter(filePath) {
+export function getEditableVaultContentKind(filePath) {
   return adapters.find((adapter) => adapter.supports(filePath)) ?? null;
 }

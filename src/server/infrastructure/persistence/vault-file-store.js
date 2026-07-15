@@ -9,9 +9,11 @@ import {
   isImageAttachmentFilePath,
   isMarkdownFilePath,
   isVaultFilePath,
+  supportsCommentsForFilePath,
 } from '../../../domain/file-kind.js';
-import { mapWithConcurrency } from '../../shared/async-utils.js';
-import { getVaultContentAdapter } from './vault-content-adapter.js';
+import { createCommentOverview } from '../../domain/comment-overview.js';
+import { scanWorkspaceState as scanWorkspaceStateFromAdapter } from '../../domain/workspace-state.js';
+import { getEditableVaultContentKind } from './vault-content-adapter.js';
 import {
   INVALID_VAULT_FILE_PATH_ERROR,
   isIgnoredVaultEntry,
@@ -23,6 +25,7 @@ import {
   toVaultRelativePath,
 } from './path-utils.js';
 import { SidecarStore } from './sidecar-store.js';
+import { createWorkspaceStateFileSystemAdapter } from '../workspace/workspace-state-file-system-adapter.js';
 
 const IMAGE_EXTENSION_TO_MIME_TYPE = Object.freeze({
   '.gif': 'image/gif',
@@ -51,7 +54,6 @@ const TEXT_FILE_MIME_TYPES = Object.freeze({
   mermaid: 'text/plain; charset=utf-8',
   plantuml: 'text/plain; charset=utf-8',
 });
-const WORKSPACE_SCAN_CONCURRENCY = 8;
 
 function createTransactionalPath(targetPath, label) {
   return `${targetPath}.collabmd-${label}-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
@@ -75,30 +77,6 @@ async function pathExists(pathValue) {
 
     throw error;
   }
-}
-
-function createWorkspaceEntry(relativePath, type) {
-  return {
-    fileKind: type === 'directory' ? null : getVaultTreeNodeType(relativePath),
-    name: basename(relativePath),
-    nodeType: type,
-    parentPath: dirname(relativePath).replace(/\\/g, '/') === '.'
-      ? ''
-      : dirname(relativePath).replace(/\\/g, '/'),
-    path: relativePath,
-    type: type === 'directory' ? 'directory' : getVaultTreeNodeType(relativePath),
-  };
-}
-
-function createWorkspaceMetadata(pathValue, type, info) {
-  return {
-    ctimeMs: Number(info.ctimeMs || 0),
-    inode: Number(info.ino || 0),
-    mtimeMs: Number(info.mtimeMs || 0),
-    path: pathValue,
-    size: type === 'directory' ? 0 : Number(info.size || 0),
-    type,
-  };
 }
 
 function replacePathPrefix(pathValue, oldPrefix, newPrefix) {
@@ -390,7 +368,7 @@ export class VaultFileStore {
       return null;
     }
 
-    const adapter = getVaultContentAdapter(absolute);
+    const adapter = getEditableVaultContentKind(filePath);
     if (!adapter) {
       return null;
     }
@@ -415,15 +393,24 @@ export class VaultFileStore {
     }
   }
 
-  async writeContentFile(filePath, content, expectedKind, { invalidateCollaborationSnapshot = true } = {}) {
+  async readEditableVaultContent(filePath) {
     const resolved = this.resolveAdapter(filePath);
-    if (!resolved || resolved.adapter.kind !== expectedKind) {
-      return {
-        ok: false,
-        error: resolved?.adapter?.invalidPathError ?? getVaultContentAdapter(filePath)?.invalidPathError ?? INVALID_VAULT_FILE_PATH_ERROR,
-      };
+    if (!resolved) {
+      return null;
     }
 
+    try {
+      return await readFile(resolved.absolute, 'utf-8');
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
+  async writeResolvedContentFile(resolved, filePath, content, { invalidateCollaborationSnapshot = true } = {}) {
     try {
       await this.runManagedWrite([filePath], async () => {
         await mkdir(dirname(resolved.absolute), { recursive: true });
@@ -436,6 +423,30 @@ export class VaultFileStore {
     } catch (error) {
       return { ok: false, error: error.message };
     }
+  }
+
+  async writeContentFile(filePath, content, expectedKind, { invalidateCollaborationSnapshot = true } = {}) {
+    const resolved = this.resolveAdapter(filePath);
+    if (!resolved || resolved.adapter.kind !== expectedKind) {
+      return {
+        ok: false,
+        error: resolved?.adapter?.invalidPathError ?? getEditableVaultContentKind(filePath)?.invalidPathError ?? INVALID_VAULT_FILE_PATH_ERROR,
+      };
+    }
+
+    return this.writeResolvedContentFile(resolved, filePath, content, { invalidateCollaborationSnapshot });
+  }
+
+  async writeEditableVaultContent(filePath, content, { invalidateCollaborationSnapshot = true } = {}) {
+    const resolved = this.resolveAdapter(filePath);
+    if (!resolved) {
+      return {
+        ok: false,
+        error: getEditableVaultContentKind(filePath)?.invalidPathError ?? INVALID_VAULT_FILE_PATH_ERROR,
+      };
+    }
+
+    return this.writeResolvedContentFile(resolved, filePath, content, { invalidateCollaborationSnapshot });
   }
 
   async readMarkdownFile(filePath) {
@@ -675,13 +686,14 @@ export class VaultFileStore {
   async persistCollaborationState(filePath, {
     commentThreads = [],
     content = '',
+    includeContent = true,
     snapshot = null,
   } = {}) {
     const resolved = this.resolveAdapter(filePath);
     if (!resolved) {
       return {
         ok: false,
-        error: getVaultContentAdapter(filePath)?.invalidPathError ?? INVALID_VAULT_FILE_PATH_ERROR,
+        error: getEditableVaultContentKind(filePath)?.invalidPathError ?? INVALID_VAULT_FILE_PATH_ERROR,
       };
     }
 
@@ -697,13 +709,13 @@ export class VaultFileStore {
         targetPath: this.sidecarStore.getSnapshotPath(filePath),
         value: snapshot ? Buffer.from(snapshot) : null,
       },
-      {
+      includeContent ? {
         kind: 'write',
         targetPath: resolved.absolute,
         value: content,
         writeOptions: 'utf-8',
-      },
-    ].filter((operation) => operation.targetPath);
+      } : null,
+    ].filter((operation) => operation?.targetPath);
 
     const stagedWrites = [];
     const committedOperations = [];
@@ -776,6 +788,17 @@ export class VaultFileStore {
 
   async readCommentThreads(filePath) {
     return this.sidecarStore.readCommentThreads(filePath);
+  }
+
+  async readCommentOverview() {
+    const snapshot = await this.scanWorkspaceState();
+    const commentSupportedFilePaths = snapshot.filePaths.filter((filePath) => (
+      supportsCommentsForFilePath(filePath)
+    ));
+    const entries = await this.sidecarStore.listCommentThreadEntries({
+      filePaths: commentSupportedFilePaths,
+    });
+    return createCommentOverview(entries);
   }
 
   async writeCommentThreads(filePath, threads = []) {
@@ -1203,102 +1226,8 @@ export class VaultFileStore {
   }
 
   async scanWorkspaceState() {
-    const entries = new Map();
-    const filePaths = [];
-    const metadata = new Map();
-    const markdownPaths = [];
-    let vaultFileCount = 0;
-
-    const visitDirectory = async (dirPath) => {
-      let dirEntries;
-      try {
-        dirEntries = await readdir(dirPath, { withFileTypes: true });
-      } catch {
-        return;
-      }
-
-      const sorted = sortDirectoryEntries(dirEntries);
-
-      await mapWithConcurrency(sorted, WORKSPACE_SCAN_CONCURRENCY, async (entry) => {
-        if (isIgnoredVaultEntry(entry.name)) {
-          return;
-        }
-
-        const fullPath = join(dirPath, entry.name);
-        const relativePath = toVaultRelativePath(this.vaultDir, fullPath).replace(/\\/g, '/');
-        const direntKind = entry.isDirectory()
-          ? 'directory'
-          : (entry.isFile() ? 'file' : null);
-
-        if (direntKind === 'directory') {
-          entries.set(relativePath, createWorkspaceEntry(relativePath, 'directory'));
-          try {
-            const info = await stat(fullPath);
-            metadata.set(relativePath, createWorkspaceMetadata(relativePath, 'directory', info));
-          } catch {
-            // Ignore transient directories that disappear during scans.
-          }
-          await visitDirectory(fullPath);
-          return;
-        }
-
-        if (direntKind === 'file') {
-          if (!isVaultFilePath(entry.name)) {
-            return;
-          }
-
-          entries.set(relativePath, createWorkspaceEntry(relativePath, 'file'));
-          filePaths.push(relativePath);
-          vaultFileCount += 1;
-          if (isMarkdownFilePath(relativePath)) {
-            markdownPaths.push(relativePath);
-          }
-          try {
-            const info = await stat(fullPath);
-            metadata.set(relativePath, createWorkspaceMetadata(relativePath, 'file', info));
-          } catch {
-            // Ignore transient files that disappear during scans.
-          }
-          return;
-        }
-
-        try {
-          const info = await stat(fullPath);
-          if (info.isDirectory()) {
-            entries.set(relativePath, createWorkspaceEntry(relativePath, 'directory'));
-            metadata.set(relativePath, createWorkspaceMetadata(relativePath, 'directory', info));
-            await visitDirectory(fullPath);
-            return;
-          }
-
-          if (!info.isFile() || !isVaultFilePath(entry.name)) {
-            return;
-          }
-
-          entries.set(relativePath, createWorkspaceEntry(relativePath, 'file'));
-          metadata.set(relativePath, createWorkspaceMetadata(relativePath, 'file', info));
-          filePaths.push(relativePath);
-          vaultFileCount += 1;
-          if (isMarkdownFilePath(relativePath)) {
-            markdownPaths.push(relativePath);
-          }
-        } catch {
-          // Ignore transient entries that disappear during scans.
-        }
-      });
-    };
-
-    await visitDirectory(this.vaultDir);
-    filePaths.sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
-    markdownPaths.sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
-
-    return {
-      entries,
-      filePaths,
-      metadata,
-      markdownPaths,
-      scannedAt: Date.now(),
-      vaultFileCount,
-    };
+    return scanWorkspaceStateFromAdapter(createWorkspaceStateFileSystemAdapter({
+      vaultDir: this.vaultDir,
+    }));
   }
 }

@@ -7,6 +7,7 @@ async function readRequestBuffer(req, maxBytes = REQUEST_BODY_LIMIT_BYTES) {
     const chunks = [];
     let size = 0;
     let done = false;
+    let limitError = null;
 
     const finish = (callback, value) => {
       if (done) {
@@ -21,10 +22,14 @@ async function readRequestBuffer(req, maxBytes = REQUEST_BODY_LIMIT_BYTES) {
     };
 
     const onData = (chunk) => {
+      if (limitError) {
+        return;
+      }
+
       size += chunk.length;
       if (size > maxBytes) {
-        req.resume();
-        finish(reject, createRequestError(413, 'Request body too large'));
+        chunks.length = 0;
+        limitError = createRequestError(413, 'Request body too large');
         return;
       }
 
@@ -32,6 +37,11 @@ async function readRequestBuffer(req, maxBytes = REQUEST_BODY_LIMIT_BYTES) {
     };
 
     const onEnd = () => {
+      if (limitError) {
+        finish(reject, limitError);
+        return;
+      }
+
       finish(resolve, Buffer.concat(chunks));
     };
 

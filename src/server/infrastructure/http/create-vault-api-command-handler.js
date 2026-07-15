@@ -1,11 +1,3 @@
-import {
-  isBaseFilePath,
-  isDrawioFilePath,
-  isExcalidrawFilePath,
-  isMermaidFilePath,
-  isPlantUmlFilePath,
-} from '../../../domain/file-kind.js';
-import { createWorkspaceChange } from '../../../domain/workspace-change.js';
 import { basename } from 'node:path';
 import { createRequestError, getRequestErrorStatusCode } from './http-errors.js';
 import { jsonResponse, sendResponse } from './http-response.js';
@@ -49,30 +41,6 @@ function decodeHeaderMetadata(value) {
   } catch {
     throw createRequestError(400, 'Invalid attachment metadata header encoding');
   }
-}
-
-function selectWriteOperation(vaultFileStore, filePath, content) {
-  if (isExcalidrawFilePath(filePath)) {
-    return vaultFileStore.writeExcalidrawFile(filePath, content);
-  }
-
-  if (isBaseFilePath(filePath)) {
-    return vaultFileStore.writeBaseFile(filePath, content);
-  }
-
-  if (isDrawioFilePath(filePath)) {
-    return vaultFileStore.writeDrawioFile(filePath, content);
-  }
-
-  if (isMermaidFilePath(filePath)) {
-    return vaultFileStore.writeMermaidFile(filePath, content);
-  }
-
-  if (isPlantUmlFilePath(filePath)) {
-    return vaultFileStore.writePlantUmlFile(filePath, content);
-  }
-
-  return vaultFileStore.writeMarkdownFile(filePath, content);
 }
 
 function readRequestId(req) {
@@ -125,7 +93,7 @@ async function handleExportDocx({ docxExporter }, req, res) {
   return true;
 }
 
-async function handleWriteFile({ vaultFileStore, workspaceMutationCoordinator }, req, res) {
+async function handleWriteFile({ workspaceMutationCoordinator }, req, res) {
   try {
     const body = await parseJsonBody(req);
     if (!body.path || typeof body.content !== 'string') {
@@ -133,20 +101,15 @@ async function handleWriteFile({ vaultFileStore, workspaceMutationCoordinator },
       return true;
     }
 
-    const result = await selectWriteOperation(vaultFileStore, body.path, body.content);
+    const result = await workspaceMutationCoordinator.writeEditableContent({
+      content: body.content,
+      path: body.path,
+      requestId: readRequestId(req),
+    });
     if (!result.ok) {
       jsonResponse(req, res, 400, { error: result.error });
       return true;
     }
-
-    await workspaceMutationCoordinator?.apply?.({
-      action: 'write-file',
-      origin: 'api',
-      requestId: readRequestId(req),
-      workspaceChange: createWorkspaceChange({
-        changedPaths: [body.path],
-      }),
-    });
 
     jsonResponse(req, res, 200, { ok: true });
   } catch (error) {
@@ -155,7 +118,7 @@ async function handleWriteFile({ vaultFileStore, workspaceMutationCoordinator },
   return true;
 }
 
-async function handleUploadAttachment({ vaultFileStore, workspaceMutationCoordinator }, req, res) {
+async function handleUploadAttachment({ workspaceMutationCoordinator }, req, res) {
   try {
     const sourceDocumentPath = decodeHeaderMetadata(req.headers['x-collabmd-source-path']);
     const originalFileName = decodeHeaderMetadata(req.headers['x-collabmd-file-name']);
@@ -167,24 +130,17 @@ async function handleUploadAttachment({ vaultFileStore, workspaceMutationCoordin
     }
 
     const content = await readBinaryRequestBody(req);
-    const result = await vaultFileStore.writeImageAttachmentForDocument(sourceDocumentPath, {
+    const result = await workspaceMutationCoordinator.uploadAttachment({
       content,
       mimeType,
       originalFileName,
+      requestId: readRequestId(req),
+      sourceDocumentPath,
     });
     if (!result.ok) {
       jsonResponse(req, res, 400, { error: result.error });
       return true;
     }
-
-    await workspaceMutationCoordinator?.apply?.({
-      action: 'upload-attachment',
-      origin: 'api',
-      requestId: readRequestId(req),
-      workspaceChange: createWorkspaceChange({
-        changedPaths: [result.path],
-      }),
-    });
 
     jsonResponse(req, res, 201, {
       markdown: result.markdownSnippet,
@@ -197,7 +153,7 @@ async function handleUploadAttachment({ vaultFileStore, workspaceMutationCoordin
   return true;
 }
 
-async function handleCreateFile({ vaultFileStore, workspaceMutationCoordinator }, req, res) {
+async function handleCreateFile({ workspaceMutationCoordinator }, req, res) {
   try {
     const body = await parseJsonBody(req);
     if (!body.path) {
@@ -205,19 +161,15 @@ async function handleCreateFile({ vaultFileStore, workspaceMutationCoordinator }
       return true;
     }
 
-    const result = await vaultFileStore.createFile(body.path, body.content || '');
+    const result = await workspaceMutationCoordinator.createFile({
+      content: body.content || '',
+      path: body.path,
+      requestId: readRequestId(req),
+    });
     if (!result.ok) {
       jsonResponse(req, res, 409, { error: result.error });
       return true;
     }
-    await workspaceMutationCoordinator?.apply?.({
-      action: 'create-file',
-      origin: 'api',
-      requestId: readRequestId(req),
-      workspaceChange: createWorkspaceChange({
-        changedPaths: [body.path],
-      }),
-    });
     jsonResponse(req, res, 201, { ok: true, path: body.path });
   } catch (error) {
     handleVaultError(req, res, error, '[api] Failed to create file:', 'Failed to create file');
@@ -225,7 +177,7 @@ async function handleCreateFile({ vaultFileStore, workspaceMutationCoordinator }
   return true;
 }
 
-async function handleDeleteFile({ vaultFileStore, workspaceMutationCoordinator }, req, res, requestUrl) {
+async function handleDeleteFile({ workspaceMutationCoordinator }, req, res, requestUrl) {
   const filePath = requestUrl.searchParams.get('path');
   if (!filePath) {
     jsonResponse(req, res, 400, { error: 'Missing path parameter' });
@@ -233,19 +185,14 @@ async function handleDeleteFile({ vaultFileStore, workspaceMutationCoordinator }
   }
 
   try {
-    const result = await vaultFileStore.deleteFile(filePath);
+    const result = await workspaceMutationCoordinator.deleteFile({
+      path: filePath,
+      requestId: readRequestId(req),
+    });
     if (!result.ok) {
       jsonResponse(req, res, 400, { error: result.error });
       return true;
     }
-    await workspaceMutationCoordinator?.apply?.({
-      action: 'delete-file',
-      origin: 'api',
-      requestId: readRequestId(req),
-      workspaceChange: createWorkspaceChange({
-        deletedPaths: [filePath],
-      }),
-    });
     jsonResponse(req, res, 200, { ok: true });
   } catch (error) {
     console.error('[api] Failed to delete file:', error.message);
@@ -254,7 +201,7 @@ async function handleDeleteFile({ vaultFileStore, workspaceMutationCoordinator }
   return true;
 }
 
-async function handleRenameFile({ vaultFileStore, workspaceMutationCoordinator }, req, res) {
+async function handleRenameFile({ workspaceMutationCoordinator }, req, res) {
   try {
     const body = await parseJsonBody(req);
     if (!body.oldPath || !body.newPath) {
@@ -262,19 +209,15 @@ async function handleRenameFile({ vaultFileStore, workspaceMutationCoordinator }
       return true;
     }
 
-    const result = await vaultFileStore.renameFile(body.oldPath, body.newPath);
+    const result = await workspaceMutationCoordinator.renameFile({
+      newPath: body.newPath,
+      oldPath: body.oldPath,
+      requestId: readRequestId(req),
+    });
     if (!result.ok) {
       jsonResponse(req, res, 400, { error: result.error });
       return true;
     }
-    await workspaceMutationCoordinator?.apply?.({
-      action: 'rename-file',
-      origin: 'api',
-      requestId: readRequestId(req),
-      workspaceChange: createWorkspaceChange({
-        renamedPaths: [{ oldPath: body.oldPath, newPath: body.newPath }],
-      }),
-    });
     jsonResponse(req, res, 200, { ok: true, path: body.newPath });
   } catch (error) {
     handleVaultError(req, res, error, '[api] Failed to rename file:', 'Failed to rename file');
@@ -282,7 +225,7 @@ async function handleRenameFile({ vaultFileStore, workspaceMutationCoordinator }
   return true;
 }
 
-async function handleCreateDirectory({ vaultFileStore, workspaceMutationCoordinator }, req, res) {
+async function handleCreateDirectory({ workspaceMutationCoordinator }, req, res) {
   try {
     const body = await parseJsonBody(req);
     if (!body.path) {
@@ -290,20 +233,14 @@ async function handleCreateDirectory({ vaultFileStore, workspaceMutationCoordina
       return true;
     }
 
-    const result = await vaultFileStore.createDirectory(body.path);
+    const result = await workspaceMutationCoordinator.createDirectory({
+      path: body.path,
+      requestId: readRequestId(req),
+    });
     if (!result.ok) {
       jsonResponse(req, res, 400, { error: result.error });
       return true;
     }
-
-    await workspaceMutationCoordinator?.apply?.({
-      action: 'create-directory',
-      origin: 'api',
-      requestId: readRequestId(req),
-      workspaceChange: createWorkspaceChange({
-        changedPaths: [body.path],
-      }),
-    });
 
     jsonResponse(req, res, 201, { ok: true });
   } catch (error) {
@@ -312,7 +249,7 @@ async function handleCreateDirectory({ vaultFileStore, workspaceMutationCoordina
   return true;
 }
 
-async function handleRenameDirectory({ vaultFileStore, workspaceMutationCoordinator }, req, res) {
+async function handleRenameDirectory({ workspaceMutationCoordinator }, req, res) {
   try {
     const body = await parseJsonBody(req);
     if (!body.oldPath || !body.newPath) {
@@ -320,21 +257,15 @@ async function handleRenameDirectory({ vaultFileStore, workspaceMutationCoordina
       return true;
     }
 
-    const workspaceChange = await workspaceMutationCoordinator?.createDirectoryRenameWorkspaceChange?.(body.oldPath, body.newPath);
-    const result = await vaultFileStore.renameDirectory(body.oldPath, body.newPath);
+    const result = await workspaceMutationCoordinator.renameDirectory({
+      newPath: body.newPath,
+      oldPath: body.oldPath,
+      requestId: readRequestId(req),
+    });
     if (!result.ok) {
       jsonResponse(req, res, 400, { error: result.error });
       return true;
     }
-
-    await workspaceMutationCoordinator?.apply?.({
-      action: 'rename-directory',
-      origin: 'api',
-      requestId: readRequestId(req),
-      workspaceChange: workspaceChange ?? {
-        renamedPaths: [{ oldPath: body.oldPath, newPath: body.newPath }],
-      },
-    });
 
     jsonResponse(req, res, 200, { ok: true, path: body.newPath });
   } catch (error) {
@@ -343,7 +274,7 @@ async function handleRenameDirectory({ vaultFileStore, workspaceMutationCoordina
   return true;
 }
 
-async function handleDeleteDirectory({ vaultFileStore, workspaceMutationCoordinator }, req, res, requestUrl) {
+async function handleDeleteDirectory({ workspaceMutationCoordinator }, req, res, requestUrl) {
   const dirPath = requestUrl.searchParams.get('path');
   const recursive = requestUrl.searchParams.get('recursive') === '1';
   if (!dirPath) {
@@ -352,21 +283,15 @@ async function handleDeleteDirectory({ vaultFileStore, workspaceMutationCoordina
   }
 
   try {
-    const workspaceChange = await workspaceMutationCoordinator?.createDirectoryDeleteWorkspaceChange?.(dirPath);
-    const result = await vaultFileStore.deleteDirectory(dirPath, { recursive });
+    const result = await workspaceMutationCoordinator.deleteDirectory({
+      path: dirPath,
+      recursive,
+      requestId: readRequestId(req),
+    });
     if (!result.ok) {
       jsonResponse(req, res, getDirectoryDeleteStatusCode(result.error), { error: result.error });
       return true;
     }
-
-    await workspaceMutationCoordinator?.apply?.({
-      action: 'delete-directory',
-      origin: 'api',
-      requestId: readRequestId(req),
-      workspaceChange: workspaceChange ?? {
-        deletedPaths: [dirPath],
-      },
-    });
 
     jsonResponse(req, res, 200, { ok: true });
   } catch (error) {

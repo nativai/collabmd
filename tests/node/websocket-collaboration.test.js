@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import WebSocket from 'ws';
@@ -56,6 +56,37 @@ async function loginForCookie(app, password) {
 async function waitForRoomRelease(app, filePath) {
   await waitForCondition(() => app.server.roomRegistry.get(filePath) === undefined);
 }
+
+test('WebSocket collaboration does not rewrite CRLF markdown on open-only sessions', async (t) => {
+  const app = await startTestServer();
+  t.after(() => app.close());
+
+  const filePath = 'test.md';
+  const absolutePath = join(app.vaultDir, filePath);
+  await writeFile(absolutePath, '# Test\r\n\r\nHello from CRLF.\r\n', 'utf-8');
+  const beforeStat = await stat(absolutePath);
+
+  const serverUrl = `ws://127.0.0.1:${app.port}${app.server.config.wsBasePath}`;
+  const sharedDoc = new Y.Doc();
+  const provider = new WebsocketProvider(serverUrl, filePath, sharedDoc, {
+    WebSocketPolyfill: WebSocket,
+    disableBc: true,
+  });
+  t.after(() => {
+    provider.destroy();
+    sharedDoc.destroy();
+  });
+
+  await waitForProviderSync(provider);
+  assert.equal(sharedDoc.getText('codemirror').toString(), '# Test\n\nHello from CRLF.\n');
+
+  provider.destroy();
+  await waitForRoomRelease(app, filePath);
+
+  const afterStat = await stat(absolutePath);
+  assert.equal(await readFile(absolutePath, 'utf-8'), '# Test\r\n\r\nHello from CRLF.\r\n');
+  assert.equal(afterStat.mtimeMs, beforeStat.mtimeMs);
+});
 
 test('WebSocket collaboration broadcasts awareness and persists vault file', async (t) => {
   const app = await startTestServer();

@@ -49,6 +49,7 @@ function buildRuntimeConfig({
   build,
   drawioBaseUrl,
   gitEnabled,
+  hosted,
   nodeEnv,
   publicWsBaseUrl,
   search,
@@ -62,6 +63,9 @@ function buildRuntimeConfig({
     drawioBaseUrl,
     environment: nodeEnv,
     gitEnabled,
+    hosted: {
+      enabled: Boolean(hosted?.enabled),
+    },
     publicWsBaseUrl,
     search,
     wikiLinkAutoCreate,

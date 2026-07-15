@@ -225,6 +225,23 @@ test('WorkspaceRouteController routes hash changes to empty, git diff, git file 
     ['open-file', 'notes/today.md'],
     ['session', 'session-2'],
   ]);
+
+  const preservedFile = createController({
+    navigation: {
+      getHashRoute: () => ({ filePath: 'notes/from-comments.md', type: 'file' }),
+      navigateToFile() {},
+    },
+  });
+  preservedFile.controller.preserveSidebarTabForNextFileRoute('notes/from-comments.md');
+  await preservedFile.controller.handleHashChange();
+  assert.deepEqual(preservedFile.events, [
+    ['lightbox-close'],
+    ['git-selection'],
+    ['diff-hide'],
+    ['main-chrome', 'editor', null],
+    ['open-file', 'notes/from-comments.md'],
+    ['session', 'session-2'],
+  ]);
 });
 
 test('WorkspaceRouteController resets editor state when showing the empty workspace', () => {

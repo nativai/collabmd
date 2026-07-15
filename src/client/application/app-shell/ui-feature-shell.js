@@ -54,9 +54,7 @@ function initialize() {
   this.sidebarResizerController?.initialize();
   this.scrollSyncController.initialize();
   this.fileExplorer.initialize();
-  this.gitPanel.initialize();
-  this.gitDiffView.initialize();
-  this.fileHistoryView.initialize();
+  this.commentsOverview?.initialize?.();
   this.initializePreviewLayoutObserver();
   this.syncIdentityManagementUi();
   this.syncCurrentUserName();
@@ -65,7 +63,6 @@ function initialize() {
   this.syncChatNotificationButton();
   this.syncFileHistoryButton({ mode: 'empty' });
   this.renderChat();
-  void this.gitPanel.refresh({ force: true });
   this.elements.chatInput?.setAttribute('maxlength', String(this.lobbyChatMessageMaxLength));
   this.bindEvents();
   this.restoreSidebarState();
@@ -82,6 +79,8 @@ function initialize() {
 
   this.fileExplorerReadyPromise = this.fileExplorer.refresh().then(() => {
     this.fileExplorerReady = true;
+    void this.commentsOverview?.refresh?.();
+    this.scheduleGitControllerPrewarm?.();
     if (this.isTabActive) {
       return this.handleHashChange();
     }
@@ -329,6 +328,10 @@ function bindEvents() {
       return;
     }
     this.setSidebarTab('git');
+  });
+
+  this.elements.commentsSidebarTab?.addEventListener('click', () => {
+    this.setSidebarTab('comments');
   });
 
   document.addEventListener('pointerdown', (event) => {

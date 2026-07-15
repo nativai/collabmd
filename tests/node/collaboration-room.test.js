@@ -92,6 +92,83 @@ test('CollaborationRoom retries hydration after a transient read failure', async
   assert.equal(room.doc.getText('codemirror').toString(), '# recovered');
 });
 
+test('CollaborationRoom normalizes CRLF in memory without rewriting open-only content', async () => {
+  const writes = [];
+  const room = new CollaborationRoom({
+    maxBufferedAmountBytes: 1024,
+    name: 'crlf.md',
+    onEmpty: () => {},
+    vaultFileStore: {
+      async readMarkdownFile() {
+        return '# Title\r\n\r\nBody\r\n';
+      },
+      async writeMarkdownFile(path, content, options) {
+        writes.push({ content, options, path });
+        return { ok: true };
+      },
+    },
+  });
+
+  await room.hydrate();
+  assert.equal(room.doc.getText('codemirror').toString(), '# Title\n\nBody\n');
+
+  await room.persist();
+
+  assert.equal(writes.length, 0);
+});
+
+test('CollaborationRoom writes LF content after an intentional text edit', async () => {
+  const writes = [];
+  const room = new CollaborationRoom({
+    maxBufferedAmountBytes: 1024,
+    name: 'edited-crlf.md',
+    onEmpty: () => {},
+    vaultFileStore: {
+      async readMarkdownFile() {
+        return '# Title\r\n\r\nBody\r\n';
+      },
+      async writeMarkdownFile(path, content, options) {
+        writes.push({ content, options, path });
+        return { ok: true };
+      },
+    },
+  });
+
+  await room.hydrate();
+  room.doc.getText('codemirror').insert(room.doc.getText('codemirror').length, '\nEdited\n');
+  await room.persist();
+
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].content, '# Title\n\nBody\n\nEdited\n');
+  assert.equal(writes[0].options?.invalidateCollaborationSnapshot, false);
+});
+
+test('CollaborationRoom skips content write when text returns to the in-memory baseline before persist', async () => {
+  const writes = [];
+  const room = new CollaborationRoom({
+    maxBufferedAmountBytes: 1024,
+    name: 'undo-before-persist.md',
+    onEmpty: () => {},
+    vaultFileStore: {
+      async readMarkdownFile() {
+        return '# Title\r\n';
+      },
+      async writeMarkdownFile(path, content, options) {
+        writes.push({ content, options, path });
+        return { ok: true };
+      },
+    },
+  });
+
+  await room.hydrate();
+  const ytext = room.doc.getText('codemirror');
+  ytext.insert(ytext.length, 'Draft');
+  ytext.delete(ytext.length - 'Draft'.length, 'Draft'.length);
+  await room.persist();
+
+  assert.equal(writes.length, 0);
+});
+
 test('CollaborationRoom closes slow clients when buffered writes exceed the limit', async () => {
   const room = new CollaborationRoom({
     maxBufferedAmountBytes: 4,
@@ -395,7 +472,7 @@ test('CollaborationRoom logs oversized initial sync payloads', async (t) => {
   )));
 });
 
-test('CollaborationRoom hydrates and persists markdown comment threads', async () => {
+test('CollaborationRoom persists markdown comment threads without rewriting unchanged content', async () => {
   const writes = [];
   const commentWrites = [];
   const persistedThreads = [{
@@ -506,9 +583,7 @@ test('CollaborationRoom hydrates and persists markdown comment threads', async (
 
   await room.persist();
 
-  assert.equal(writes.length, 1);
-  assert.equal(writes[0].path, 'notes.md');
-  assert.equal(writes[0].options?.invalidateCollaborationSnapshot, false);
+  assert.equal(writes.length, 0);
   assert.equal(commentWrites.length, 1);
   assert.equal(commentWrites[0].path, 'notes.md');
   assert.equal(commentWrites[0].threads.length, 2);

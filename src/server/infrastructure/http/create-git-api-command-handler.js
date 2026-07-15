@@ -47,7 +47,7 @@ async function applyWorkspaceMutationEffects({
     return responsePayload;
   }
 
-  await workspaceMutationCoordinator?.apply?.({
+  await workspaceMutationCoordinator?.reconcileVaultChangeObservation?.({
     action,
     origin: 'git',
     requestId: readRequestId(req),

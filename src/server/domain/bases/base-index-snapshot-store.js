@@ -17,6 +17,28 @@ import { createLinkValue, dedupeLinkValues } from './base-expression-runtime.js'
 const INLINE_TAG_RE = /(^|[\s(])#([A-Za-z0-9/_-]+)/g;
 const INDEX_READ_CONCURRENCY = 8;
 
+function cloneSnapshotRowRecord(rowRecord) {
+  return {
+    forwardLinks: new Set(rowRecord.forwardLinks ?? []),
+    rawTargetKeys: new Set(rowRecord.rawTargetKeys ?? []),
+    row: structuredClone(rowRecord.row),
+  };
+}
+
+function createWorkspaceFileSetSignature(fileEntries = []) {
+  return fileEntries.join('\n');
+}
+
+function createRowCacheKey(filePath, workspaceState, fileSetSignature) {
+  const metadata = workspaceState?.metadata?.get(filePath) ?? null;
+  return [
+    filePath,
+    Number.isFinite(metadata?.mtimeMs) ? metadata.mtimeMs : '',
+    Number.isFinite(metadata?.size) ? metadata.size : '',
+    fileSetSignature,
+  ].join('\0');
+}
+
 function isPlainObject(value) {
   return Object.prototype.toString.call(value) === '[object Object]';
 }
@@ -119,6 +141,7 @@ export class BaseIndexSnapshotStore {
     this.workspaceStateSynchronizer = workspaceStateSynchronizer;
     this.indexSnapshot = null;
     this.lastWorkspaceState = null;
+    this.rowRecordCache = new Map();
   }
 
   async getWorkspaceState() {
@@ -285,20 +308,30 @@ export class BaseIndexSnapshotStore {
   async buildIndexSnapshot(workspaceState = null) {
     const resolvedWorkspaceState = workspaceState ?? await this.getWorkspaceState();
     const fileEntries = listWorkspaceFilePaths(resolvedWorkspaceState);
+    const fileSetSignature = createWorkspaceFileSetSignature(fileEntries);
     const wikiTargetIndex = createWikiTargetIndex(fileEntries);
     const markdownContents = new Map();
 
     await mapWithConcurrency(resolvedWorkspaceState.markdownPaths ?? [], INDEX_READ_CONCURRENCY, async (filePath) => {
-      markdownContents.set(filePath, await this.vaultFileStore.readMarkdownFile(filePath));
+      const cacheKey = createRowCacheKey(filePath, resolvedWorkspaceState, fileSetSignature);
+      if (!this.rowRecordCache.has(cacheKey)) {
+        markdownContents.set(filePath, await this.vaultFileStore.readMarkdownFile(filePath));
+      }
     });
 
     const rowsByPath = new Map();
     const forwardLinksByPath = new Map();
     const rawTargetKeysBySourcePath = new Map();
     const rawTargetSourcesByKey = new Map();
+    const nextRowRecordCache = new Map();
     fileEntries.forEach((filePath) => {
+      const cacheKey = createRowCacheKey(filePath, resolvedWorkspaceState, fileSetSignature);
+      const cachedRowRecord = this.rowRecordCache.get(cacheKey);
       const markdownContent = markdownContents.get(filePath) ?? null;
-      const rowRecord = this.createSnapshotRow(filePath, resolvedWorkspaceState, wikiTargetIndex, markdownContent);
+      const rowRecord = cachedRowRecord
+        ? cloneSnapshotRowRecord(cachedRowRecord)
+        : this.createSnapshotRow(filePath, resolvedWorkspaceState, wikiTargetIndex, markdownContent);
+      nextRowRecordCache.set(cacheKey, cloneSnapshotRowRecord(rowRecord));
       rowsByPath.set(filePath, rowRecord.row);
       forwardLinksByPath.set(filePath, rowRecord.forwardLinks);
       rawTargetKeysBySourcePath.set(filePath, rowRecord.rawTargetKeys);
@@ -324,6 +357,7 @@ export class BaseIndexSnapshotStore {
     this.rebuildBacklinks(snapshot);
     this.indexSnapshot = snapshot;
     this.lastWorkspaceState = resolvedWorkspaceState;
+    this.rowRecordCache = nextRowRecordCache;
     return snapshot;
   }
 
@@ -380,6 +414,7 @@ export class BaseIndexSnapshotStore {
         return pathValue && isWorkspaceFileEntry(entry);
       });
 
+    const fileSetSignature = createWorkspaceFileSetSignature(snapshot.filePaths);
     await mapWithConcurrency(filePathsToRefresh, INDEX_READ_CONCURRENCY, async (filePath) => {
       const markdownContent = isMarkdownFilePath(filePath)
         ? await this.vaultFileStore.readMarkdownFile(filePath)
@@ -387,10 +422,23 @@ export class BaseIndexSnapshotStore {
       const rowRecord = this.createSnapshotRow(filePath, workspaceState, snapshot.wikiTargetIndex, markdownContent, {
         targetPathAliases,
       });
+      this.invalidateRowRecordCachePath(filePath);
+      this.rowRecordCache.set(
+        createRowCacheKey(filePath, workspaceState, fileSetSignature),
+        cloneSnapshotRowRecord(rowRecord),
+      );
       this.removeRawTargetSourceContributions(snapshot, filePath);
       snapshot.rowsByPath.set(filePath, rowRecord.row);
       snapshot.forwardLinksByPath.set(filePath, rowRecord.forwardLinks);
       this.addRawTargetSourceContributions(snapshot, filePath, rowRecord.rawTargetKeys);
+    });
+  }
+
+  invalidateRowRecordCachePath(filePath) {
+    Array.from(this.rowRecordCache.keys()).forEach((cacheKey) => {
+      if (cacheKey === filePath || cacheKey.startsWith(`${filePath}\0`)) {
+        this.rowRecordCache.delete(cacheKey);
+      }
     });
   }
 
@@ -510,9 +558,12 @@ export class BaseIndexSnapshotStore {
       });
 
       [...deletedFilePaths, ...removedChangedFilePaths].forEach((pathValue) => {
+        this.invalidateRowRecordCachePath(pathValue);
         this.removeSnapshotPath(snapshot, pathValue);
       });
       renamedFileEntries.forEach((entry) => {
+        this.invalidateRowRecordCachePath(entry.oldPath);
+        this.invalidateRowRecordCachePath(entry.newPath);
         this.removeSnapshotPath(snapshot, entry.oldPath);
       });
       [...createdFilePaths, ...renamedFileEntries.map((entry) => entry.newPath)].forEach((pathValue) => {

@@ -78,6 +78,7 @@ export class FileExplorerView {
     this.autoExpandTimer = 0;
     this.autoExpandTargetPath = '';
     this.rootDropZone = null;
+    this.threadCounts = new Map();
   }
 
   initialize() {
@@ -137,11 +138,12 @@ export class FileExplorerView {
     fileItem?.scrollIntoView({ block: 'nearest' });
   }
 
-  render({ activeFilePath, changedPaths = null, expandedDirs, reset = false, searchMatches, searchQuery, tree }) {
+  render({ activeFilePath, changedPaths = null, expandedDirs, reset = false, searchMatches, searchQuery, threadCounts = new Map(), tree }) {
     if (!this.treeContainer) {
       return;
     }
 
+    this.threadCounts = threadCounts instanceof Map ? threadCounts : new Map();
     this.currentSearchQuery = String(searchQuery ?? '');
     if (this.currentSearchQuery) {
       this.clearDragFeedback();
@@ -424,6 +426,7 @@ export class FileExplorerView {
   createFileItem({ activeFilePath, depth, filePath, fileType = 'file', name }) {
     const button = document.createElement('button');
     button.className = 'file-tree-item file-tree-file';
+    const threadCount = Number(this.threadCounts.get(filePath) ?? 0);
     const isDrawio = fileType === 'drawio';
     const isExcalidraw = fileType === 'excalidraw';
     const isBase = fileType === 'base';
@@ -452,14 +455,21 @@ export class FileExplorerView {
     if (filePath === activeFilePath) {
       button.classList.add('active');
     }
+    if (threadCount > 0) {
+      button.classList.add('has-comments');
+    }
 
     button.style.setProperty('--depth', depth);
     button.dataset.depth = depth;
     button.dataset.path = filePath;
     button.dataset.entryType = 'file';
+    if (threadCount > 0) {
+      button.dataset.threadCount = String(threadCount);
+    }
     button.innerHTML = `
       ${this.getFileIconSvg({ isBase, isDrawio, isExcalidraw, isImage, isMermaid, isPlantUml })}
       <span class="file-tree-name">${escapeHtml(stripVaultFileExtension(name))}</span>
+      ${threadCount > 0 ? `<span class="file-tree-comment-count" aria-label="${threadCount} open comment thread${threadCount === 1 ? '' : 's'}">${threadCount}</span>` : ''}
     `;
     this.configureDragSource(button, { path: filePath, type: 'file' });
 

@@ -37,6 +37,11 @@ const RULES = [
     forbidden: ['src/client/presentation/', 'src/client/infrastructure/'],
   },
   {
+    name: 'server-application-no-outward-deps',
+    appliesTo: 'src/server/application/',
+    forbidden: ['src/server/infrastructure/', 'src/server/auth/', 'src/server/config/', 'src/client/'],
+  },
+  {
     name: 'server-domain-no-infrastructure',
     appliesTo: 'src/server/domain/',
     forbidden: ['src/server/infrastructure/'],

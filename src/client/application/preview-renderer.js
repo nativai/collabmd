@@ -1,5 +1,6 @@
 import { MermaidPreviewHydrator } from './mermaid-preview-hydrator.js';
 import { PlantUmlPreviewHydrator } from './plantuml-preview-hydrator.js';
+import { DiagramChrome } from './diagram-chrome.js';
 import { IDLE_RENDER_TIMEOUT_MS } from './preview-diagram-utils.js';
 import { PreviewRenderExecutor } from './preview-render-executor.js';
 import { getRenderProfile, isLargeDocumentStats } from './preview-render-profile.js';
@@ -88,6 +89,9 @@ export class PreviewRenderer {
       this.plantUmlHydrator.scheduleActiveRefit();
     };
 
+    this.diagramChrome = new DiagramChrome({
+      toastController,
+    });
     this.mermaidHydrator = new MermaidPreviewHydrator(this, {
       loadFileSource,
     });
@@ -240,6 +244,7 @@ export class PreviewRenderer {
 
   destroy() {
     this.renderScheduler.destroy();
+    this.diagramChrome.destroy();
     this.mermaidHydrator.destroy();
     this.plantUmlHydrator.destroy();
     this.renderExecutor.destroy();
@@ -266,19 +271,25 @@ export class PreviewRenderer {
   }
 
   clearActivePlantUmlShell() {
-    this.plantUmlHydrator.clearActiveShell();
+    this.diagramChrome.clearActiveShell();
   }
 
   scheduleActiveMermaidRefit() {
-    this.mermaidHydrator.scheduleActiveRefit();
+    this.diagramChrome.scheduleActiveRefit({
+      kind: 'mermaid',
+      root: this.previewElement,
+    });
   }
 
   syncActivePlantUmlShell() {
-    return this.plantUmlHydrator.syncActiveShell();
+    return this.diagramChrome.syncActiveShell();
   }
 
   scheduleActivePlantUmlRefit() {
-    this.plantUmlHydrator.scheduleActiveRefit();
+    this.diagramChrome.scheduleActiveRefit({
+      kind: 'plantuml',
+      root: this.previewElement,
+    });
   }
 
   setHydrationPaused(paused) {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { access, mkdtemp, mkdir, rm, writeFile } from 'fs/promises';
+import { access, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import sharp from 'sharp';
@@ -197,6 +197,62 @@ test('VaultFileStore persists content, comments, and snapshot as one staged coll
   assert.deepEqual(Array.from(await store.readCollaborationSnapshot('README.md') ?? []), Array.from(snapshot));
 });
 
+test('VaultFileStore persists collaboration sidecars without touching vault content', async (t) => {
+  const { store, cleanup, vaultDir } = await createVaultStore();
+  t.after(cleanup);
+
+  await writeFile(join(vaultDir, 'README.md'), '# Readme\r\n', 'utf-8');
+  const beforeStat = await stat(join(vaultDir, 'README.md'));
+  const snapshot = Uint8Array.from([4, 5, 6]);
+
+  const result = await store.persistCollaborationState('README.md', {
+    commentThreads: [],
+    includeContent: false,
+    snapshot,
+  });
+
+  const afterStat = await stat(join(vaultDir, 'README.md'));
+  assert.equal(result.ok, true);
+  assert.equal(await readFile(join(vaultDir, 'README.md'), 'utf-8'), '# Readme\r\n');
+  assert.equal(afterStat.mtimeMs, beforeStat.mtimeMs);
+  assert.deepEqual(Array.from(await store.readCollaborationSnapshot('README.md') ?? []), Array.from(snapshot));
+});
+
+test('VaultFileStore reads comment overview from comment sidecars for supported files', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  await store.writeCommentThreads('README.md', [{
+    anchorEnd: { assoc: 0, type: null },
+    anchorEndLine: 1,
+    anchorKind: 'line',
+    anchorQuote: '# Readme',
+    anchorStart: { assoc: 0, type: null },
+    anchorStartLine: 1,
+    createdAt: 1,
+    createdByName: 'Reviewer',
+    id: 'thread-readme',
+    messages: [{ body: 'Please update this.', createdAt: 2, id: 'message-readme', userName: 'Reviewer' }],
+  }]);
+  await store.createFile('diagram.drawio', '<mxfile></mxfile>');
+  await store.writeCommentThreads('diagram.drawio', [{
+    anchorEnd: { assoc: 0, type: null },
+    anchorEndLine: 1,
+    anchorKind: 'line',
+    anchorStart: { assoc: 0, type: null },
+    anchorStartLine: 1,
+    id: 'thread-unsupported',
+    messages: [{ body: 'Unsupported.', createdAt: 3, id: 'message-unsupported', userName: 'Reviewer' }],
+  }]);
+
+  const overview = await store.readCommentOverview();
+
+  assert.equal(overview.totalThreadCount, 1);
+  assert.deepEqual(overview.files.map((file) => file.filePath), ['README.md']);
+  assert.equal(overview.files[0].threads[0].id, 'thread-readme');
+  assert.equal(overview.files[0].threads[0].latestMessage.bodyPreview, 'Please update this.');
+});
+
 test('VaultFileStore leaves live content untouched when staged collaboration snapshot preparation fails', async (t) => {
   const { store, cleanup, vaultDir } = await createVaultStore();
   t.after(cleanup);
@@ -330,6 +386,49 @@ test('VaultFileStore reads and writes Mermaid files', async (t) => {
 
   const updated = await store.readMermaidFile('diagram.mmd');
   assert.equal(updated, 'flowchart TD\n  B --> C\n');
+});
+
+test('VaultFileStore reads and writes editable vault content by path kind', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  await store.createFile('views/tasks.base', 'views:\n  - type: table\n');
+  await store.createFile('diagrams/flow.mmd', 'flowchart TD\n  A --> B\n');
+  await store.createFile('diagrams/sequence.plantuml', '@startuml\nAlice -> Bob: Hi\n@enduml\n');
+
+  assert.equal(
+    await store.readEditableVaultContent('views/tasks.base'),
+    'views:\n  - type: table\n',
+  );
+  assert.equal(
+    await store.readEditableVaultContent('diagrams/flow.mmd'),
+    'flowchart TD\n  A --> B\n',
+  );
+  assert.equal(
+    await store.readEditableVaultContent('diagrams/sequence.plantuml'),
+    '@startuml\nAlice -> Bob: Hi\n@enduml\n',
+  );
+
+  const writeResult = await store.writeEditableVaultContent('diagrams/flow.mmd', 'flowchart TD\n  B --> C\n');
+  assert.equal(writeResult.ok, true);
+  assert.equal(await store.readMermaidFile('diagrams/flow.mmd'), 'flowchart TD\n  B --> C\n');
+});
+
+test('VaultFileStore editable vault content preserves read and write validation behavior', async (t) => {
+  const { store, cleanup } = await createVaultStore();
+  t.after(cleanup);
+
+  assert.equal(await store.readEditableVaultContent('missing.md'), null);
+  assert.equal(await store.readEditableVaultContent('secret.txt'), null);
+  assert.equal(await store.readEditableVaultContent('../outside.base'), null);
+
+  const unsupportedWrite = await store.writeEditableVaultContent('secret.txt', 'plain text');
+  assert.equal(unsupportedWrite.ok, false);
+  assert.match(unsupportedWrite.error, /must end in \.md, .*\.png, .*\.svg/i);
+
+  const invalidBaseWrite = await store.writeEditableVaultContent('../outside.base', 'views:\n');
+  assert.equal(invalidBaseWrite.ok, false);
+  assert.equal(invalidBaseWrite.error, 'Invalid file path — must end in .base');
 });
 
 test('VaultFileStore reads and writes .plantuml files', async (t) => {

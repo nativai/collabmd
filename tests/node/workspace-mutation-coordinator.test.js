@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -143,6 +143,23 @@ test('WorkspaceMutationCoordinator avoids a full rescan for API file writes', as
   assert.equal(harness.coordinator.workspaceState.vaultFileCount, 1);
 });
 
+test('WorkspaceMutationCoordinator writeEditableContent owns the file write and reconciliation', async (t) => {
+  const harness = await createCoordinatorWithVault(t, {
+    'docs/test.md': '# Before\n',
+  });
+
+  const result = await harness.coordinator.writeEditableContent({
+    content: '# After\n',
+    path: 'docs/test.md',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(await readFile(join(harness.vaultDir, 'docs', 'test.md'), 'utf8'), '# After\n');
+  assert.equal(harness.scanCalls, 0);
+  assert.equal(harness.coordinator.workspaceState.entries.has('docs/test.md'), true);
+  assert.deepEqual(harness.coordinator.workspaceState.markdownPaths, ['docs/test.md']);
+});
+
 test('WorkspaceMutationCoordinator avoids a full rescan for API file creation with nested directories', async (t) => {
   const harness = await createCoordinatorWithVault(t, {});
 
@@ -254,6 +271,23 @@ test('WorkspaceMutationCoordinator avoids a full rescan for API directory rename
     workspaceChange,
   });
 
+  assert.equal(harness.scanCalls, 0);
+  assert.equal(harness.coordinator.workspaceState.entries.has('docs/guides'), false);
+  assert.equal(harness.coordinator.workspaceState.entries.has('docs/reference'), true);
+  assert.equal(harness.coordinator.workspaceState.entries.has('docs/reference/intro.md'), true);
+});
+
+test('WorkspaceMutationCoordinator renameDirectory owns descendant change derivation and reconciliation', async (t) => {
+  const harness = await createCoordinatorWithVault(t, {
+    'docs/guides/intro.md': '# Intro\n',
+  });
+
+  const result = await harness.coordinator.renameDirectory({
+    newPath: 'docs/reference',
+    oldPath: 'docs/guides',
+  });
+
+  assert.equal(result.ok, true);
   assert.equal(harness.scanCalls, 0);
   assert.equal(harness.coordinator.workspaceState.entries.has('docs/guides'), false);
   assert.equal(harness.coordinator.workspaceState.entries.has('docs/reference'), true);

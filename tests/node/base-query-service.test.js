@@ -610,6 +610,91 @@ test('BaseQueryService reuses the in-memory snapshot for repeated queries', asyn
   assert.equal(readCalls, readsAfterFirstQuery);
 });
 
+test('BaseQueryService yields between large query row chunks', async (t) => {
+  const { cleanup, service, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await Promise.all(Array.from({ length: 120 }, (_, index) => (
+    writeVaultFile(`notes/${index}.md`, [
+      '---',
+      `rank: ${index}`,
+      '---',
+    ].join('\n'))
+  )));
+  const baseSource = [
+    'filters: file.ext == "md"',
+    'views:',
+    '  - type: table',
+    '    order: [file.path]',
+  ].join('\n');
+  await writeVaultFile('views/tasks.base', baseSource);
+
+  await service.query({ basePath: 'views/tasks.base' });
+
+  let queryCompleted = false;
+  const marker = new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+  const queryPromise = service.query({
+    source: baseSource,
+    sourcePath: 'views/tasks.base',
+  }).then((result) => {
+    queryCompleted = true;
+    return result;
+  });
+
+  await marker;
+  assert.equal(queryCompleted, false);
+  const result = await queryPromise;
+  assert.equal(result.rows.length, 120);
+});
+
+test('BaseQueryService full snapshot rebuild reuses cached unchanged markdown rows', async (t) => {
+  const { cleanup, vaultDir, writeVaultFile } = await createBaseWorkspace();
+  t.after(cleanup);
+
+  await writeVaultFile('notes/a.md', [
+    '---',
+    'status: open',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('notes/b.md', [
+    '---',
+    'status: done',
+    '---',
+  ].join('\n'));
+  await writeVaultFile('views/tasks.base', [
+    'views:',
+    '  - type: table',
+    '    order: [note.status]',
+  ].join('\n'));
+
+  const vaultFileStore = new VaultFileStore({ vaultDir });
+  const service = new BaseQueryService({ vaultFileStore });
+  let workspaceState = await vaultFileStore.scanWorkspaceState();
+  await service.buildIndexSnapshot(workspaceState);
+
+  let readPaths = [];
+  const originalReadMarkdownFile = vaultFileStore.readMarkdownFile.bind(vaultFileStore);
+  vaultFileStore.readMarkdownFile = async (filePath, ...args) => {
+    readPaths.push(filePath);
+    return originalReadMarkdownFile(filePath, ...args);
+  };
+
+  await writeVaultFile('notes/a.md', [
+    '---',
+    'status: reopened',
+    'priority: high',
+    '---',
+  ].join('\n'));
+  workspaceState = await vaultFileStore.scanWorkspaceState();
+  await service.buildIndexSnapshot(workspaceState);
+
+  assert.deepEqual(readPaths, ['notes/a.md']);
+  assert.equal(service.indexSnapshot.rowsByPath.get('notes/a.md').noteProperties.status, 'reopened');
+  assert.equal(service.indexSnapshot.rowsByPath.get('notes/b.md').noteProperties.status, 'done');
+});
+
 test('BaseQueryService refreshes only changed rows for content updates', async (t) => {
   const { cleanup, vaultDir, writeVaultFile } = await createBaseWorkspace();
   t.after(cleanup);

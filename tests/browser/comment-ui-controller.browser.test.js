@@ -102,6 +102,30 @@ describe('CommentUiController browser behavior', () => {
     expect(setup.commentsDrawer.classList.contains('hidden')).toBe(true);
   });
 
+  it('opens overview-selected threads as editor-anchored cards', () => {
+    const setup = createController();
+    controller = setup.controller;
+
+    controller.setThreads([
+      {
+        anchor: { endLine: 6, quote: 'Line 5', startLine: 5 },
+        createdAt: 1,
+        createdByName: 'Alice',
+        id: 'thread-1',
+        messages: [{ body: 'Existing thread', createdAt: 2, id: 'message-1', reactions: [], userName: 'Alice' }],
+      },
+    ]);
+
+    expect(controller.openThreadFromOverview('thread-1')).toBe(true);
+
+    expect(setup.commentsDrawer.classList.contains('hidden')).toBe(true);
+    expect(controller.activeCard).toMatchObject({
+      groupThreadIds: ['thread-1'],
+      mode: 'group',
+      origin: 'editor',
+    });
+  });
+
   it('updates selection state and enables the toolbar action', () => {
     const setup = createController();
     controller = setup.controller;

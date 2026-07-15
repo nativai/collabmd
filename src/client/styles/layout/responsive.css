@@ -185,11 +185,12 @@
   }
 
   .ui-nav-tabs {
-    padding: 0 var(--space-1);
+    padding: 4px var(--space-1) 0;
   }
 
   .ui-nav-tab {
-    padding: var(--space-2);
+    height: 42px;
+    padding: 4px var(--space-1) 5px;
   }
 
   .editor-layout {

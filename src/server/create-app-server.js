@@ -9,16 +9,23 @@ import { CollaborationDocumentStore } from './domain/collaboration/collaboration
 import { CollaborationRoom } from './domain/collaboration/collaboration-room.js';
 import { DocxExporter } from './domain/docx-exporter.js';
 import { GitService } from './infrastructure/git/git-service.js';
+import { GitHubAppClient } from './infrastructure/github/github-app-client.js';
+import { GitHubSetupFlow } from './infrastructure/github/github-setup-flow.js';
+import { HostedWorkspaceService } from './domain/hosted-workspace.js';
 import { PlantUmlRenderer } from './infrastructure/plantuml/plantuml-renderer.js';
 import { RoomRegistry } from './domain/collaboration/room-registry.js';
 import { RipgrepSearchService } from './domain/ripgrep-search-service.js';
 import { createRequestHandler } from './infrastructure/http/create-request-handler.js';
+import { HostedMetadataStore } from './infrastructure/persistence/hosted-metadata-store.js';
 import { VaultFileStore } from './infrastructure/persistence/vault-file-store.js';
 import { attachCollaborationGateway } from './infrastructure/websocket/attach-collaboration-gateway.js';
 import { isDrawioLeaseRoom } from '../domain/drawio-room.js';
 import { WORKSPACE_ROOM_NAME } from '../domain/workspace-room.js';
 import { FileSystemSyncService } from './infrastructure/workspace/file-system-sync-service.js';
-import { WorkspaceMutationCoordinator } from './infrastructure/workspace/workspace-mutation-coordinator.js';
+import { WorkspaceReconciliation } from './application/workspace-reconciliation.js';
+import { createWorkspaceStateFileSystemAdapter } from './infrastructure/workspace/workspace-state-file-system-adapter.js';
+import { createSignedCookieManager } from './auth/session-cookie.js';
+import { workspaceStateMetadataEqual } from './domain/workspace-state.js';
 
 function getDisplayHost(host) {
   return host === '127.0.0.1' ? 'localhost' : host;
@@ -41,38 +48,28 @@ function closeHttpServer(httpServer) {
   });
 }
 
-function workspaceStateMetadataEqual(left = null, right = null) {
-  const leftMetadata = left?.metadata;
-  const rightMetadata = right?.metadata;
-  if (!(leftMetadata instanceof Map) || !(rightMetadata instanceof Map)) {
-    return false;
-  }
-
-  if (leftMetadata.size !== rightMetadata.size) {
-    return false;
-  }
-
-  for (const [pathValue, leftEntry] of leftMetadata.entries()) {
-    const rightEntry = rightMetadata.get(pathValue);
-    if (!rightEntry) {
-      return false;
-    }
-
-    if (
-      leftEntry.type !== rightEntry.type
-      || leftEntry.size !== rightEntry.size
-      || leftEntry.inode !== rightEntry.inode
-      || leftEntry.mtimeMs !== rightEntry.mtimeMs
-    ) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
 export function createAppServer(config = loadConfig()) {
   const authService = createAuthService(config);
+  const hostedWorkspaceService = new HostedWorkspaceService({
+    claim: config.hosted?.claim,
+    enabled: config.hosted?.enabled,
+    store: config.hosted?.enabled
+      ? new HostedMetadataStore({ dbPath: config.hosted.metadataDbPath })
+      : null,
+  });
+  const githubAppClient = config.hosted?.enabled
+    ? new GitHubAppClient(config.hosted.githubApp)
+    : null;
+  const githubSetupFlow = config.hosted?.enabled
+    ? new GitHubSetupFlow({
+        cookieManager: createSignedCookieManager({
+          cookieName: config.hosted.githubApp.flowCookieName,
+          cookiePath: config.basePath || '/',
+          secret: config.auth.sessionSecret,
+        }),
+        githubAppClient,
+      })
+    : null;
   const vaultFileStore = new VaultFileStore({ vaultDir: config.vaultDir });
   const backlinkIndex = new BacklinkIndex({ vaultFileStore });
   let fileSystemSyncService = null;
@@ -126,11 +123,14 @@ export function createAppServer(config = loadConfig()) {
       return room;
     },
   });
-  workspaceMutationCoordinator = new WorkspaceMutationCoordinator({
+  workspaceMutationCoordinator = new WorkspaceReconciliation({
     backlinkIndex,
     baseQueryService,
     roomRegistry,
     vaultFileStore,
+    workspaceStateAdapter: createWorkspaceStateFileSystemAdapter({
+      vaultDir: vaultFileStore.vaultDir,
+    }),
   });
   vaultFileStore.setManagedWriteTracker(workspaceMutationCoordinator);
   fileSystemSyncService = new FileSystemSyncService({
@@ -152,6 +152,8 @@ export function createAppServer(config = loadConfig()) {
     testControls,
     workspaceMutationCoordinator,
     fileSystemSyncService,
+    hostedWorkspaceService,
+    githubSetupFlow,
   );
   const httpServer = createServer((req, res) => {
     requestHandler(req, res).catch((error) => {
@@ -173,6 +175,7 @@ export function createAppServer(config = loadConfig()) {
     httpServer,
     roomRegistry,
     wsBasePath: config.wsBasePath,
+    hostedWorkspaceService,
   });
 
   let shutdownPromise = null;
@@ -180,6 +183,8 @@ export function createAppServer(config = loadConfig()) {
 
   async function listen() {
     const startupStartedAt = Date.now();
+
+    await hostedWorkspaceService.initialize();
 
     const searchCapabilityStartedAt = Date.now();
     config.search = await searchService.initialize();
@@ -290,6 +295,7 @@ export function createAppServer(config = loadConfig()) {
       await Promise.all([
         closeHttpServer(httpServer),
         config.git?.cleanup?.(),
+        hostedWorkspaceService.close(),
       ]);
     })().then(() => undefined);
 
@@ -308,6 +314,7 @@ export function createAppServer(config = loadConfig()) {
     backlinkIndex,
     fileSystemSyncService,
     gitService,
+    hostedWorkspaceService,
     searchService,
     setTestHydrateDelayMs(delayMs = 0) {
       testControls.wsRoomHydrateDelayMs = Math.max(0, Number(delayMs) || 0);

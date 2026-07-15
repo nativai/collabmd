@@ -11,6 +11,9 @@ import { RoomPersistenceController } from './room-persistence-controller.js';
 import { logPerfEvent } from '../../config/perf-logging.js';
 import { populateCommentThreads, serializeCommentThreads } from '../../../domain/comment-threads.js';
 import {
+  EXCALIDRAW_APP_STATE_KEY,
+  EXCALIDRAW_ELEMENTS_KEY,
+  EXCALIDRAW_FILES_KEY,
   isExcalidrawRoomDocStructured,
   migrateLegacyExcalidrawRoomData,
   readLegacyExcalidrawRoomScene,
@@ -128,6 +131,16 @@ function isWorkspaceRoom(name) {
   return name === WORKSPACE_ROOM_NAME;
 }
 
+function normalizeEditableText(content) {
+  return String(content ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
+function isContentCleanOrigin(origin) {
+  return origin === 'hydrate'
+    || origin === 'workspace-reconcile'
+    || origin === 'excalidraw-history-reset';
+}
+
 function computeTextReplacement(currentContent, nextContent) {
   const currentText = String(currentContent ?? '');
   const nextText = String(nextContent ?? '');
@@ -194,6 +207,8 @@ export class CollaborationRoom {
     this.destroyed = false;
     this.cachedInitialSyncMessage = null;
     this.activePersistPromise = null;
+    this.persistedContentBaseline = null;
+    this.contentDirty = false;
     this.debugMetrics = {
       hydrateCount: 0,
       initialSyncCount: 0,
@@ -212,6 +227,7 @@ export class CollaborationRoom {
 
     this.awareness.setLocalState(null);
     this.registerDocListeners();
+    this.registerContentDirtyListeners();
   }
 
   async hydrate() {
@@ -290,7 +306,7 @@ export class CollaborationRoom {
                     ytext.insert(0, content);
                   }
                 } else if (content !== null) {
-                  ytext.insert(0, content);
+                  ytext.insert(0, normalizeEditableText(content));
                 }
                 populateCommentThreads(comments, commentThreads);
               }, 'hydrate');
@@ -304,6 +320,7 @@ export class CollaborationRoom {
           this.hydrated = true;
         } finally {
           if (this.hydrated) {
+            this.resetContentBaseline();
             this.debugMetrics.hydrateCount += 1;
             this.debugMetrics.lastHydrate = {
               commentThreadCount,
@@ -371,6 +388,44 @@ export class CollaborationRoom {
     });
   }
 
+  registerContentDirtyListeners() {
+    const markFromTransaction = (transaction) => {
+      if (isContentCleanOrigin(transaction?.origin)) {
+        return;
+      }
+
+      this.refreshContentDirty();
+    };
+
+    if (isExcalidrawRoom(this.name)) {
+      this.doc.getMap(EXCALIDRAW_ELEMENTS_KEY).observeDeep((_events, transaction) => {
+        markFromTransaction(transaction);
+      });
+      this.doc.getMap(EXCALIDRAW_FILES_KEY).observe((_event, transaction) => {
+        markFromTransaction(transaction);
+      });
+      this.doc.getMap(EXCALIDRAW_APP_STATE_KEY).observe((_event, transaction) => {
+        markFromTransaction(transaction);
+      });
+      return;
+    }
+
+    this.doc.getText('codemirror').observe((_event, transaction) => {
+      markFromTransaction(transaction);
+    });
+  }
+
+  resetContentBaseline() {
+    this.persistedContentBaseline = this.getPersistedContent();
+    this.contentDirty = false;
+  }
+
+  refreshContentDirty() {
+    const content = this.getPersistedContent();
+    this.contentDirty = content !== null && content !== this.persistedContentBaseline;
+    return this.contentDirty;
+  }
+
   getClientState(ws) {
     return this.clientStates.get(ws);
   }
@@ -433,12 +488,17 @@ export class CollaborationRoom {
         console.warn(`[room:${this.name}] Skipping persist because the Excalidraw scene is invalid`);
         return;
       }
+      const includeContent = this.refreshContentDirty();
       const commentThreads = serializeCommentThreads(this.doc.getArray('comments'));
       await this.documentStore.persistState({
         commentThreads,
         content,
+        includeContent,
         snapshot: Y.encodeStateAsUpdate(this.doc),
       });
+      if (includeContent) {
+        this.resetContentBaseline();
+      }
     })();
 
     const trackedPromise = persistPromise.finally(() => {
@@ -496,12 +556,15 @@ export class CollaborationRoom {
         }
       }, 'workspace-reconcile');
 
+      this.resetContentBaseline();
       return { ok: true, highlightRange: null };
     }
 
     const ytext = this.doc.getText('codemirror');
-    const replacement = computeTextReplacement(ytext.toString(), content);
+    const normalizedContent = normalizeEditableText(content);
+    const replacement = computeTextReplacement(ytext.toString(), normalizedContent);
     if (!replacement && !replaceCommentThreads) {
+      this.resetContentBaseline();
       return { highlightRange: null, ok: true, skipped: true };
     }
 
@@ -520,6 +583,7 @@ export class CollaborationRoom {
       }
     }, 'workspace-reconcile');
 
+    this.resetContentBaseline();
     return {
       highlightRange: replacement
         ? {

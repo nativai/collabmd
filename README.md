@@ -158,6 +158,7 @@ Then share the printed URL and password with your collaborator. If `cloudflared`
 - Treat the URL as write access to the vault unless you enable auth
 - `--auth password` protects `/api/*` and `/ws/*` with a host password and signed session cookie
 - `--auth oidc` signs users in with Google and uses the verified Google name/email as the in-app identity and git commit author
+- Hosted workspace mode requires Google OIDC plus active team membership; Google sign-in alone does not grant hosted workspace access
 - Set `AUTH_SESSION_MAX_AGE_MS` if you want auth sessions to stay valid longer and survive browser restarts until that expiry
 - If `cloudflared` is installed, CollabMD may expose the app through a Cloudflare Quick Tunnel unless you pass `--no-tunnel`
 - `--auth oidc` requires a stable `PUBLIC_BASE_URL`; Quick Tunnel URLs are not supported for OIDC
@@ -166,6 +167,7 @@ Then share the printed URL and password with your collaborator. If `cloudflared`
 
 - Single-instance deployment only: collaboration room state is kept in-process and is not shared across replicas
 - `oidc` currently supports Google only
+- Hosted workspace mode currently provides the backend/API surface; Team Settings UI, invitation email delivery, GitHub callback redirect polish, and GitHub App checkout/publish wiring are still pending
 - Source-anchored comments currently support markdown, Mermaid, and PlantUML text files, but not `.excalidraw` or `.drawio`
 - Windows use is supported via WSL2 rather than native Windows execution
 
@@ -308,6 +310,61 @@ Notes:
 - Set `AUTH_SESSION_MAX_AGE_MS` to keep the signed-in session valid longer than the default token lifetime
 - You can restrict sign-in to exact users with `AUTH_OIDC_ALLOWED_EMAILS` or entire domains with `AUTH_OIDC_ALLOWED_DOMAINS`
 - The CLI disables the tunnel automatically when `--auth oidc` is active
+
+### Single-tenant hosted workspace mode
+
+Hosted workspace mode is for manually provisioned, single-tenant deployments: one CollabMD app replica for one team, one workspace, one vault source, and one hosted metadata store. It is not a shared multi-tenant account system.
+
+Hosted mode requires Google OIDC:
+
+```bash
+AUTH_STRATEGY=oidc
+PUBLIC_BASE_URL=https://notes.example.com
+AUTH_OIDC_CLIENT_ID=your-google-client-id
+AUTH_OIDC_CLIENT_SECRET=your-google-client-secret
+COLLABMD_HOSTED_ENABLED=true
+```
+
+The first Team Admin is created through an email-bound workspace claim. Set the intended admin email and a one-time claim token when provisioning the deployment:
+
+```bash
+COLLABMD_HOSTED_CLAIM_EMAIL=admin@example.com
+COLLABMD_HOSTED_CLAIM_TOKEN=generated-one-time-secret
+```
+
+The claim is seeded into hosted metadata and expires after 7 days. The claimant must sign in with the matching verified Google email. After claim, Team Admins can manage active memberships, pending invitations, roles, and the access audit trail through the hosted API. The first roles are:
+
+- `admin` — can manage team access and configure initial workspace setup
+- `collaborator` — can access, edit, and publish changes after setup is complete
+
+Hosted metadata is stored in SQLite and defaults to `.collabmd/hosted.sqlite` inside the vault directory. Override it when the metadata store should live on a separate persistent volume:
+
+```bash
+COLLABMD_HOSTED_METADATA_DB_PATH=/data/.collabmd/hosted.sqlite
+```
+
+Hosted vault-source setup is GitHub-only in the first version and uses a GitHub App installation flow. Configure the GitHub App credentials on the server:
+
+```bash
+COLLABMD_GITHUB_APP_ID=123456
+COLLABMD_GITHUB_APP_SLUG=collabmd
+COLLABMD_GITHUB_APP_PRIVATE_KEY_FILE=/run/secrets/collabmd_github_app_private_key.pem
+```
+
+`COLLABMD_GITHUB_APP_PRIVATE_KEY` is also supported for environments that inject the private key directly. The Team Admin starts setup, installs the GitHub App, and selects exactly one repository. CollabMD resolves the installation and repository from GitHub, captures the selected repository's default branch as the configured branch, and stores that vault-source metadata in SQLite. The browser does not directly submit trusted repository or installation metadata.
+
+Current backend endpoints include:
+
+- `GET /api/hosted/status`
+- `POST /api/hosted/claim`
+- `POST /api/hosted/vault-source/github/setup`
+- `GET /api/hosted/vault-source/github/callback`
+- `GET /api/hosted/memberships`
+- `POST /api/hosted/invitations`
+- `POST /api/hosted/invitations/accept`
+- `GET /api/hosted/audit`
+
+Until the Team Settings UI and invitation email delivery are added, these are backend integration points rather than a complete hosted onboarding screen.
 
 ### Draw.io setup
 
@@ -610,6 +667,17 @@ vite.config.mjs            Vite multi-page build and dev-server proxy config
 | `AUTH_OIDC_ALLOWED_DOMAINS` | Comma-separated email domain allowlist for `AUTH_STRATEGY=oidc` | |
 | `BASE_PATH` | URL path prefix for subpath deployments | |
 | `COLLABMD_EMBED_PARENTS` | Space-separated list of parent origins permitted to iframe CollabMD (extends `frame-ancestors 'self'`). Unset means same-origin only. | |
+| `COLLABMD_HOSTED_ENABLED` | Enable single-tenant hosted workspace mode; requires `AUTH_STRATEGY=oidc` | `false` |
+| `COLLABMD_HOSTED_METADATA_DB_PATH` | SQLite database path for hosted workspace metadata | `<vault>/.collabmd/hosted.sqlite` |
+| `COLLABMD_HOSTED_CLAIM_EMAIL` | Verified Google email allowed to claim the first Team Admin role | |
+| `COLLABMD_HOSTED_CLAIM_TOKEN` | One-time token required for the first workspace claim | |
+| `COLLABMD_GITHUB_APP_ID` | GitHub App ID used for hosted vault-source setup | |
+| `COLLABMD_GITHUB_APP_SLUG` | GitHub App slug used to build the installation setup URL | |
+| `COLLABMD_GITHUB_APP_PRIVATE_KEY` | GitHub App private key; `\n` escapes are converted to newlines | |
+| `COLLABMD_GITHUB_APP_PRIVATE_KEY_FILE` | File path for the GitHub App private key; used when direct key input is not set | |
+| `COLLABMD_GITHUB_API_BASE_URL` | GitHub API base URL for hosted vault-source setup | `https://api.github.com` |
+| `COLLABMD_GITHUB_HTML_BASE_URL` | GitHub web base URL for installation setup | `https://github.com` |
+| `COLLABMD_GITHUB_SETUP_FLOW_COOKIE_NAME` | Signed cookie name for the GitHub App setup callback flow | `collabmd_github_setup_flow` |
 | `PLANTUML_SERVER_URL` | Upstream PlantUML server base URL used for server-side SVG rendering | `https://www.plantuml.com/plantuml` |
 | `COLLABMD_DRAWIO_BASE_URL` | diagrams.net base URL used for `.drawio` viewing and editing | `https://embed.diagrams.net` |
 | `COLLABMD_WIKI_LINK_AUTO_CREATE` | Create missing markdown files when clicking unresolved wiki-links; set to `false` to disable | `true` |

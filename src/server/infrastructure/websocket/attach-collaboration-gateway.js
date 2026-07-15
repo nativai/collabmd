@@ -1,5 +1,6 @@
 import { WebSocketServer } from 'ws';
 
+import { normalizeHostedEmail } from '../../domain/hosted-workspace-contract.js';
 import { ClientSocketSession } from './client-socket-session.js';
 
 function rejectUpgrade(socket, statusCode, statusMessage, {
@@ -50,6 +51,7 @@ export function attachCollaborationGateway({
   authService,
   basePath = '',
   heartbeatIntervalMs,
+  hostedWorkspaceService = null,
   httpServer,
   maxPayload,
   roomRegistry,
@@ -65,7 +67,8 @@ export function attachCollaborationGateway({
   let closePromise = null;
   const heartbeatTimer = setInterval(() => {
     websocketServer.clients.forEach((client) => {
-      const session = socketSessions.get(client);
+      const sessionEntry = socketSessions.get(client);
+      const session = sessionEntry?.session;
       if (!session) {
         return;
       }
@@ -94,7 +97,26 @@ export function attachCollaborationGateway({
   }, heartbeatIntervalMs);
   heartbeatTimer.unref?.();
 
-  websocketServer.on('connection', (ws, req, requestUrl) => {
+  const unsubscribeHostedAccessChange = hostedWorkspaceService?.onAccessChanged?.(({ email }) => {
+    websocketServer.clients.forEach((client) => {
+      const entry = socketSessions.get(client);
+      if (!entry || entry.userEmail !== email) {
+        return;
+      }
+
+      try {
+        client.close(4003, 'Workspace access changed');
+      } catch {
+        try {
+          client.terminate();
+        } catch {
+          // Ignore termination errors while closing revoked sessions.
+        }
+      }
+    });
+  }) ?? (() => {});
+
+  websocketServer.on('connection', (ws, req, requestUrl, user = null) => {
     const roomName = extractRoomName(requestUrl.pathname, wsBasePath);
     const room = roomRegistry.getOrCreate(roomName);
     const session = new ClientSocketSession({
@@ -110,7 +132,10 @@ export function attachCollaborationGateway({
       roomName,
       ws,
     });
-    socketSessions.set(ws, session);
+    socketSessions.set(ws, {
+      session,
+      userEmail: normalizeHostedEmail(user?.email),
+    });
     void session.initialize();
   });
 
@@ -139,8 +164,26 @@ export function attachCollaborationGateway({
       return;
     }
 
-    websocketServer.handleUpgrade(req, socket, head, (ws) => {
-      websocketServer.emit('connection', ws, req, requestUrl);
+    const authenticatedUser = authService.getAuthenticatedUser?.(req) ?? null;
+    Promise.resolve(hostedWorkspaceService?.authorizeWorkspaceAccess?.({
+      user: authenticatedUser,
+    })).then((hostedAuthResult) => {
+      if (hostedAuthResult && !hostedAuthResult.ok) {
+        rejectUpgrade(socket, hostedAuthResult.statusCode, 'Forbidden', {
+          body: hostedAuthResult.body?.error || 'Workspace access denied',
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+          },
+        });
+        return;
+      }
+
+      websocketServer.handleUpgrade(req, socket, head, (ws) => {
+        websocketServer.emit('connection', ws, req, requestUrl, authenticatedUser);
+      });
+    }).catch((error) => {
+      console.error('[ws] Hosted workspace authorization failed:', error.message);
+      rejectUpgrade(socket, 500, 'Internal Server Error');
     });
   });
 
@@ -151,6 +194,7 @@ export function attachCollaborationGateway({
 
     isShuttingDown = true;
     clearInterval(heartbeatTimer);
+    unsubscribeHostedAccessChange();
 
     closePromise = new Promise((resolve, reject) => {
       const forceCloseTimer = setTimeout(() => {

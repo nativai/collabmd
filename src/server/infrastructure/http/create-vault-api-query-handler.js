@@ -3,14 +3,7 @@ import { readdir } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { join } from 'node:path';
 
-import {
-  isBaseFilePath,
-  isDrawioFilePath,
-  isExcalidrawFilePath,
-  isImageAttachmentFilePath,
-  isMermaidFilePath,
-  isPlantUmlFilePath,
-} from '../../../domain/file-kind.js';
+import { isImageAttachmentFilePath } from '../../../domain/file-kind.js';
 import { isIgnoredVaultEntry } from '../persistence/path-utils.js';
 import { parseJsonBody } from './request-body.js';
 import { jsonResponse, sendResponse, sendStreamResponse } from './http-response.js';
@@ -56,30 +49,6 @@ function createDownloadHeaders(fileName, contentType) {
     'Content-Type': contentType,
     'X-Content-Type-Options': 'nosniff',
   };
-}
-
-function selectReadOperation(vaultFileStore, filePath) {
-  if (isExcalidrawFilePath(filePath)) {
-    return vaultFileStore.readExcalidrawFile(filePath);
-  }
-
-  if (isBaseFilePath(filePath)) {
-    return vaultFileStore.readBaseFile(filePath);
-  }
-
-  if (isDrawioFilePath(filePath)) {
-    return vaultFileStore.readDrawioFile(filePath);
-  }
-
-  if (isMermaidFilePath(filePath)) {
-    return vaultFileStore.readMermaidFile(filePath);
-  }
-
-  if (isPlantUmlFilePath(filePath)) {
-    return vaultFileStore.readPlantUmlFile(filePath);
-  }
-
-  return vaultFileStore.readMarkdownFile(filePath);
 }
 
 async function streamDirectoryArchive(req, res, {
@@ -282,6 +251,21 @@ async function handleFileTree(req, res, _requestUrl, { vaultFileStore, workspace
   }
 }
 
+async function handleCommentOverview(req, res, _requestUrl, { vaultFileStore }) {
+  try {
+    if (typeof vaultFileStore.readCommentOverview !== 'function') {
+      jsonResponse(req, res, 503, { error: 'Comment overview is unavailable' });
+      return;
+    }
+
+    const overview = await vaultFileStore.readCommentOverview();
+    jsonResponse(req, res, 200, { overview });
+  } catch (error) {
+    console.error('[api] Failed to read comment overview:', error.message);
+    jsonResponse(req, res, 500, { error: 'Failed to read comment overview' });
+  }
+}
+
 async function handleFileRead(req, res, requestUrl, { vaultFileStore }) {
   const filePath = requestUrl.searchParams.get('path');
   if (!filePath) {
@@ -290,7 +274,7 @@ async function handleFileRead(req, res, requestUrl, { vaultFileStore }) {
   }
 
   try {
-    const content = await selectReadOperation(vaultFileStore, filePath);
+    const content = await vaultFileStore.readEditableVaultContent(filePath);
     if (content === null) {
       jsonResponse(req, res, 404, { error: 'File not found' });
       return;
@@ -470,6 +454,7 @@ function createRouteTable(context) {
     { method: 'POST', path: '/api/base/transform', handler: handleBaseTransform },
     { method: 'POST', path: '/api/base/export', handler: handleBaseExport },
     { method: 'GET', path: '/api/files', handler: handleFileTree },
+    { method: 'GET', path: '/api/comments/overview', handler: handleCommentOverview },
     { method: 'GET', path: '/api/file', handler: handleFileRead },
     { method: 'GET', path: '/api/download/file', handler: handleFileDownload },
     { method: 'GET', path: '/api/download/directory', handler: handleDirectoryDownload },

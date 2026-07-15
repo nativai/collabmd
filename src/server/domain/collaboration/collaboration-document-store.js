@@ -85,6 +85,7 @@ export class CollaborationDocumentStore {
   async persistState({
     commentThreads = [],
     content = '',
+    includeContent = true,
     snapshot = null,
   } = {}) {
     if (!this.vaultFileStore) {
@@ -95,16 +96,19 @@ export class CollaborationDocumentStore {
       const result = await this.vaultFileStore.persistCollaborationState(this.name, {
         commentThreads,
         content,
+        includeContent,
         snapshot,
       });
       assertWriteSucceeded(result, 'persist collaboration state', this.name);
     } else {
-      await this.writeContent(content);
+      if (includeContent) {
+        await this.writeContent(content);
+      }
       await this.writeCommentThreads(commentThreads);
       await this.writeSnapshot(snapshot);
     }
 
-    if (this.backlinkIndex && isMarkdownFilePath(this.name)) {
+    if (includeContent && this.backlinkIndex && isMarkdownFilePath(this.name)) {
       this.backlinkIndex.updateFile(this.name, content);
     }
   }
