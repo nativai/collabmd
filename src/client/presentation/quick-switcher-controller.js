@@ -331,7 +331,7 @@ export class QuickSwitcherController {
       const truncated = this.fileMatchTotal > this.filteredFiles.length;
       if (fallbackNotice) {
         hintText = truncated ? `${fallbackNotice} · ${this.fileMatchTotal} matches` : fallbackNotice;
-      } else if (truncated) {
+      } else if (query && truncated) {
         hintText = `${this.fileMatchTotal} matches · showing top ${this.filteredFiles.length} · keep typing to narrow`;
       }
 
