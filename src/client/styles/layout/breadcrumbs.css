@@ -1,0 +1,149 @@
+/* ===== BREADCRUMB BAR =====
+ * A single full-width line at the top of the file view showing the current
+ * file's location in the vault. Its own header tier: white surface (groups with
+ * the toolbar), 36px tall, sentence-case path text — deliberately distinct from
+ * the gray uppercase pane-headers directly below it. Tokens only. */
+
+.breadcrumb-bar {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 var(--space-3);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-divider);
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: var(--font-body);
+  font-size: var(--text-ui-sm);
+}
+
+.breadcrumb-list {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.breadcrumb-item {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.breadcrumb-sep {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-faint);
+}
+
+.breadcrumb-sep-icon {
+  display: block;
+}
+
+/* Folder + root crumbs — reuse the ghost-button hover the user knows from the tree. */
+.breadcrumb-crumb {
+  display: inline-flex;
+  align-items: center;
+  max-width: 200px;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition-interactive), color var(--transition-interactive);
+}
+
+button.breadcrumb-crumb:hover,
+button.breadcrumb-crumb:focus-visible {
+  background: var(--color-surface-offset);
+  color: var(--color-text);
+}
+
+button.breadcrumb-crumb.active {
+  background: var(--color-surface-offset);
+  color: var(--color-text);
+}
+
+.breadcrumb-crumb--root {
+  padding: 3px 6px;
+  color: var(--color-text-muted);
+}
+
+.breadcrumb-home-icon {
+  display: block;
+}
+
+/* Leaf (the current file) — non-interactive current-location marker. */
+.breadcrumb-crumb--leaf {
+  max-width: 320px;
+  padding-left: 7px;
+  color: var(--color-text);
+  font-weight: 600;
+  cursor: default;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breadcrumb-crumb--overflow {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* Overflow reveal-menu — reuse the app's .create-menu popover; here only the
+ * label typography specific to this menu. */
+.breadcrumb-overflow-menu {
+  min-width: 200px;
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+}
+
+.breadcrumb-overflow-group {
+  margin-bottom: var(--space-1);
+}
+
+.breadcrumb-overflow-item-label {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-ui-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ===== EMBED (single=1) — display-only =====
+ * No sidebar to reveal into, so the bar becomes a static location line aligned to
+ * the reading column. Interactivity is neutralized both here and in JS. */
+html.single-page .breadcrumb-bar {
+  height: auto;
+  max-width: 1080px; /* matches the preview reading column (view-modes.css) */
+  margin: 0 auto;
+  padding: var(--space-4) 0 var(--space-2);
+  background: transparent;
+  border-bottom: 0;
+}
+
+html.single-page .breadcrumb-crumb {
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
+html.single-page .breadcrumb-crumb--leaf {
+  color: var(--color-text);
+}
+
+html.single-page .breadcrumb-crumb:hover,
+html.single-page .breadcrumb-crumb:focus-visible {
+  background: transparent;
+  color: var(--color-text-muted);
+}
