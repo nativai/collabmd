@@ -333,7 +333,7 @@ describe('FileExplorerView bounded search rendering', () => {
     expect(document.querySelector('.file-tree-search-summary').textContent).toBe('8 matches');
   });
 
-  it('renders a middle-truncated folder breadcrumb on search result rows', () => {
+  it('renders the folder breadcrumb via the shared component (display-only) on search result rows', () => {
     const view = createView();
 
     view.render({
@@ -349,8 +349,16 @@ describe('FileExplorerView bounded search rendering', () => {
     });
 
     const rows = document.querySelectorAll('.file-tree-search-results .file-tree-file');
-    const deepCrumb = rows[0].querySelector('.file-tree-breadcrumb');
-    expect(deepCrumb.textContent).toBe('Operating System/…/operating-system');
+    // Reuses the shared canonical breadcrumb component (breadcrumb-view.js) — the nav
+    // carries both the shared `.breadcrumb-bar` class and the inline scope class.
+    const crumbNav = rows[0].querySelector('nav.breadcrumb-bar.file-tree-breadcrumb');
+    expect(crumbNav).not.toBeNull();
+    // Display-only: no interactive buttons, no vault-root icon.
+    expect(crumbNav.querySelector('button')).toBeNull();
+    expect(crumbNav.querySelector('.breadcrumb-crumb--root')).toBeNull();
+    // Deep path is folded to first / … / deepest folder, rendered as shared crumbs.
+    const crumbLabels = [...crumbNav.querySelectorAll('.breadcrumb-crumb')].map((el) => el.textContent);
+    expect(crumbLabels).toEqual(['Operating System', '…', 'operating-system']);
     // A root-level file has no containing folder — no breadcrumb.
     expect(rows[1].querySelector('.file-tree-breadcrumb')).toBeNull();
   });

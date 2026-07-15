@@ -155,17 +155,37 @@
   display: none;
 }
 
-.file-tree-breadcrumb {
+/* Inline search-result breadcrumb: the shared canonical breadcrumb component
+ * (breadcrumb-view.js) placed in a tree row. The component ships as its own header
+ * tier (36px, border, surface bg); here we neutralize that chrome and render a
+ * compact, muted, right-aligned folder path instead. Rendering lives entirely in the
+ * shared component — this block only scopes its placement for the tight row, so it
+ * outspecifies `.breadcrumb-*` (imported after sidebar.css). */
+.file-tree-breadcrumb.breadcrumb-bar {
   flex-shrink: 1;
   min-width: 0;
+  height: auto;
   margin-left: auto;
-  padding-left: var(--space-2);
-  overflow: hidden;
-  color: var(--color-text-faint);
+  padding: 0 0 0 var(--space-2);
+  background: transparent;
+  border-bottom: 0;
   font-size: var(--text-xs);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  text-align: right;
+}
+
+.file-tree-breadcrumb .breadcrumb-crumb {
+  max-width: none;
+  padding: 0;
+  color: var(--color-text-faint);
+  font-weight: inherit;
+}
+
+.file-tree-breadcrumb .breadcrumb-crumb--leaf {
+  color: var(--color-text-faint);
+  font-weight: inherit;
+}
+
+.file-tree-breadcrumb .breadcrumb-sep {
+  color: var(--color-text-faint);
 }
 
 .file-tree-file-with-breadcrumb .file-tree-name {

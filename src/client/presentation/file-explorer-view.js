@@ -4,6 +4,8 @@ import {
 } from '../../domain/file-kind.js';
 import { escapeHtml } from '../domain/vault-utils.js';
 import { buttonClassNames } from './components/ui/button.js';
+import { deriveBreadcrumbSegments } from '../domain/breadcrumb-segments.js';
+import { renderBreadcrumb } from './breadcrumb-view.js';
 
 function getPathLeaf(path) {
   return String(path ?? '')
@@ -17,17 +19,6 @@ function getParentPath(pathValue) {
   const normalized = String(pathValue ?? '').replace(/\/+$/u, '');
   const separatorIndex = normalized.lastIndexOf('/');
   return separatorIndex >= 0 ? normalized.slice(0, separatorIndex) : '';
-}
-
-// Breadcrumb for a search-result row (DESIGN §3.1): the containing folder path, middle-truncated
-// so both the top-level and the leaf folder stay visible ("Operating System/…/Bricks") — the
-// disambiguator when many files share a name across the vault.
-function middleTruncatePath(folderPath) {
-  const segments = String(folderPath ?? '').split('/').filter(Boolean);
-  if (segments.length <= 2) {
-    return segments.join('/');
-  }
-  return `${segments[0]}/…/${segments[segments.length - 1]}`;
 }
 
 function findNodeByPath(nodes = [], pathValue = '') {
@@ -605,16 +596,20 @@ export class FileExplorerView {
     if (threadCount > 0) {
       button.dataset.threadCount = String(threadCount);
     }
-    const breadcrumb = breadcrumbPath ? middleTruncatePath(breadcrumbPath) : '';
-    if (breadcrumb) {
+    const breadcrumbNav = breadcrumbPath ? this.buildInlineBreadcrumb(breadcrumbPath) : null;
+    if (breadcrumbNav) {
       button.classList.add('file-tree-file-with-breadcrumb');
     }
     button.innerHTML = `
       ${this.getFileIconSvg({ isBase, isDrawio, isExcalidraw, isImage, isMermaid, isPlantUml })}
       <span class="file-tree-name">${escapeHtml(stripVaultFileExtension(name))}</span>
-      ${breadcrumb ? `<span class="file-tree-breadcrumb" title="${escapeHtml(breadcrumbPath)}">${escapeHtml(breadcrumb)}</span>` : ''}
       ${threadCount > 0 ? `<span class="file-tree-comment-count" aria-label="${threadCount} open comment thread${threadCount === 1 ? '' : 's'}">${threadCount}</span>` : ''}
     `;
+    if (breadcrumbNav) {
+      // Order: name, breadcrumb, comment-count. insertBefore(node, null) appends,
+      // so when there is no comment count the breadcrumb lands last.
+      button.insertBefore(breadcrumbNav, button.querySelector('.file-tree-comment-count'));
+    }
     this.configureDragSource(button, { path: filePath, type: 'file' });
 
     button.addEventListener('click', (event) => {
@@ -632,6 +627,26 @@ export class FileExplorerView {
     });
 
     return button;
+  }
+
+  // Inline search-result breadcrumb (DESIGN §3.1 / UX7): the file's containing folder
+  // path rendered through the shared, canonical breadcrumb component — one visual
+  // language across the app, no second path-renderer. Display-only and scoped for the
+  // tight tree row (no vault-root icon, muted, right-aligned). When the path is deep,
+  // the top-level and the deepest folder stay visible with a "…" standing in for the
+  // folders between them ("Operating System/…/Bricks") — the disambiguator when many
+  // files share a name across the vault.
+  buildInlineBreadcrumb(folderPath) {
+    const segments = deriveBreadcrumbSegments(folderPath);
+    if (segments.length === 0) {
+      return null;
+    }
+    const display = segments.length > 2
+      ? [segments[0], { name: '…', path: '', isLeaf: false }, segments[segments.length - 1]]
+      : segments;
+    const nav = renderBreadcrumb(display, { interactive: false, showRoot: false });
+    nav.classList.add('file-tree-breadcrumb');
+    return nav;
   }
 
   isMobileViewport() {
