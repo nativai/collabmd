@@ -322,7 +322,7 @@ export class QuickSwitcherController {
 
     if (this.hint) {
       if (this.fileMatchTotal > this.filteredFiles.length) {
-        this.hint.textContent = `Showing top ${this.filteredFiles.length} of ${this.fileMatchTotal} matches — refine to narrow`;
+        this.hint.textContent = `${this.fileMatchTotal} matches · showing top ${this.filteredFiles.length} · keep typing to narrow`;
         this.hint.classList.remove('hidden');
       } else {
         this.hint.classList.add('hidden');

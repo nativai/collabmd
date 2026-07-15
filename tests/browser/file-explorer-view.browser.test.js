@@ -300,7 +300,7 @@ describe('FileExplorerView bounded search rendering', () => {
     });
 
     const rendered = document.querySelectorAll('.file-tree-search-results .file-tree-file');
-    expect(rendered).toHaveLength(100);
+    expect(rendered).toHaveLength(50);
 
     // The whole subtree stays far below the 105k nodes the unbounded render built.
     const nodeCount = document.getElementById('fileTree').querySelectorAll('*').length;
@@ -308,7 +308,7 @@ describe('FileExplorerView bounded search rendering', () => {
 
     const summary = document.querySelector('.file-tree-search-summary');
     expect(summary.textContent).toContain('5000 matches');
-    expect(summary.textContent).toContain('showing first 100');
+    expect(summary.textContent).toContain('showing top 50');
   });
 
   it('shows an exact count when every match fits in the first window', () => {
@@ -333,6 +333,30 @@ describe('FileExplorerView bounded search rendering', () => {
     expect(document.querySelector('.file-tree-search-summary').textContent).toBe('8 matches');
   });
 
+  it('ranks filename matches ahead of path-only matches', () => {
+    const view = createView();
+
+    // "report" hits the folder segment of the first entry (path-only) and the file name of
+    // the second entry (name match). The name match must render first.
+    const matches = [
+      { name: 'summary.md', path: 'reports/summary.md', type: 'file' },
+      { name: 'report.md', path: 'docs/report.md', type: 'file' },
+    ];
+
+    view.render({
+      activeFilePath: null,
+      expandedDirs: new Set(),
+      reset: true,
+      searchMatches: matches,
+      searchQuery: 'report',
+      tree: [],
+    });
+
+    const rows = document.querySelectorAll('.file-tree-search-results .file-tree-file');
+    expect(rows[0].dataset.path).toBe('docs/report.md');
+    expect(rows[1].dataset.path).toBe('reports/summary.md');
+  });
+
   it('appends the next window on demand without rebuilding rendered rows', () => {
     const view = createView();
 
@@ -351,14 +375,16 @@ describe('FileExplorerView bounded search rendering', () => {
       tree: [],
     });
 
+    expect(document.querySelectorAll('.file-tree-search-results .file-tree-file')).toHaveLength(50);
+
+    view.appendSearchResults(50);
     expect(document.querySelectorAll('.file-tree-search-results .file-tree-file')).toHaveLength(100);
+    expect(document.querySelector('.file-tree-search-summary').textContent).toContain('showing top 100');
 
-    view.appendSearchResults(100);
-    expect(document.querySelectorAll('.file-tree-search-results .file-tree-file')).toHaveLength(200);
-    expect(document.querySelector('.file-tree-search-summary').textContent).toContain('showing first 200');
-
-    view.appendSearchResults(100);
-    view.appendSearchResults(100);
+    view.appendSearchResults(50);
+    view.appendSearchResults(50);
+    view.appendSearchResults(50);
+    view.appendSearchResults(50);
     expect(document.querySelectorAll('.file-tree-search-results .file-tree-file')).toHaveLength(350);
     expect(document.querySelector('.file-tree-search-summary').textContent).toBe('350 matches');
   });

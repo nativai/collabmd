@@ -43,8 +43,9 @@ const DRAG_AUTO_EXPAND_DELAY_MS = 700;
 // Search-result rendering is bounded so a match set of any size (queries like "a"
 // match ~20k nodes in the wisdom corpus) never builds 100k+ DOM nodes synchronously.
 // We render an initial window and append further batches only as the user scrolls.
-const SEARCH_RESULT_INITIAL_WINDOW = 100;
-const SEARCH_RESULT_SCROLL_BATCH = 100;
+// Window sizes per DESIGN §3.4 (D4): 50 fills the full-height rail with headroom.
+const SEARCH_RESULT_INITIAL_WINDOW = 50;
+const SEARCH_RESULT_SCROLL_BATCH = 50;
 const SEARCH_RESULT_SCROLL_APPEND_THRESHOLD_PX = 280;
 
 export class FileExplorerView {
@@ -255,12 +256,35 @@ export class FileExplorerView {
 
     this.searchRenderContext = {
       activeFilePath,
-      matches,
+      matches: this.rankSearchMatches(matches),
       rendered: 0,
       resultsList,
     };
 
     this.appendSearchResults(SEARCH_RESULT_INITIAL_WINDOW);
+  }
+
+  // Rank so the answer is usually near the top (DESIGN §3.3 / conception R4): a match on the
+  // file's own name outranks a match that only hit a directory segment in its path (which is
+  // what inflates the set for short queries). Stable partition — tree order is preserved within
+  // each group — keeps ordering predictable and avoids sorting ~20k items on every keystroke.
+  rankSearchMatches(matches) {
+    const query = this.currentSearchQuery;
+    if (!query) {
+      return matches;
+    }
+
+    const nameMatches = [];
+    const pathOnlyMatches = [];
+    for (const match of matches) {
+      const name = String(match.name ?? '').toLowerCase();
+      if (name.includes(query)) {
+        nameMatches.push(match);
+      } else {
+        pathOnlyMatches.push(match);
+      }
+    }
+    return nameMatches.concat(pathOnlyMatches);
   }
 
   appendSearchResults(count) {
@@ -307,7 +331,7 @@ export class FileExplorerView {
     const noun = total === 1 ? 'match' : 'matches';
     summary.textContent = context.rendered >= total
       ? `${total} ${noun}`
-      : `${total} ${noun} — showing first ${context.rendered}, scroll for more`;
+      : `${total} ${noun} · showing top ${context.rendered} · keep typing to narrow`;
   }
 
   maybeAppendSearchResults() {
