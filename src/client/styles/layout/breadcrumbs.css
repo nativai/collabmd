@@ -27,14 +27,19 @@
   list-style: none;
 }
 
+/* Crumbs must NOT flex-shrink: they keep their natural (max 200px) width and
+ * overflow the bar when the path is too long — that overflow is what the
+ * controller measures (scrollWidth > clientWidth) to decide how much to collapse.
+ * If they shrank instead, the line would silently compress and never collapse. */
 .breadcrumb-item {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
-  min-width: 0;
 }
 
 .breadcrumb-sep {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   color: var(--color-text-faint);
 }
