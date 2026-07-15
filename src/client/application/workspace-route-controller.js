@@ -324,6 +324,12 @@ export class WorkspaceRouteController {
     this.fileExplorer.revealFile?.(filePath, { clearSearch });
   }
 
+  revealDirectoryInTree(dirPath) {
+    this.setSidebarTab('files');
+    this.setSidebarVisibility(true);
+    this.fileExplorer.revealDirectory?.(dirPath);
+  }
+
   revealEditorMatch(route = {}) {
     if (!Number.isFinite(route.line)) {
       return false;

@@ -108,6 +108,13 @@ export class FileExplorerController {
     this.view.revealFile(filePath);
   }
 
+  revealDirectory(dirPath) {
+    this.state.setSearchQuery('');
+    this.state.expandDirectoryPath(dirPath, { includeLeaf: true });
+    this.renderTree({ reset: true });
+    this.view.revealDirectory(dirPath);
+  }
+
   get flatFiles() {
     return this.state.flatFiles;
   }

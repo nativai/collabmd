@@ -138,6 +138,17 @@ export class FileExplorerView {
     fileItem?.scrollIntoView({ block: 'nearest' });
   }
 
+  revealDirectory(dirPath) {
+    if (!dirPath) {
+      this.treeContainer?.scrollTo?.({ top: 0 });
+      return;
+    }
+
+    const dirItem = Array.from(this.treeContainer?.querySelectorAll('.file-tree-dir') ?? [])
+      .find((element) => element.dataset.path === dirPath);
+    dirItem?.scrollIntoView({ block: 'nearest' });
+  }
+
   render({ activeFilePath, changedPaths = null, expandedDirs, reset = false, searchMatches, searchQuery, threadCounts = new Map(), tree }) {
     if (!this.treeContainer) {
       return;

@@ -233,4 +233,8 @@ export const workspaceFeature = {
       revealInTree,
     });
   },
+
+  revealDirectoryInTree(dirPath) {
+    this.workspaceRouteController.revealDirectoryInTree(dirPath);
+  },
 };
