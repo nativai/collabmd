@@ -158,8 +158,9 @@ export class QuickSwitcherWisdomSearchRunner {
           return;
         }
         this._stopTimer();
-        onProgressEnd?.({ stopped: false });
-        // If the fast preview already rendered, keep it rather than blanking the panel.
+        // If the fast preview already rendered, keep it as the final result (relabelled
+        // "keyword matches only") rather than blanking the panel or hanging in "loading".
+        onProgressEnd?.({ keptPreview: previewRendered, stopped: false });
         if (!previewRendered) {
           onUnavailable?.(error?.body?.error || 'Wisdom search is unavailable right now.');
         }

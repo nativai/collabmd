@@ -695,8 +695,15 @@ export class QuickSwitcherController {
         this.wisdomProgressCopy = copy;
         this.updateWisdomProgressCopy(copy);
       },
-      onProgressEnd: () => {
+      onProgressEnd: ({ keptPreview = false } = {}) => {
         this.wisdomLoading = false;
+        // Authoritative call failed but the lex preview is up → lock it in as the final
+        // result ("keyword matches only"), dropping the progress affordance.
+        if (keptPreview) {
+          this.wisdomProvisional = false;
+          this.wisdomStopped = true;
+          this.renderWisdomResults();
+        }
       },
       onUnavailable: (message) => {
         this.wisdomLoading = false;

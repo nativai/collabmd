@@ -18,7 +18,10 @@ const MIN_QUERY_LENGTH = 2;
 const MAX_QUERY_LENGTH = 512;
 const SNIPPET_CONTEXT_CHARS = 90;
 const LEX_TIMEOUT_MS = 4_000;
-const FULL_TIMEOUT_MS = 20_000;
+// vec end-to-end (embedding + rerank + expansion round-trips) measures ~16–20 s and
+// spikes past 20 s under load; 25 s tolerates the observed variance while still bounding
+// the hang. The progressive lex preview means the user is never staring at a blank wait.
+const FULL_TIMEOUT_MS = 25_000;
 
 // --- pure helpers (copied from ripgrep-search-service to keep that file byte-identical
 //     for clean upstream merges — the two functions are small, pure, and independently
