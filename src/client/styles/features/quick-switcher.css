@@ -303,3 +303,158 @@
   background: oklch(from var(--color-primary) l c h / 0.22);
   color: var(--color-primary);
 }
+
+/* ===== WISDOM MODE (additive; existing tokens only) ===== */
+
+/* Armed "↵ Enter" chip — accent-tinted variant of .qs-kbd (FDE §2b). */
+.qs-kbd.enter {
+  border-color: color-mix(in oklch, var(--color-primary) 40%, var(--color-divider));
+  background: color-mix(in oklch, var(--color-primary) 12%, var(--color-surface));
+  color: var(--color-primary);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.qs-kbd.enter.hidden {
+  display: none;
+}
+
+.qs-hint-sub {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-text-faint);
+  font-size: var(--text-meta);
+}
+
+/* Progressive loading affordance (FDE §2c). */
+.qs-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.qs-progress-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qs-progress-spin {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  border: 2px solid color-mix(in oklch, var(--color-primary) 25%, transparent);
+  border-top-color: var(--color-primary);
+  border-radius: var(--radius-full);
+  animation: qs-spin 0.7s linear infinite;
+}
+
+.qs-progress-stop {
+  flex-shrink: 0;
+  padding: 2px 10px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-offset);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--text-meta);
+  cursor: pointer;
+  transition: background var(--transition-interactive), color var(--transition-interactive);
+}
+
+.qs-progress-stop:hover {
+  background: var(--color-surface-dynamic);
+  color: var(--color-text);
+}
+
+.qs-progressbar {
+  position: relative;
+  height: 2px;
+  margin: 0 var(--space-3);
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: color-mix(in oklch, var(--color-primary) 12%, transparent);
+}
+
+.qs-progressbar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  border-radius: inherit;
+  background: var(--color-primary);
+  animation: qs-shimmer 1.25s ease-in-out infinite;
+}
+
+.prov-tag {
+  margin: var(--space-1) var(--space-3) 0;
+  padding: 2px var(--space-2);
+  width: fit-content;
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklch, var(--color-primary) 10%, var(--color-surface-offset));
+  color: var(--color-primary);
+  font-size: var(--text-meta);
+  letter-spacing: 0.01em;
+}
+
+.qs-wisdom-list.provisional {
+  opacity: 0.82;
+  transition: opacity 120ms ease;
+}
+
+/* Semantic-only hit (vec, no literal line): "semantic" in the line slot. */
+.qs-text-line.semantic {
+  color: var(--color-text-faint);
+  font-family: var(--font-body);
+  font-size: var(--text-meta);
+  font-style: italic;
+}
+
+/* Unresolvable hit (slug maps to no vault file): greyed, disabled, never opens (FDE §2g). */
+.qs-text-group.unresolvable {
+  opacity: 0.55;
+}
+
+.qs-text-item.disabled {
+  cursor: default;
+}
+
+.qs-text-item.disabled:hover {
+  background: transparent;
+}
+
+.notfound-tag {
+  justify-self: start;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-offset);
+  color: var(--color-text-faint);
+  font-size: var(--text-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+@keyframes qs-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes qs-shimmer {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qs-progress-spin {
+    animation: none;
+  }
+
+  .qs-progressbar::after {
+    position: static;
+    width: 100%;
+    animation: none;
+  }
+}

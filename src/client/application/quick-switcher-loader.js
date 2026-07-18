@@ -23,6 +23,7 @@ export async function ensureQuickSwitcherInstance(host) {
     host.quickSwitcher = new QuickSwitcherController({
       getFileList: () => host.fileExplorer.flatFiles,
       getSearchConfig: () => host.runtimeConfig.search ?? {},
+      getWisdomSearchConfig: () => host.runtimeConfig.wisdomSearch ?? {},
       onFileSelect: (filePath) => host.handleFileSelection(filePath, {
         closeSidebarOnMobile: true,
         revealInTree: true,
@@ -40,6 +41,7 @@ export async function ensureQuickSwitcherInstance(host) {
         });
       },
       searchText: (payload) => host.vaultApiClient.searchText(payload),
+      wisdomSearch: (payload) => host.vaultApiClient.wisdomSearch(payload),
     });
   }
 

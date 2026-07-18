@@ -103,6 +103,18 @@ export class VaultApiClient {
     return parseApiResponse(response, 'Failed to search files');
   }
 
+  async wisdomSearch({ limit = 50, mode = 'full', query = '', signal = null } = {}) {
+    const searchParams = new URLSearchParams({
+      limit: String(limit),
+      mode: mode === 'lex' ? 'lex' : 'full',
+      q: String(query ?? ''),
+    });
+    const response = await fetch(resolveApiUrl(`/wisdom-search?${searchParams.toString()}`), {
+      signal,
+    });
+    return parseApiResponse(response, 'Failed to search wisdom');
+  }
+
   async queryBase({
     activeFilePath = '',
     path = '',

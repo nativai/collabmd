@@ -678,6 +678,7 @@ export function appShellTemplate() {
         <div class="qs-mode-tabs" role="tablist" aria-label="Search mode">
           <button class="qs-mode-tab active" type="button" role="tab" aria-selected="true" data-qs-mode="files">Files</button>
           <button class="qs-mode-tab" type="button" role="tab" aria-selected="false" data-qs-mode="text">Text</button>
+          <button class="qs-mode-tab" type="button" role="tab" aria-selected="false" data-qs-mode="wisdom">Wisdom</button>
         </div>
         <div class="qs-input-wrap">
           <svg class="qs-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
