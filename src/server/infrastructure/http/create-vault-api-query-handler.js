@@ -445,6 +445,42 @@ async function handleSearch(req, res, requestUrl, { searchService }) {
   }
 }
 
+async function handleWisdomSearch(req, res, requestUrl, { wisdomSearchService }) {
+  if (!wisdomSearchService?.search) {
+    jsonResponse(req, res, 503, {
+      error: 'Wisdom search is unavailable',
+      ok: false,
+      search: {
+        available: false,
+        backend: 'wisdom',
+      },
+    });
+    return;
+  }
+
+  try {
+    const result = await wisdomSearchService.search({
+      limit: requestUrl.searchParams.get('limit') || '',
+      mode: requestUrl.searchParams.get('mode') || 'full',
+      query: requestUrl.searchParams.get('q') || '',
+    });
+    jsonResponse(req, res, 200, result);
+  } catch (error) {
+    const statusCode = Number(error?.statusCode) || 503;
+    // The service already produced a plain-English message — NEVER leak a raw engine
+    // error/stack to the client (unlike the ripgrep Text path — brick 77964678).
+    console.error('[api] Wisdom search failed:', error.message);
+    jsonResponse(req, res, statusCode, {
+      error: error.message || 'Wisdom search is unavailable',
+      ok: false,
+      search: error.search ?? wisdomSearchService?.getClientConfig?.() ?? {
+        available: false,
+        backend: 'wisdom',
+      },
+    });
+  }
+}
+
 // --- Route table ---
 
 function createRouteTable(context) {
@@ -461,6 +497,7 @@ function createRouteTable(context) {
     { method: 'GET', path: '/api/attachment', handler: handleAttachmentRead },
     { method: 'GET', path: '/api/backlinks', handler: handleBacklinks },
     { method: 'GET', path: '/api/search', handler: handleSearch },
+    { method: 'GET', path: '/api/wisdom-search', handler: handleWisdomSearch },
   ].map((route) => ({
     ...route,
     handler: (req, res, requestUrl) => route.handler(req, res, requestUrl, context),
@@ -473,6 +510,7 @@ export function createVaultApiQueryHandler({
   config = {},
   searchService = null,
   vaultFileStore,
+  wisdomSearchService = null,
   workspaceMutationCoordinator = null,
 }) {
   const context = {
@@ -481,6 +519,7 @@ export function createVaultApiQueryHandler({
     config,
     searchService,
     vaultFileStore,
+    wisdomSearchService,
     workspaceMutationCoordinator,
   };
   const routes = createRouteTable(context);

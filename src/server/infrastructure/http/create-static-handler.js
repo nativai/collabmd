@@ -54,6 +54,7 @@ function buildRuntimeConfig({
   publicWsBaseUrl,
   search,
   wikiLinkAutoCreate,
+  wisdomSearch,
   wsBasePath,
 }) {
   return `window.__COLLABMD_CONFIG__ = ${JSON.stringify({
@@ -69,6 +70,7 @@ function buildRuntimeConfig({
     publicWsBaseUrl,
     search,
     wikiLinkAutoCreate,
+    wisdomSearch,
     wsBasePath,
   })};\n`;
 }
@@ -105,7 +107,7 @@ function resolvePublicFile(publicDir, pathname) {
   return absolutePath;
 }
 
-export function createStaticHandler(config, authService = null, searchService = null) {
+export function createStaticHandler(config, authService = null, searchService = null, wisdomSearchService = null) {
   const readStaticFile = createStaticFileReader({
     cacheEnabled: config.nodeEnv === 'production',
   });
@@ -130,6 +132,13 @@ export function createStaticHandler(config, authService = null, searchService = 
           backend: 'ripgrep',
           minQueryLength: 2,
           unavailableReason: 'ripgrep search is unavailable',
+          version: '',
+        },
+        wisdomSearch: wisdomSearchService?.getClientConfig?.() ?? config.wisdomSearch ?? {
+          available: false,
+          backend: 'wisdom',
+          minQueryLength: 2,
+          unavailableReason: 'wisdom search is unavailable',
           version: '',
         },
       });

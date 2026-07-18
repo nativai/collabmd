@@ -52,9 +52,10 @@ export function createRequestHandler(
   fileSystemSyncService = null,
   hostedWorkspaceService = null,
   githubSetupFlow = null,
+  wisdomSearchService = null,
 ) {
   const handleEsmProxy = createEsmProxyHandler();
-  const handleStaticRequest = createStaticHandler(config, authService, searchService);
+  const handleStaticRequest = createStaticHandler(config, authService, searchService, wisdomSearchService);
   const handleAuthApi = createAuthApiHandler({ authService });
   const handleHostedApi = createHostedApiHandler({
     authService,
@@ -78,6 +79,7 @@ export function createRequestHandler(
     roomRegistry,
     searchService,
     vaultFileStore,
+    wisdomSearchService,
     workspaceMutationCoordinator,
   });
 

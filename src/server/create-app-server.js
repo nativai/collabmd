@@ -15,6 +15,7 @@ import { HostedWorkspaceService } from './domain/hosted-workspace.js';
 import { PlantUmlRenderer } from './infrastructure/plantuml/plantuml-renderer.js';
 import { RoomRegistry } from './domain/collaboration/room-registry.js';
 import { RipgrepSearchService } from './domain/ripgrep-search-service.js';
+import { WisdomSearchService } from './domain/wisdom-search-service.js';
 import { createRequestHandler } from './infrastructure/http/create-request-handler.js';
 import { HostedMetadataStore } from './infrastructure/persistence/hosted-metadata-store.js';
 import { VaultFileStore } from './infrastructure/persistence/vault-file-store.js';
@@ -93,6 +94,11 @@ export function createAppServer(config = loadConfig()) {
     perfLoggingEnabled: config.perfLoggingEnabled,
     vaultDir: config.vaultDir,
   });
+  const wisdomSearchService = new WisdomSearchService({
+    getVaultFilePaths: () => workspaceMutationCoordinator?.workspaceState?.filePaths ?? [],
+    perfLoggingEnabled: config.perfLoggingEnabled,
+    vaultDir: config.vaultDir,
+  });
   const testControls = {
     wsRoomHydrateDelayMs: Math.max(0, Number(config.testWsRoomHydrateDelayMs || 0)),
   };
@@ -154,6 +160,7 @@ export function createAppServer(config = loadConfig()) {
     fileSystemSyncService,
     hostedWorkspaceService,
     githubSetupFlow,
+    wisdomSearchService,
   );
   const httpServer = createServer((req, res) => {
     requestHandler(req, res).catch((error) => {
@@ -192,6 +199,14 @@ export function createAppServer(config = loadConfig()) {
       available: config.search.available,
       durationMs: Date.now() - searchCapabilityStartedAt,
       phase: 'search-capability',
+    });
+
+    const wisdomCapabilityStartedAt = Date.now();
+    config.wisdomSearch = await wisdomSearchService.initialize();
+    logPerfEvent(config.perfLoggingEnabled, 'startup', {
+      available: config.wisdomSearch.available,
+      durationMs: Date.now() - wisdomCapabilityStartedAt,
+      phase: 'wisdom-search-capability',
     });
 
     const initialWorkspaceScanStartedAt = Date.now();
@@ -316,6 +331,7 @@ export function createAppServer(config = loadConfig()) {
     gitService,
     hostedWorkspaceService,
     searchService,
+    wisdomSearchService,
     setTestHydrateDelayMs(delayMs = 0) {
       testControls.wsRoomHydrateDelayMs = Math.max(0, Number(delayMs) || 0);
     },

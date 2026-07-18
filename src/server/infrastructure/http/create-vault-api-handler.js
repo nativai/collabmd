@@ -11,6 +11,7 @@ export function createVaultApiHandler({
   roomRegistry = null,
   searchService = null,
   vaultFileStore,
+  wisdomSearchService = null,
   workspaceMutationCoordinator = null,
 }) {
   const handleVaultApiQuery = createVaultApiQueryHandler({
@@ -19,6 +20,7 @@ export function createVaultApiHandler({
     config,
     searchService,
     vaultFileStore,
+    wisdomSearchService,
     workspaceMutationCoordinator,
   });
   const handleVaultApiCommand = createVaultApiCommandHandler({
