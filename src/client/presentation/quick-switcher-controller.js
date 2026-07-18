@@ -254,8 +254,7 @@ export class QuickSwitcherController {
   }
 
   setMode(mode = 'files', { preserveInput = false } = {}) {
-    const availableModes = this.modeTabs.map((tab) => tab.dataset.qsMode).filter(Boolean);
-    const normalizedMode = availableModes.includes(mode) ? mode : 'files';
+    const normalizedMode = (mode === 'text' || mode === WISDOM_MODE) ? mode : 'files';
     this.mode = normalizedMode;
     this.contentFallbackActive = false;
     this.selectedIndex = 0;
