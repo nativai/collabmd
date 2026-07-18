@@ -19,7 +19,6 @@ const MAX_QUERY_LENGTH = 512;
 const SNIPPET_CONTEXT_CHARS = 90;
 const LEX_TIMEOUT_MS = 4_000;
 const FULL_TIMEOUT_MS = 20_000;
-const PROBE_TIMEOUT_MS = 4_000;
 
 // --- pure helpers (copied from ripgrep-search-service to keep that file byte-identical
 //     for clean upstream merges — the two functions are small, pure, and independently
@@ -263,30 +262,17 @@ export class WisdomSearchService {
     this.perfLoggingEnabled = perfLoggingEnabled;
     this.vaultDir = vaultDir;
 
-    this.available = false;
-    this.unavailableReason = 'Wisdom search has not been checked yet';
+    // Optimistic: assume the in-pod engine is reachable. No startup network probe — real
+    // availability is settled per request in search(), which degrades gracefully on any
+    // engine error/timeout (FDE state ⑤). This keeps startup side-effect-free and lets a
+    // slow-to-start engine recover without a server restart.
+    this.available = true;
+    this.unavailableReason = '';
     this._slugMap = null;
     this._slugMapSourceRef = null;
   }
 
   async initialize() {
-    // Optimistic probe: a fast lex query confirms the engine is reachable. A failure
-    // marks it unavailable up front but never hard-blocks — search() still attempts and
-    // degrades gracefully, so a slow-to-start engine recovers without a restart.
-    try {
-      await this._callEngine({ mode: 'lex', query: 'wisdom', timeoutMs: PROBE_TIMEOUT_MS });
-      this.available = true;
-      this.unavailableReason = '';
-    } catch (error) {
-      this.available = false;
-      this.unavailableReason = 'The wisdom search engine is not responding.';
-      logPerfEvent(this.perfLoggingEnabled, 'wisdom-search-capability', {
-        available: false,
-        backend: 'wisdom',
-        reason: error?.message ?? 'unavailable',
-      });
-    }
-
     logPerfEvent(this.perfLoggingEnabled, 'wisdom-search-capability', {
       available: this.available,
       backend: 'wisdom',
@@ -426,7 +412,6 @@ export class WisdomSearchService {
         continue;
       }
       const contentLines = parseEngineSnippetLines(result?.snippet ?? '');
-      // eslint-disable-next-line no-await-in-loop
       const resolved = await this._resolveHit(enginePath, contentLines, queryTerms, slugMap);
 
       if (resolved.unresolvable) {
