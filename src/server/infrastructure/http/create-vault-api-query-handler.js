@@ -434,8 +434,13 @@ async function handleSearch(req, res, requestUrl, { searchService }) {
   } catch (error) {
     const statusCode = Number(error?.statusCode) || 500;
     console.error('[api] Failed to search vault:', error.message);
+    const userMessage = statusCode === 503
+      ? (error?.message || 'Global text search requires ripgrep on the server')
+      : statusCode === 504
+        ? 'Search timed out — try a shorter or simpler query'
+        : 'Search failed — try a different query';
     jsonResponse(req, res, statusCode, {
-      error: error.message || 'Failed to search vault',
+      error: userMessage,
       ok: false,
       search: error.search ?? searchService?.getClientConfig?.() ?? {
         available: false,
