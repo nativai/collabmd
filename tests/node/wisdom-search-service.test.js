@@ -12,6 +12,7 @@ import {
   buildSlugMap,
   parseEngineSnippetLines,
   locateSnippetInFile,
+  sanitizeVecQuery,
 } from '../../src/server/domain/wisdom-search-service.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -129,6 +130,60 @@ test('search(mode=lex) sends a lex-only engine request; mode=full sends vec+lex'
   const dfltService = new WisdomSearchService({ fetchImpl: dflt.fetchImpl, getVaultFilePaths: () => [] });
   await dfltService.search({ query: 'hello world' });
   assert.deepEqual(dflt.calls[0].body.searches.map((s) => s.type), ['vec', 'lex'], 'defaults to full');
+});
+
+// --- hyphen sanitization for the vec sub-search (the qmd negation-operator 503 fix) ---
+
+test('sanitizeVecQuery neutralizes negation-triggering hyphens (leading, classic, mid-token)', () => {
+  // `-term` — whether leading, classic `foo -bar`, or mid-token `safe-merge` — is what the
+  // qmd vec/hyde parser mis-reads as negation and 500s on. Each such hyphen → a space.
+  assert.equal(sanitizeVecQuery('safe-merge'), 'safe merge');
+  assert.equal(sanitizeVecQuery('fast-forward'), 'fast forward');
+  assert.equal(sanitizeVecQuery('head-of-development'), 'head of development');
+  assert.equal(sanitizeVecQuery('test-engineer head-of-development'), 'test engineer head of development');
+  assert.equal(sanitizeVecQuery('-leadinghyphen'), ' leadinghyphen');
+  assert.equal(sanitizeVecQuery('foo -bar'), 'foo  bar');
+  assert.equal(sanitizeVecQuery('2026-07-23'), '2026 07 23');
+  assert.equal(sanitizeVecQuery('foo--bar'), 'foo  bar');
+});
+
+test('sanitizeVecQuery leaves non-negation hyphens and plain queries untouched', () => {
+  // A trailing or lone hyphen is not a `-term` negation trigger — the engine accepts it, so
+  // it must be preserved. Queries with no hyphen pass through byte-for-byte.
+  assert.equal(sanitizeVecQuery('trailing-'), 'trailing-');
+  assert.equal(sanitizeVecQuery('-'), '-');
+  assert.equal(sanitizeVecQuery('plain query'), 'plain query');
+  assert.equal(sanitizeVecQuery('hello world'), 'hello world');
+  assert.equal(sanitizeVecQuery(''), '');
+  assert.equal(sanitizeVecQuery(undefined), '');
+});
+
+test('search(mode=full) sanitizes the vec sub-query but sends the RAW query to lex', async () => {
+  const rec = recordingFetch({ results: [] });
+  const service = new WisdomSearchService({ fetchImpl: rec.fetchImpl, getVaultFilePaths: () => [] });
+  await service.search({ mode: 'full', query: 'safe-merge' });
+  const searches = rec.calls[0].body.searches;
+  const vec = searches.find((s) => s.type === 'vec');
+  const lex = searches.find((s) => s.type === 'lex');
+  assert.equal(vec.query, 'safe merge', 'vec query has the negation hyphen neutralized');
+  assert.equal(lex.query, 'safe-merge', 'lex query is the raw, un-sanitized term');
+});
+
+test('search(mode=lex) never sanitizes — the lex path keeps the raw hyphenated query', async () => {
+  const rec = recordingFetch({ results: [] });
+  const service = new WisdomSearchService({ fetchImpl: rec.fetchImpl, getVaultFilePaths: () => [] });
+  await service.search({ mode: 'lex', query: 'fast-forward' });
+  assert.deepEqual(rec.calls[0].body.searches.map((s) => s.type), ['lex']);
+  assert.equal(rec.calls[0].body.searches[0].query, 'fast-forward');
+});
+
+test('search(mode=full) passes a non-hyphenated query through unchanged to both sub-searches', async () => {
+  const rec = recordingFetch({ results: [] });
+  const service = new WisdomSearchService({ fetchImpl: rec.fetchImpl, getVaultFilePaths: () => [] });
+  await service.search({ mode: 'full', query: 'hello world' });
+  for (const s of rec.calls[0].body.searches) {
+    assert.equal(s.query, 'hello world', `${s.type} query unchanged for a non-hyphenated query`);
+  }
 });
 
 test('search enforces minQueryLength and never calls the engine for short queries', async () => {

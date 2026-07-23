@@ -252,6 +252,25 @@ function buildEngineSearches(mode) {
   return [{ type: 'vec' }, { type: 'lex' }];
 }
 
+/**
+ * Neutralize the qmd vec/hyde query parser's NEGATION operator, for the `vec` sub-search
+ * ONLY. That parser reads an ASCII hyphen-minus immediately followed by a term — `-term`,
+ * whether leading (`-foo`), classic (`foo -bar`), or mid-token (`safe-merge`) — as "negate
+ * this term" and returns 500 on it, which collapses the whole `mode=full` pass and degrades
+ * the UI to "use Text mode". Hyphenated terms are pervasive in this corpus (safe-merge,
+ * fast-forward, head-of-development, test-engineer…), so the common case fails.
+ *
+ * Replacing each negation-triggering hyphen with a space treats the term as literal text —
+ * semantically identical for embedding-based vec search — and is the robust fix: quoting the
+ * phrase and backslash-escaping the hyphen were both verified against the live engine to
+ * still 500, so only removing the operator works. A trailing or lone hyphen (`foo-`, `-`) is
+ * not a negation trigger and is left untouched. The `lex` sub-search is deliberately NOT
+ * sanitized — it handles hyphens fine and benefits from exact-term matching.
+ */
+export function sanitizeVecQuery(query = '') {
+  return String(query ?? '').replace(/-(?=\S)/gu, ' ');
+}
+
 export class WisdomSearchService {
   constructor({
     collection = DEFAULT_COLLECTION,
@@ -386,7 +405,11 @@ export class WisdomSearchService {
           limit: this.maxFiles,
           searches: buildEngineSearches(mode).map((search) => ({
             ...search,
-            query: String(query ?? ''),
+            // The vec/hyde parser mis-reads a `-term` hyphen as a negation operator and
+            // 500s; sanitize for `vec` only. `lex` gets the raw query (exact-term matching).
+            query: search.type === 'vec'
+              ? sanitizeVecQuery(query)
+              : String(query ?? ''),
           })),
         }),
         headers: { 'Content-Type': 'application/json' },
