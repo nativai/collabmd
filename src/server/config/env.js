@@ -400,6 +400,7 @@ export function loadConfig(overrides = {}) {
     maxBaseQueryRows: parsePositiveInt(process.env.COLLABMD_MAX_BASE_QUERY_ROWS, 5_000),
     maxDownloadFileBytes: parsePositiveInt(process.env.COLLABMD_MAX_DOWNLOAD_FILE_BYTES, 268_435_456),
     maxInitialSyncBytes: parsePositiveInt(process.env.COLLABMD_MAX_INITIAL_SYNC_BYTES, 16_777_216),
+    maxWatches: parsePositiveInt(process.env.COLLABMD_MAX_WATCHES, 4096),
     perfLoggingEnabled: overrides.perfLoggingEnabled ?? isPerfLoggingEnabled(process.env.COLLABMD_PERF_LOGGING),
     port: parsePort(process.env.PORT, 1234),
     nodeEnv,

@@ -142,8 +142,10 @@ export function createAppServer(config = loadConfig()) {
   });
   vaultFileStore.setManagedWriteTracker(workspaceMutationCoordinator);
   fileSystemSyncService = new FileSystemSyncService({
+    maxWatches: config.maxWatches,
     mutationCoordinator: workspaceMutationCoordinator,
     perfLoggingEnabled: config.perfLoggingEnabled,
+    roomRegistry,
     vaultFileStore,
   });
   const requestHandler = createRequestHandler(
