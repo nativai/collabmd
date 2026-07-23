@@ -134,7 +134,11 @@ export function createStaticHandler(config, authService = null, searchService = 
           unavailableReason: 'ripgrep search is unavailable',
           version: '',
         },
-        wisdomSearch: wisdomSearchService?.getClientConfig?.() ?? config.wisdomSearch ?? {
+        // Probe-aware: `available` reflects a live reachability probe of the co-located
+        // engine (short-TTL cached), gating Wisdom-tab visibility. `config.wisdomSearch` is
+        // the server-side options block {engineUrl, collection} and must NOT reach the
+        // client, so it is deliberately not a fallback here.
+        wisdomSearch: (await wisdomSearchService?.resolveClientConfig?.()) ?? {
           available: false,
           backend: 'wisdom',
           minQueryLength: 2,

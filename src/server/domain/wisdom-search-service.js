@@ -5,12 +5,17 @@ import { getVaultFileKind } from '../../domain/file-kind.js';
 import { logPerfEvent } from '../config/perf-logging.js';
 
 // The FTS engine base URL is CONSTANT — no request-derived value ever reaches the
-// host/port/path (no SSRF surface). Overridable only via a server-side env var for
-// local development pointing at a different engine.
-const DEFAULT_ENGINE_URL = process.env.COLLABMD_WISDOM_ENGINE_URL
-  || 'http://wisdom-apps.wisdom:8181/query';
-const ENGINE_COLLECTION = 'brain';
-const ENGINE_PATH_PREFIX = 'brain/';
+// host/port/path (no SSRF surface). The defaults target the CO-LOCATED engine in the
+// same pod (each collabmd searches its OWN vault); both are overridable only via
+// server-side env (wired through config.wisdomSearch) — never request-derived.
+const DEFAULT_ENGINE_URL = 'http://localhost:8181/query';
+const DEFAULT_COLLECTION = 'brain';
+
+// Reachability probe: how long a probe result stays fresh, and how long a single probe
+// GET may take before it counts as unreachable. The probe gates Wisdom-tab visibility at
+// /app-config.js serve time, so it must be cheap and must never hang page load.
+const PROBE_TTL_MS = 15_000;
+const PROBE_TIMEOUT_MS = 1_500;
 
 const DEFAULT_MAX_FILES = 50;
 const DEFAULT_MAX_SNIPPETS_PER_FILE = 5;
@@ -249,6 +254,7 @@ function buildEngineSearches(mode) {
 
 export class WisdomSearchService {
   constructor({
+    collection = DEFAULT_COLLECTION,
     engineUrl = DEFAULT_ENGINE_URL,
     fetchImpl = globalThis.fetch,
     getVaultFilePaths = () => [],
@@ -258,6 +264,8 @@ export class WisdomSearchService {
     vaultDir,
   } = {}) {
     this.engineUrl = engineUrl;
+    this.collection = collection;
+    this.enginePathPrefix = `${collection}/`;
     this.fetchImpl = fetchImpl;
     this.getVaultFilePaths = getVaultFilePaths;
     this.maxFiles = maxFiles;
@@ -265,14 +273,17 @@ export class WisdomSearchService {
     this.perfLoggingEnabled = perfLoggingEnabled;
     this.vaultDir = vaultDir;
 
-    // Optimistic: assume the in-pod engine is reachable. No startup network probe — real
-    // availability is settled per request in search(), which degrades gracefully on any
-    // engine error/timeout (FDE state ⑤). This keeps startup side-effect-free and lets a
+    // Optimistic default: assume reachable until a probe says otherwise. No startup network
+    // probe — availability is settled lazily by resolveClientConfig() (probe-if-stale) at
+    // /app-config.js serve, and per request in search() (which degrades gracefully on any
+    // engine error/timeout, FDE state ⑤). This keeps startup side-effect-free and lets a
     // slow-to-start engine recover without a server restart.
     this.available = true;
     this.unavailableReason = '';
     this._slugMap = null;
     this._slugMapSourceRef = null;
+    this._probeCheckedAt = 0;
+    this._probeInFlight = null;
   }
 
   async initialize() {
@@ -292,6 +303,60 @@ export class WisdomSearchService {
       unavailableReason: this.unavailableReason,
       version: 'wisdom-fts',
     };
+  }
+
+  /**
+   * Cheap reachability probe: a bounded GET to the engine base. ANY HTTP response (even a
+   * 404/405 — the engine only answers POST /query) proves the engine is reachable;
+   * ECONNREFUSED / DNS-fail / timeout mean it is not. NEVER throws to its caller and NEVER
+   * leaks the raw error — the same degrade convention as search().
+   */
+  async _probeEngine() {
+    if (typeof this.fetchImpl !== 'function') {
+      return { available: false, reason: 'The wisdom search engine is not available in this runtime.' };
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+    try {
+      await this.fetchImpl(this.engineUrl, { method: 'GET', signal: controller.signal });
+      // Any HTTP status = reachable (we do not inspect response.ok on purpose).
+      return { available: true, reason: '' };
+    } catch (error) {
+      const timedOut = error?.name === 'AbortError';
+      return {
+        available: false,
+        reason: timedOut
+          ? 'The wisdom search engine took too long to respond.'
+          : 'The wisdom search engine is not responding.',
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Probe-if-stale, then return the same client-config shape getClientConfig() returns —
+   * but with `available` reflecting a live reachability probe (short TTL, in-flight
+   * deduped). This is what /app-config.js serves to gate Wisdom-tab visibility. Keeps
+   * startup probe-free: the probe runs lazily at serve time, so a slow-starting engine
+   * self-heals on the next page load (no server restart needed).
+   */
+  async resolveClientConfig() {
+    const now = Date.now();
+    const isFresh = this._probeCheckedAt > 0 && (now - this._probeCheckedAt) < PROBE_TTL_MS;
+    if (!isFresh) {
+      if (!this._probeInFlight) {
+        this._probeInFlight = this._probeEngine().then((result) => {
+          this.available = result.available;
+          this.unavailableReason = result.reason;
+          this._probeCheckedAt = Date.now();
+          this._probeInFlight = null;
+          return result;
+        });
+      }
+      await this._probeInFlight;
+    }
+    return this.getClientConfig();
   }
 
   _ensureSlugMap() {
@@ -317,7 +382,7 @@ export class WisdomSearchService {
     try {
       const response = await this.fetchImpl(this.engineUrl, {
         body: JSON.stringify({
-          collections: [ENGINE_COLLECTION],
+          collections: [this.collection],
           limit: this.maxFiles,
           searches: buildEngineSearches(mode).map((search) => ({
             ...search,
@@ -338,8 +403,8 @@ export class WisdomSearchService {
   }
 
   async _resolveHit(enginePath, contentLines, queryTerms, slugMap) {
-    const slug = String(enginePath ?? '').startsWith(ENGINE_PATH_PREFIX)
-      ? String(enginePath).slice(ENGINE_PATH_PREFIX.length)
+    const slug = String(enginePath ?? '').startsWith(this.enginePathPrefix)
+      ? String(enginePath).slice(this.enginePathPrefix.length)
       : String(enginePath ?? '');
     const candidates = slugMap.get(slug);
 

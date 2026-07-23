@@ -95,6 +95,8 @@ export function createAppServer(config = loadConfig()) {
     vaultDir: config.vaultDir,
   });
   const wisdomSearchService = new WisdomSearchService({
+    collection: config.wisdomSearch.collection,
+    engineUrl: config.wisdomSearch.engineUrl,
     getVaultFilePaths: () => workspaceMutationCoordinator?.workspaceState?.filePaths ?? [],
     perfLoggingEnabled: config.perfLoggingEnabled,
     vaultDir: config.vaultDir,

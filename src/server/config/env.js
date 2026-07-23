@@ -409,6 +409,10 @@ export function loadConfig(overrides = {}) {
     publicWsBaseUrl: process.env.PUBLIC_WS_BASE_URL || '',
     testWsRoomHydrateDelayMs: parsePositiveInt(process.env.TEST_WS_ROOM_HYDRATE_DELAY_MS, 0),
     wikiLinkAutoCreate: process.env.COLLABMD_WIKI_LINK_AUTO_CREATE !== 'false',
+    wisdomSearch: {
+      collection: normalizeOptionalString(process.env.COLLABMD_WISDOM_COLLECTION) || 'brain',
+      engineUrl: normalizeOptionalString(process.env.COLLABMD_WISDOM_ENGINE_URL) || 'http://localhost:8181/query',
+    },
     wsHeartbeatIntervalMs: parsePositiveInt(process.env.WS_HEARTBEAT_INTERVAL_MS, 30_000),
     wsRoomIdleGraceMs: parsePositiveInt(process.env.WS_ROOM_IDLE_GRACE_MS, 60_000),
     wsBasePath: normalizeWsBasePath(process.env.WS_BASE_PATH || '/ws'),

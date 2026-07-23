@@ -245,3 +245,100 @@ test('search reports a timeout distinctly (504) with a plain message', async () 
     },
   );
 });
+
+// --- co-located engine default + configurable collection (the leak fix) ---
+
+test('defaults to the co-located localhost engine URL (not the central host)', async () => {
+  const rec = recordingFetch({ results: [] });
+  const service = new WisdomSearchService({ fetchImpl: rec.fetchImpl, getVaultFilePaths: () => [] });
+  await service.search({ query: 'hello world' });
+  assert.equal(rec.calls[0].url, 'http://localhost:8181/query');
+});
+
+test('honours a custom collection in the query body AND strips its path prefix', async () => {
+  const vaultDir = await mkdtemp(join(tmpdir(), 'wisdom-collection-'));
+  try {
+    await writeFile(join(vaultDir, 'Note.md'), '# Note\n\nlabidio content line here.\n', 'utf8');
+    const engineResponse = {
+      results: [
+        {
+          docid: '#1',
+          file: 'labidio/Note.md',
+          score: 0.9,
+          snippet: '2: @@ -1,3 @@\n3: labidio content line here.',
+          title: 'Note',
+        },
+      ],
+    };
+    const rec = recordingFetch(engineResponse);
+    const service = new WisdomSearchService({
+      collection: 'labidio',
+      fetchImpl: rec.fetchImpl,
+      getVaultFilePaths: () => ['Note.md'],
+      vaultDir,
+    });
+    const result = await service.search({ mode: 'full', query: 'labidio content' });
+    assert.deepEqual(rec.calls[0].body.collections, ['labidio']);
+    assert.equal(result.files.length, 1);
+    // The 'labidio/' prefix is stripped and the slug resolves to the real vault path.
+    assert.equal(result.files[0].file, 'Note.md');
+    assert.equal(result.files[0].unresolvable, undefined);
+  } finally {
+    await rm(vaultDir, { recursive: true, force: true });
+  }
+});
+
+// --- reachability probe gates availability (no broken tab where no engine) ---
+
+test('resolveClientConfig probes a reachable engine (any HTTP status) → available:true', async () => {
+  let probeMethod;
+  const service = new WisdomSearchService({
+    // Engine answers POST /query only; a GET to the base returns 404 — still reachable.
+    fetchImpl: async (url, options) => { probeMethod = options.method; return { ok: false, status: 404 }; },
+    getVaultFilePaths: () => [],
+  });
+  const cfg = await service.resolveClientConfig();
+  assert.equal(probeMethod, 'GET', 'probe is a cheap GET');
+  assert.equal(cfg.available, true);
+  assert.equal(cfg.unavailableReason, '');
+  assert.equal(cfg.backend, 'wisdom');
+});
+
+test('resolveClientConfig probes an absent engine → available:false with no raw leak', async () => {
+  const service = new WisdomSearchService({
+    fetchImpl: async () => { throw new Error('ECONNREFUSED 127.0.0.1:8181 raw stack detail'); },
+    getVaultFilePaths: () => [],
+  });
+  const cfg = await service.resolveClientConfig();
+  assert.equal(cfg.available, false);
+  assert.doesNotMatch(cfg.unavailableReason, /ECONNREFUSED|stack|127\.0\.0\.1/, 'no raw engine detail leaks');
+  assert.match(cfg.unavailableReason, /not responding/i);
+});
+
+test('resolveClientConfig treats a probe timeout as unavailable (bounded, never hangs)', async () => {
+  const service = new WisdomSearchService({
+    fetchImpl: async (url, options) => new Promise((resolve, reject) => {
+      // Never resolves on its own; the probe's AbortController fires and we reject as aborted.
+      options.signal.addEventListener('abort', () => {
+        const err = new Error('The operation was aborted');
+        err.name = 'AbortError';
+        reject(err);
+      });
+    }),
+    getVaultFilePaths: () => [],
+  });
+  const cfg = await service.resolveClientConfig();
+  assert.equal(cfg.available, false);
+  assert.match(cfg.unavailableReason, /too long/i);
+});
+
+test('resolveClientConfig caches the probe within its TTL (single probe for back-to-back serves)', async () => {
+  let probes = 0;
+  const service = new WisdomSearchService({
+    fetchImpl: async () => { probes += 1; return { ok: false, status: 404 }; },
+    getVaultFilePaths: () => [],
+  });
+  await service.resolveClientConfig();
+  await service.resolveClientConfig();
+  assert.equal(probes, 1, 'the second serve within TTL reuses the cached probe result');
+});
