@@ -122,15 +122,36 @@ export class QuickSwitcherController {
     this.armedChip?.classList.toggle('hidden', !show);
   }
 
+  _bindModeTab(tab) {
+    tab.addEventListener('click', () => {
+      this.setMode(tab.dataset.qsMode, { preserveInput: true });
+    });
+  }
+
+  /**
+   * Re-scan the DOM for mode tabs and wire any that appeared after construction. The Wisdom
+   * tab can be inserted live once the co-located engine becomes reachable (brick 25ce51f0),
+   * after this controller was already built on the first ⌘K. Idempotent: already-wired tabs
+   * are skipped, so it is safe to call repeatedly.
+   */
+  syncModeTabs() {
+    const tabs = Array.from(document.querySelectorAll?.('[data-qs-mode]') ?? []);
+    for (const tab of tabs) {
+      if (this.modeTabs.includes(tab)) {
+        continue;
+      }
+      this._bindModeTab(tab);
+      this.modeTabs.push(tab);
+    }
+  }
+
   bindEvents() {
     this.overlay?.addEventListener('mousedown', (e) => {
       if (e.target === this.overlay) this.close();
     });
 
     this.modeTabs.forEach((tab) => {
-      tab.addEventListener('click', () => {
-        this.setMode(tab.dataset.qsMode, { preserveInput: true });
-      });
+      this._bindModeTab(tab);
     });
 
     this.input?.addEventListener('input', () => {

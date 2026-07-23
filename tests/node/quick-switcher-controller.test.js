@@ -251,3 +251,35 @@ test('QuickSwitcherController confirms text search matches with navigation paylo
     },
   });
 });
+
+test('QuickSwitcherController.syncModeTabs wires a tab inserted after construction (live Wisdom tab, brick 25ce51f0)', (t) => {
+  const filesTab = createElementStub({ dataset: { qsMode: 'files' } });
+  const textTab = createElementStub({ dataset: { qsMode: 'text' } });
+  // installDocumentStub captures this array by reference; querySelectorAll returns its live
+  // contents, so pushing to it simulates the shell inserting a tab into the DOM post-load.
+  const liveTabs = [filesTab, textTab];
+  installDocumentStub(t, { modeTabs: liveTabs });
+
+  const controller = new QuickSwitcherController({
+    getFileList: () => [],
+    onFileSelect() {},
+  });
+  assert.equal(controller.modeTabs.length, 2, 'starts with the two always-present tabs');
+
+  // Engine becomes reachable after load → the shell inserts a Wisdom tab into the DOM.
+  const wisdomTab = createElementStub({ dataset: { qsMode: 'wisdom' } });
+  liveTabs.push(wisdomTab);
+
+  const modes = [];
+  controller.setMode = (mode) => { modes.push(mode); };
+
+  controller.syncModeTabs();
+  assert.equal(controller.modeTabs.length, 3, 'the new Wisdom tab is now tracked');
+
+  wisdomTab.dispatchEvent({ type: 'click' });
+  assert.deepEqual(modes, ['wisdom'], 'clicking the live-added tab switches to Wisdom mode');
+
+  // Idempotent: a repeat sync must not duplicate already-tracked tabs.
+  controller.syncModeTabs();
+  assert.equal(controller.modeTabs.length, 3, 'a second sync does not double-track tabs');
+});

@@ -397,3 +397,37 @@ test('resolveClientConfig caches the probe within its TTL (single probe for back
   await service.resolveClientConfig();
   assert.equal(probes, 1, 'the second serve within TTL reuses the cached probe result');
 });
+
+test('resolveClientConfig re-probes while unavailable, then caches once the engine is reachable (brick 25ce51f0)', async () => {
+  // The co-located engine binds its port shortly AFTER collabmd starts serving, so the first
+  // probe legitimately fails. An unavailable result must NOT be cached for the TTL — else the
+  // Wisdom tab would stay gone until a much-later manual reload.
+  let reachable = false;
+  let probes = 0;
+  const service = new WisdomSearchService({
+    fetchImpl: async () => {
+      probes += 1;
+      if (!reachable) {
+        throw new Error('ECONNREFUSED 127.0.0.1:8181 raw stack detail');
+      }
+      return { ok: false, status: 404 };
+    },
+    getVaultFilePaths: () => [],
+  });
+
+  const first = await service.resolveClientConfig();
+  assert.equal(first.available, false, 'engine down at first serve → no tab');
+  assert.equal(probes, 1);
+
+  // Engine comes up. A second serve WELL within the TTL must re-probe, not serve the cached
+  // unavailable result — this is the first-load-race recovery.
+  reachable = true;
+  const second = await service.resolveClientConfig();
+  assert.equal(probes, 2, 'an unavailable result is never cached — the next serve re-probes');
+  assert.equal(second.available, true, 'the tab recovers on the next serve, no reload needed');
+
+  // Once reachable, the result caches for the TTL again — no re-probe storm.
+  const third = await service.resolveClientConfig();
+  assert.equal(probes, 2, 'a reachable result is cached within the TTL');
+  assert.equal(third.available, true);
+});

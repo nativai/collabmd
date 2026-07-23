@@ -362,7 +362,16 @@ export class WisdomSearchService {
    */
   async resolveClientConfig() {
     const now = Date.now();
-    const isFresh = this._probeCheckedAt > 0 && (now - this._probeCheckedAt) < PROBE_TTL_MS;
+    // Only a REACHABLE probe result is cached for the TTL. An UNAVAILABLE result is never
+    // treated as fresh, so each serve re-probes until the engine answers — the co-located
+    // engine often binds its port shortly AFTER collabmd starts serving, so a first-load
+    // probe can legitimately fail; without this, that failure would stick for the whole TTL
+    // and the Wisdom tab would stay absent until a much-later manual reload (brick 25ce51f0).
+    // Re-probing while down costs only a cheap bounded GET (fast ECONNREFUSED when truly
+    // absent), and once reachable the result caches normally. Startup stays probe-free.
+    const isFresh = this.available
+      && this._probeCheckedAt > 0
+      && (now - this._probeCheckedAt) < PROBE_TTL_MS;
     if (!isFresh) {
       if (!this._probeInFlight) {
         this._probeInFlight = this._probeEngine().then((result) => {
