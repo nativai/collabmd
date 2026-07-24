@@ -68,7 +68,7 @@ test('small vault (directory count <= cap) keeps the recursive whole-vault watch
   assert.equal(service.watchRegistry.size, 1);
 });
 
-test('large vault (directory count > cap) switches to bounded mode and never exceeds the cap', async (t) => {
+test('large vault (directory count > cap) switches to lazy mode: root watched, cap respected', async (t) => {
   const { cleanup, store } = await createVault(['a', 'b', 'c', 'd', 'e']);
   t.after(cleanup);
 
@@ -83,13 +83,15 @@ test('large vault (directory count > cap) switches to bounded mode and never exc
   const snapshot = await store.scanWorkspaceState();
   await service.start({ snapshot });
 
-  assert.equal(service.watchMode, 'bounded');
-  assert.ok(service.watchRegistry.recursiveWatcher === null, 'no recursive watcher in bounded mode');
-  assert.ok(service.watchRegistry.size <= maxWatches, `held ${service.watchRegistry.size} watches, cap ${maxWatches}`);
-  assert.ok(service.watchRegistry.watchers.has(''), 'the vault root is always watched in bounded mode');
+  assert.equal(service.watchMode, 'lazy');
+  assert.ok(service.watchRegistry.recursiveWatcher === null, 'no recursive watcher in lazy mode');
+  // With no open files or expanded dirs, lazy mode holds only the vault root — the
+  // footprint is a function of usage, not vault size (no proactive top-N sweep).
+  assert.equal(service.watchRegistry.size, 1, 'only the vault root is watched at rest');
+  assert.ok(service.watchRegistry.watchers.has(''), 'the vault root is always watched in lazy mode');
 });
 
-test('bounded mode always watches the directory of every open file', async (t) => {
+test('lazy mode always watches the directory of every already-open file', async (t) => {
   const { cleanup, store } = await createVault(['docs/deep', 'unrelated1', 'unrelated2', 'unrelated3']);
   t.after(cleanup);
 
@@ -111,14 +113,12 @@ test('bounded mode always watches the directory of every open file', async (t) =
   const snapshot = await store.scanWorkspaceState();
   await service.start({ snapshot });
 
-  assert.equal(service.watchMode, 'bounded');
+  assert.equal(service.watchMode, 'lazy');
   assert.ok(service.watchRegistry.watchers.has('docs/deep'), 'open-file directory should be watched even under a tight cap');
   assert.ok(service.watchRegistry.watchers.has(''), 'the vault root should be watched');
 });
 
-test('bounded mode honours vault ignore rules (never watches .git / node_modules)', async (t) => {
-  // 4 real directories with cap 3 forces bounded mode AND a non-empty sweep, so the
-  // ignore assertion is exercised against actual per-directory watchers (not vacuous).
+test('lazy mode never watches ignored directories a client subscribes (.git / node_modules)', async (t) => {
   const { cleanup, store } = await createVault(['.git/objects', 'node_modules/pkg', 'alpha', 'beta', 'gamma', 'delta']);
   t.after(cleanup);
 
@@ -131,11 +131,13 @@ test('bounded mode honours vault ignore rules (never watches .git / node_modules
 
   const snapshot = await store.scanWorkspaceState();
   await service.start({ snapshot });
+  assert.equal(service.watchMode, 'lazy');
 
-  assert.equal(service.watchMode, 'bounded');
+  // A client publishes a mix of real and VCS/tooling directories as "expanded".
+  service.updateWatchSubscriptions({ dirs: ['.git/objects', 'node_modules/pkg', 'alpha'], activeFiles: [] });
+
   const watchedDirs = Array.from(service.watchRegistry.watchers.keys());
-  // Non-root watchers must exist (proves the sweep ran) and none may be ignored.
-  assert.ok(watchedDirs.some((dir) => dir !== ''), 'the sweep should have watched at least one real directory');
+  assert.ok(watchedDirs.includes('alpha'), 'a real expanded directory should be watched');
   for (const dir of watchedDirs) {
     assert.ok(!dir.startsWith('.git'), `must not watch .git: ${dir}`);
     assert.ok(!dir.startsWith('node_modules'), `must not watch node_modules: ${dir}`);
@@ -184,7 +186,7 @@ test('cap = 0 fully degrades (zero watches) without crashing', async (t) => {
   const snapshot = await store.scanWorkspaceState();
   await assert.doesNotReject(() => service.start({ snapshot }));
 
-  assert.equal(service.watchMode, 'bounded');
+  assert.equal(service.watchMode, 'lazy');
   assert.equal(service.watchRegistry.size, 0, 'no watches should be placed at cap 0');
 });
 
@@ -193,7 +195,7 @@ test('per-directory watch events are re-rooted to vault-relative paths (path con
   t.after(cleanup);
 
   const service = new FileSystemSyncService({
-    maxWatches: 2, // bounded: root + docs (the open-file dir)
+    maxWatches: 2, // lazy: root + docs (the open-file dir)
     mutationCoordinator: createMutationCoordinatorStub(),
     roomRegistry: { getRooms: () => [['docs/seed.md', {}]] },
     vaultFileStore: store,
@@ -215,4 +217,174 @@ test('per-directory watch events are re-rooted to vault-relative paths (path con
 
   const observed = await waitFor(() => seenPaths.some((p) => p === 'docs/note.md'));
   assert.ok(observed, `expected a 'docs/note.md' event, saw: ${JSON.stringify(seenPaths)}`);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2 — ref-counted, demand-driven watching
+// ---------------------------------------------------------------------------
+
+test('retain/release ref-counts: a directory survives until the last reference drops', async (t) => {
+  const { cleanup, vaultDir } = await createVault(['shared']);
+  t.after(cleanup);
+
+  const registry = new WatchRegistry({
+    vaultDir,
+    maxWatches: 10,
+    onEvent: () => {},
+    onDegrade: () => {},
+  });
+  t.after(() => registry.closeAll());
+
+  // Two independent sources (e.g. an open room AND an expanded tree node) reference
+  // the same directory — one shared watcher, ref-count 2.
+  registry.retain('shared');
+  registry.retain('shared');
+  assert.equal(registry.refCount('shared'), 2);
+  assert.equal(registry.watchers.size, 1, 'one shared watcher, not two');
+
+  // First release: still wanted by the other source, watch stays.
+  registry.release('shared');
+  assert.equal(registry.refCount('shared'), 1);
+  assert.ok(registry.watchers.has('shared'), 'watch survives while a reference remains');
+
+  // Last release: dropped.
+  registry.release('shared');
+  assert.equal(registry.refCount('shared'), 0);
+  assert.ok(!registry.watchers.has('shared'), 'watch dropped when no longer referenced');
+});
+
+test('retain enforces the cap and promotes a wanted directory when a slot frees', async (t) => {
+  const { cleanup, vaultDir } = await createVault(['a', 'b', 'c']);
+  t.after(cleanup);
+
+  const registry = new WatchRegistry({
+    vaultDir,
+    maxWatches: 2,
+    onEvent: () => {},
+    onDegrade: () => {},
+  });
+  t.after(() => registry.closeAll());
+
+  registry.retain('a');
+  registry.retain('b');
+  registry.retain('c'); // over cap — wanted but unplaced
+  assert.equal(registry.size, 2, 'never exceeds the cap');
+  assert.ok(!registry.watchers.has('c'), 'the over-cap directory holds no watcher');
+  assert.equal(registry.refCount('c'), 1, 'but it is still recorded as wanted');
+
+  // Freeing a slot promotes the wanted-but-unplaced directory.
+  registry.release('a');
+  assert.equal(registry.size, 2, 'the freed slot is reused, still within cap');
+  assert.ok(registry.watchers.has('c'), 'the wanted directory is promoted into the freed slot');
+});
+
+test('on file-open a watch is registered for its directory; on close it is released', async (t) => {
+  const { cleanup, store } = await createVault(['a', 'b', 'c', 'deep/nested']);
+  t.after(cleanup);
+
+  // A mutable room set the service reads as ground truth on each lifecycle notification.
+  let rooms = [];
+  const roomRegistry = { getRooms: () => rooms };
+
+  const service = new FileSystemSyncService({
+    maxWatches: 3, // < directory count, so the vault runs in lazy mode
+    mutationCoordinator: createMutationCoordinatorStub(),
+    roomRegistry,
+    vaultFileStore: store,
+  });
+  t.after(() => service.close());
+
+  const snapshot = await store.scanWorkspaceState();
+  await service.start({ snapshot });
+  assert.equal(service.watchMode, 'lazy');
+  assert.ok(!service.watchRegistry.watchers.has('deep/nested'), 'deep dir unwatched before its file is opened');
+
+  // A file is opened LATER in a deep directory (the Phase 1 gap this closes).
+  rooms = [['deep/nested/note.md', {}]];
+  service.onRoomOpened();
+  assert.ok(service.watchRegistry.watchers.has('deep/nested'), 'opening a deep file registers a watch on its directory');
+
+  // The file is closed (last client left) — its directory watch is released.
+  rooms = [];
+  service.onRoomClosed();
+  assert.ok(!service.watchRegistry.watchers.has('deep/nested'), 'closing the file releases the watch');
+});
+
+test('on tree-expand a watch is added; on collapse it is released (and reconcile is requested)', async (t) => {
+  const { cleanup, store } = await createVault(['alpha/one', 'beta/two', 'gamma']);
+  t.after(cleanup);
+
+  const service = new FileSystemSyncService({
+    maxWatches: 3, // < directory count, so the vault runs in lazy mode
+    mutationCoordinator: createMutationCoordinatorStub(),
+    vaultFileStore: store,
+  });
+  t.after(() => service.close());
+
+  const snapshot = await store.scanWorkspaceState();
+  await service.start({ snapshot });
+  assert.equal(service.watchMode, 'lazy');
+
+  // Client expands two directories.
+  service.updateWatchSubscriptions({ dirs: ['alpha', 'beta'], activeFiles: [] });
+  assert.ok(service.watchRegistry.watchers.has('alpha'), 'expanded directory alpha is watched');
+  assert.ok(service.watchRegistry.watchers.has('beta'), 'expanded directory beta is watched');
+  // On-expand reconcile: newly-subscribed dirs are queued for a re-read so changes
+  // that happened while they were unwatched are picked up (correct even at 0 watches).
+  assert.ok(service.pendingEventTypesByPath.has('alpha'), 'a reconcile is requested for a newly-expanded directory');
+
+  // Client collapses beta (only alpha remains expanded).
+  service.updateWatchSubscriptions({ dirs: ['alpha'], activeFiles: [] });
+  assert.ok(service.watchRegistry.watchers.has('alpha'), 'still-expanded directory stays watched');
+  assert.ok(!service.watchRegistry.watchers.has('beta'), 'collapsed directory is released');
+});
+
+test('an active file is queued for reconcile on subscription update (on-focus reconcile)', async (t) => {
+  const { cleanup, store, vaultDir } = await createVault(['docs/deep']);
+  t.after(cleanup);
+
+  await writeFile(join(vaultDir, 'docs', 'deep', 'open.md'), '# Open\n', 'utf8');
+
+  const service = new FileSystemSyncService({
+    maxWatches: 1, // < directory count, so the vault runs in lazy mode
+
+    mutationCoordinator: createMutationCoordinatorStub(),
+    vaultFileStore: store,
+  });
+  t.after(() => service.close());
+
+  const snapshot = await store.scanWorkspaceState();
+  await service.start({ snapshot });
+
+  // Focus re-asserts the subscription carrying the open file; it must be re-read so
+  // its content reconciles even when its directory watch is absent.
+  service.updateWatchSubscriptions({ dirs: [], activeFiles: ['docs/deep/open.md'] });
+  assert.ok(
+    service.pendingEventTypesByPath.has('docs/deep/open.md'),
+    'the active file is queued for a reconcile read',
+  );
+});
+
+test('demand-driven watching stays independent of vault size and within the cap', async (t) => {
+  const manyDirs = Array.from({ length: 60 }, (_, index) => `d${index}`);
+  const { cleanup, store } = await createVault(manyDirs);
+  t.after(cleanup);
+
+  const service = new FileSystemSyncService({
+    maxWatches: 16,
+    mutationCoordinator: createMutationCoordinatorStub(),
+    vaultFileStore: store,
+  });
+  t.after(() => service.close());
+
+  const snapshot = await store.scanWorkspaceState();
+  await service.start({ snapshot });
+  assert.equal(service.watchMode, 'lazy');
+  // 60 directories, but at rest we hold exactly one watch (root) — footprint tracks
+  // usage, not vault size.
+  assert.equal(service.watchRegistry.size, 1);
+
+  // Even a client that expands far more directories than the cap can never exceed it.
+  service.updateWatchSubscriptions({ dirs: manyDirs, activeFiles: [] });
+  assert.ok(service.watchRegistry.size <= 16, `held ${service.watchRegistry.size} watches, cap 16`);
 });

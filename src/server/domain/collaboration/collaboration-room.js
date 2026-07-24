@@ -184,8 +184,13 @@ export class CollaborationRoom {
     vaultFileStore,
     backlinkIndex,
     onEmpty,
+    onWatchSubscriptionsChange = null,
   }) {
     this.name = name;
+    // Only wired for the workspace room: forwards the directories clients have
+    // expanded + their open files (carried on Yjs awareness) to the file-watch
+    // service so it can lazily watch exactly what is in view.
+    this.onWatchSubscriptionsChange = onWatchSubscriptionsChange;
     this.idleGraceMs = idleGraceMs;
     this.maxInitialSyncBytes = maxInitialSyncBytes;
     this.maxBufferedAmountBytes = maxBufferedAmountBytes;
@@ -376,6 +381,13 @@ export class CollaborationRoom {
         return;
       }
 
+      // Workspace room: any awareness change (a client expanded/collapsed a folder,
+      // opened a file, regained focus, or disconnected) may change what the vault
+      // watcher should watch. Recompute from the live awareness state — drift-free.
+      if (this.onWatchSubscriptionsChange && isWorkspaceRoom(this.name)) {
+        this.onWatchSubscriptionsChange(this.collectWatchSubscriptions());
+      }
+
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, MSG_AWARENESS);
       encoding.writeVarUint8Array(
@@ -386,6 +398,28 @@ export class CollaborationRoom {
 
       this.broadcastToClients(message, { failureLabel: 'awareness update' });
     });
+  }
+
+  // Aggregate the "paths of interest" every connected client publishes on awareness:
+  // `watchDirs` (the directories they have expanded in the tree) unioned across all
+  // clients, and each client's `activeFile`. Disconnected clients are already gone
+  // from `getStates()`, so the aggregate reflects exactly who is currently present.
+  collectWatchSubscriptions() {
+    const dirs = new Set();
+    const activeFiles = new Set();
+    for (const state of this.awareness.getStates().values()) {
+      if (Array.isArray(state?.watchDirs)) {
+        for (const dir of state.watchDirs) {
+          if (typeof dir === 'string') {
+            dirs.add(dir);
+          }
+        }
+      }
+      if (typeof state?.activeFile === 'string' && state.activeFile) {
+        activeFiles.add(state.activeFile);
+      }
+    }
+    return { activeFiles: Array.from(activeFiles), dirs: Array.from(dirs) };
   }
 
   registerContentDirtyListeners() {

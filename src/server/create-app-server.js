@@ -119,6 +119,9 @@ export function createAppServer(config = loadConfig()) {
         maxBufferedAmountBytes: config.wsMaxBufferedAmountBytes,
         name,
         onEmpty,
+        onWatchSubscriptionsChange: name === WORKSPACE_ROOM_NAME
+          ? (subscriptions) => fileSystemSyncService?.updateWatchSubscriptions(subscriptions)
+          : null,
         perfLoggingEnabled: config.perfLoggingEnabled,
       });
 
@@ -147,6 +150,13 @@ export function createAppServer(config = loadConfig()) {
     perfLoggingEnabled: config.perfLoggingEnabled,
     roomRegistry,
     vaultFileStore,
+  });
+  // Lazy mode: opening a file (its room is created) adds a watch on its directory;
+  // closing the last client releases it. Drift-free — the service recomputes from the
+  // live room registry on each notification.
+  roomRegistry.setLifecycleListener({
+    onRoomOpened: () => fileSystemSyncService?.onRoomOpened(),
+    onRoomClosed: () => fileSystemSyncService?.onRoomClosed(),
   });
   const requestHandler = createRequestHandler(
     config,

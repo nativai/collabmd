@@ -2,6 +2,14 @@ export class RoomRegistry {
   constructor({ createRoom }) {
     this.createRoom = createRoom;
     this.rooms = new Map();
+    // Optional observer notified when a room is created / torn down. The file-watch
+    // service uses it to lazily add a watch on a newly-opened file's directory and
+    // drop it when the last client closes the file.
+    this.lifecycleListener = null;
+  }
+
+  setLifecycleListener(listener) {
+    this.lifecycleListener = listener;
   }
 
   get(name) {
@@ -16,11 +24,13 @@ export class RoomRegistry {
         onEmpty: (roomName) => {
           if (this.rooms.get(roomName) === room) {
             this.rooms.delete(roomName);
+            this.lifecycleListener?.onRoomClosed?.(roomName);
           }
         },
       });
 
       this.rooms.set(name, room);
+      this.lifecycleListener?.onRoomOpened?.(name);
     }
 
     return this.rooms.get(name);
@@ -43,6 +53,8 @@ export class RoomRegistry {
     this.rooms.delete(oldName);
     room.rename?.(newName);
     this.rooms.set(newName, room);
+    this.lifecycleListener?.onRoomClosed?.(oldName);
+    this.lifecycleListener?.onRoomOpened?.(newName);
     return true;
   }
 
@@ -110,6 +122,7 @@ export class RoomRegistry {
         }
         if (this.rooms.get(pathValue) === room) {
           this.rooms.delete(pathValue);
+          this.lifecycleListener?.onRoomClosed?.(pathValue);
         }
       }),
     );

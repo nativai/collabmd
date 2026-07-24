@@ -264,6 +264,18 @@ export class WorkspaceSyncClient {
     this.seenEventIds = new Set();
     this.treeModel = new WorkspaceTreeModel();
 
+    // "Paths of interest" the server watches lazily for us: the directories we have
+    // expanded in the tree + our open file, published on this room's Yjs awareness.
+    // Retained so they can be (re)applied after (re)connect and re-asserted on focus.
+    this._watchSubscription = { activeFile: null, dirs: [] };
+    this._watchSubscriptionSignature = '';
+    this.handleWindowFocus = () => this.refreshWatchSubscription();
+    this.handleVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        this.refreshWatchSubscription();
+      }
+    };
+
     this.handleEntriesChange = (event) => {
       if (!this._didInitialSync || !event) {
         return;
@@ -306,6 +318,20 @@ export class WorkspaceSyncClient {
 
     this.entries.observe(this.handleEntriesChange);
     this.events.observe(this.handleEventsChange);
+    // Re-publish our watch subscription once (re)connected — awareness state is
+    // per-connection, so a subscription set before connect or lost on a reconnect
+    // must be re-applied.
+    this.provider.on('status', ({ status }) => {
+      if (status === 'connected') {
+        this.applyWatchSubscription();
+      }
+    });
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', this.handleWindowFocus);
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.handleVisibilityChange);
+    }
     this.provider.on('sync', (isSynced) => {
       if (!isSynced || this._didInitialSync) {
         return;
@@ -313,11 +339,45 @@ export class WorkspaceSyncClient {
 
       this._didInitialSync = true;
       this.primeEventCache();
+      this.applyWatchSubscription();
       this.onTreeChange(this.treeModel.reset(this.entries.toJSON()), {
         changedPaths: [],
         reset: true,
       });
     });
+  }
+
+  // Publish the directories we have expanded + our open file so the server watches
+  // exactly what we are looking at. Deduped by signature so the frequent tree
+  // re-renders (search typing, thread-count updates) don't spam awareness.
+  setWatchSubscription({ dirs = [], activeFile = null } = {}) {
+    const normalizedDirs = Array.from(new Set(
+      dirs.filter((dir) => typeof dir === 'string' && dir.length > 0),
+    )).sort();
+    const normalizedActiveFile = typeof activeFile === 'string' && activeFile ? activeFile : null;
+    const signature = `${normalizedActiveFile ?? ''} ${normalizedDirs.join('')}`;
+    if (signature === this._watchSubscriptionSignature) {
+      return;
+    }
+    this._watchSubscriptionSignature = signature;
+    this._watchSubscription = { activeFile: normalizedActiveFile, dirs: normalizedDirs };
+    this.applyWatchSubscription();
+  }
+
+  // Re-assert the current subscription unconditionally (e.g. on window focus): Yjs
+  // awareness always re-emits on set, prompting the server to re-read our open file
+  // so it stays current even when its directory watch is absent (degraded / capped).
+  refreshWatchSubscription() {
+    this.applyWatchSubscription();
+  }
+
+  applyWatchSubscription() {
+    const awareness = this.provider?.awareness;
+    if (!awareness) {
+      return;
+    }
+    awareness.setLocalStateField('watchDirs', this._watchSubscription.dirs);
+    awareness.setLocalStateField('activeFile', this._watchSubscription.activeFile);
   }
 
   primeEventCache() {
@@ -330,6 +390,12 @@ export class WorkspaceSyncClient {
   }
 
   disconnect() {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('focus', this.handleWindowFocus);
+    }
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+    }
     this.entries.unobserve(this.handleEntriesChange);
     this.events.unobserve(this.handleEventsChange);
     this.provider?.disconnect();

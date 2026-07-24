@@ -115,6 +115,7 @@ export class CollabMdAppShell {
       mobileBreakpointQuery: this.mobileBreakpointQuery,
       onFileDelete: () => this.navigation.navigateToFile(null),
       onFileSelect: (filePath) => this.features.handleFileSelection(filePath, { closeSidebarOnMobile: true }),
+      onSubscriptionChange: (subscription) => this.workspaceSync.setWatchSubscription(subscription),
       pendingWorkspaceRequestIds: this.pendingWorkspaceRequestIds,
       toastController: this.toastController,
     });

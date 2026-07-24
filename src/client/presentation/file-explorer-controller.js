@@ -14,12 +14,16 @@ export class FileExplorerController {
     mobileBreakpointQuery = window.matchMedia('(max-width: 768px)'),
     onFileSelect,
     onFileDelete,
+    onSubscriptionChange = null,
     pendingWorkspaceRequestIds = null,
     toastController,
     vaultClient = vaultApiClient,
   }) {
     this.onFileSelect = onFileSelect;
     this.onFileDelete = onFileDelete;
+    // Notified with the tree's "paths of interest" (expanded directories + the active
+    // file) so the server can lazily watch exactly what the user is looking at.
+    this.onSubscriptionChange = onSubscriptionChange;
     this.toastController = toastController;
     this.vaultClient = vaultClient;
     this.state = new FileTreeState();
@@ -187,6 +191,17 @@ export class FileExplorerController {
       searchQuery: this.state.searchQuery,
       threadCounts: this.threadCounts,
       tree: this.state.tree,
+    });
+    this.publishSubscription();
+  }
+
+  // renderTree() is the single choke point every tree mutation (expand/collapse,
+  // active-file change, collapse-all, reveal) funnels through, so publishing here
+  // captures every change. The sync client dedupes, so no-op re-renders are cheap.
+  publishSubscription() {
+    this.onSubscriptionChange?.({
+      activeFile: this.state.activeFilePath,
+      dirs: Array.from(this.state.expandedDirs),
     });
   }
 }

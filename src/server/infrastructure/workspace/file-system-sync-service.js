@@ -82,8 +82,10 @@ function collectDirectoriesByDepth(state) {
 // Funnels every inotify watch this service holds through one place: it enforces a
 // hard cap, attaches a graceful `'error'` handler to EVERY watcher, and translates
 // per-directory event filenames to vault-relative paths (the path contract above).
-// Phase 1 fills it proactively (recursive for small vaults, a bounded top-N sweep
-// for large ones); a future Phase 2 fills it on demand as clients expand/open paths.
+// Small vaults use one recursive watch; large vaults fill it on demand as clients
+// open files / expand directories (Phase 2), reference-counted so a directory wanted
+// by several sources (an open room AND an expanded tree node) holds a single watch
+// that survives until the last source releases it.
 export class WatchRegistry {
   constructor({ vaultDir, maxWatches, onEvent, onDegrade }) {
     this.vaultDir = vaultDir;
@@ -93,6 +95,10 @@ export class WatchRegistry {
     this.onEvent = onEvent;
     this.onDegrade = onDegrade;
     this.watchers = new Map();
+    // Reference counts per vault-relative directory. A directory with count > 0 is
+    // WANTED; it holds a live watcher iff it is also present in `this.watchers`
+    // (a wanted directory can be unplaced when the cap is full — promoted later).
+    this.refCounts = new Map();
     this.recursiveWatcher = null;
     this.degraded = false;
   }
@@ -125,13 +131,49 @@ export class WatchRegistry {
     }
   }
 
-  // Bounded path: one non-recursive watch over a single directory (`''` = vault root).
-  addWatch(vaultRelDir) {
+  // Reference a directory as wanted. First reference (0→1) places a non-recursive
+  // watch (`''` = vault root) if the cap allows; further references just bump the
+  // count so the watch survives until every source releases it. Returns whether a
+  // live watcher currently backs the directory.
+  retain(vaultRelDir) {
     const directory = toForwardSlashPath(vaultRelDir);
+    const nextCount = (this.refCounts.get(directory) ?? 0) + 1;
+    this.refCounts.set(directory, nextCount);
+    if (this.watchers.has(directory)) {
+      return true;
+    }
+    return this.placeWatch(directory);
+  }
+
+  // Release one reference. When the last reference drops (→0) the watch is closed
+  // and a wanted-but-unplaced directory (if any) is promoted into the freed slot.
+  release(vaultRelDir) {
+    const directory = toForwardSlashPath(vaultRelDir);
+    const currentCount = this.refCounts.get(directory) ?? 0;
+    if (currentCount <= 1) {
+      this.refCounts.delete(directory);
+      if (this.closeWatch(directory)) {
+        this.promoteWantedWatch();
+      }
+      return;
+    }
+    this.refCounts.set(directory, currentCount - 1);
+  }
+
+  refCount(vaultRelDir) {
+    return this.refCounts.get(toForwardSlashPath(vaultRelDir)) ?? 0;
+  }
+
+  // Create one non-recursive watch over a single directory, honouring the cap.
+  // Returns true iff a live watcher now backs the directory.
+  placeWatch(directory) {
     if (this.watchers.has(directory)) {
       return true;
     }
     if (!this.hasCapacity()) {
+      // Wanted but no budget — recorded in refCounts, promoted when a slot frees.
+      // Surfaced once as degradation so operators can see the cap is binding.
+      this.handleWatcherError({ code: 'ECAP', message: 'watch cap reached' }, directory);
       return false;
     }
 
@@ -151,6 +193,35 @@ export class WatchRegistry {
     } catch (error) {
       this.handleWatcherError(error, directory);
       return false;
+    }
+  }
+
+  closeWatch(directory) {
+    const watcher = this.watchers.get(directory);
+    if (!watcher) {
+      return false;
+    }
+    try {
+      watcher.close();
+    } catch {
+      // best-effort close
+    }
+    this.watchers.delete(directory);
+    return true;
+  }
+
+  // Fill a freed slot with any directory that is still wanted (refCount > 0) but has
+  // no live watcher — keeps the "watch what's in view" set as complete as the cap allows.
+  promoteWantedWatch() {
+    if (!this.hasCapacity()) {
+      return;
+    }
+    for (const directory of this.refCounts.keys()) {
+      if (!this.watchers.has(directory)) {
+        if (this.placeWatch(directory)) {
+          return;
+        }
+      }
     }
   }
 
@@ -187,6 +258,7 @@ export class WatchRegistry {
       }
     }
     this.watchers.clear();
+    this.refCounts.clear();
   }
 }
 
@@ -251,6 +323,11 @@ export class FileSystemSyncService {
     this.pendingEventTypesByPath = new Map();
     this.forceFullScan = false;
     this.suspendWatchEventsUntil = 0;
+    // Phase 2 (lazy mode) demand-tracking. Each source keeps the set of directories
+    // it currently holds a reference on, so a change reconciles by diffing the fresh
+    // desired set against the applied set (drift-free — recomputed from ground truth).
+    this.appliedRoomDirs = new Set(); // directories of currently-open file rooms
+    this.appliedSubscribedDirs = new Set(); // directories clients have expanded
   }
 
   async start({ snapshot = null } = {}) {
@@ -269,33 +346,114 @@ export class FileSystemSyncService {
       this.watchMode = 'recursive';
       this.watchRegistry.watchRecursive();
     } else {
-      // Large vault: bound the footprint to what's in view + a top-N sweep.
-      this.watchMode = 'bounded';
-      this.applyBoundedWatches(directories);
+      // Large vault: watch only what's in view, filled on demand (Phase 2).
+      this.watchMode = 'lazy';
+      // The vault root is always watched (permanent reference): top-of-tree
+      // add/remove/rename stays live regardless of what clients have open/expanded.
+      this.watchRegistry.retain('');
+      // Any files already open at start (e.g. after a restart / reconnect) get their
+      // directories watched immediately — the rest is filled as clients interact.
+      this.reconcileOpenRoomWatches();
     }
 
     this.logWatchMode({ directoryCount: directories.length, watchCount: this.watchRegistry.size });
   }
 
-  // Bounded strategy (Phase 1): always watch the vault root (top-of-tree
-  // add/remove/rename) and every open file's directory (highest-value live-reload),
-  // then fill the remaining budget with a breadth-first sweep of the shallowest
-  // directories until the cap is reached. Deep/unswept subtrees lose live-reload
-  // until they are opened — an accepted hotfix tradeoff (Phase 2 makes this lazy).
-  applyBoundedWatches(directoriesByDepth) {
-    const registry = this.watchRegistry;
-    registry.addWatch('');
+  // Lazy mode only: reconcile the set of watched open-file directories against the
+  // live room registry (ground truth). Called whenever a file room opens or closes,
+  // so a file opened LATER in a deep directory gets a watch (the Phase 1 gap), and a
+  // directory whose last open file closed is released. Diffing against the applied
+  // set makes this idempotent and drift-free.
+  reconcileOpenRoomWatches() {
+    if (this.watchMode !== 'lazy' || !this.watchRegistry) {
+      return;
+    }
+    const desired = this.collectOpenRoomDirectories();
+    this.applyDirectoryDiff(this.appliedRoomDirs, desired);
+    this.appliedRoomDirs = desired;
+  }
 
-    for (const directory of this.collectOpenRoomDirectories()) {
-      registry.addWatch(directory);
+  onRoomOpened() {
+    this.reconcileOpenRoomWatches();
+  }
+
+  onRoomClosed() {
+    this.reconcileOpenRoomWatches();
+  }
+
+  // Lazy mode only: reconcile the set of watched client-expanded directories.
+  // `subscriptions` carries the aggregate the workspace room extracts from Yjs
+  // awareness: `dirs` = union of every connected client's expanded directories,
+  // `activeFiles` = each client's currently-open file. Newly-subscribed directories
+  // are re-read once (on-expand reconcile) so they are correct even if a watch could
+  // not be placed; active files are re-read (on-focus reconcile) so an open file
+  // stays current even when its watch is absent (degraded / cap reached).
+  updateWatchSubscriptions({ dirs = [], activeFiles = [] } = {}) {
+    if (this.watchMode !== 'lazy' || !this.watchRegistry) {
+      return;
     }
 
-    for (const directory of directoriesByDepth) {
-      if (!registry.hasCapacity()) {
-        break;
+    const desired = new Set();
+    for (const dir of dirs) {
+      const normalized = normalizeWatchedPath(dir);
+      if (normalized && !isIgnoredWatchedPath(normalized)) {
+        desired.add(normalized);
       }
-      registry.addWatch(directory);
     }
+
+    const added = this.applyDirectoryDiff(this.appliedSubscribedDirs, desired);
+    this.appliedSubscribedDirs = desired;
+
+    // On-expand reconcile: re-read each newly-subscribed directory once.
+    for (const directory of added) {
+      this.requestPathReconcile(directory);
+    }
+
+    // On-focus / navigation reconcile: re-read each client's open file (cheap single
+    // stat) so its content stays live even without a directory watch.
+    for (const activeFile of activeFiles) {
+      const normalized = normalizeWatchedPath(activeFile);
+      if (normalized && isVaultFilePath(normalized) && !isIgnoredWatchedPath(normalized)) {
+        this.requestPathReconcile(normalized);
+      }
+    }
+  }
+
+  // Retain directories newly in `desired`, release ones no longer wanted. Returns the
+  // set of directories that were newly retained (for on-expand reconcile).
+  applyDirectoryDiff(applied, desired) {
+    const added = new Set();
+    for (const directory of desired) {
+      if (!applied.has(directory)) {
+        this.watchRegistry.retain(directory);
+        added.add(directory);
+      }
+    }
+    for (const directory of applied) {
+      if (!desired.has(directory)) {
+        this.watchRegistry.release(directory);
+      }
+    }
+    return added;
+  }
+
+  // Feed a path through the existing pending/flush pipeline exactly as a watch event
+  // would — `deriveIncrementalWorkspaceState` re-reads its snapshot and diffs, so a
+  // directory reconciles its subtree (add/remove/rename) and a file reconciles its
+  // content. This is the belt to the watching braces: correctness of the viewed scope
+  // no longer depends on a watch actually existing.
+  requestPathReconcile(pathValue) {
+    const normalizedPath = normalizeWatchedPath(pathValue);
+    if (!normalizedPath || isIgnoredWatchedPath(normalizedPath)) {
+      return;
+    }
+    const bucket = this.pendingEventTypesByPath.get(normalizedPath) ?? new Set();
+    bucket.add('reconcile');
+    this.pendingEventTypesByPath.set(normalizedPath, bucket);
+    if (this.pendingEventTypesByPath.size > MAX_INCREMENTAL_PENDING_PATHS) {
+      this.forceFullScan = true;
+    }
+    this.scheduleFlush();
   }
 
   // Directories of currently-open files (rooms keyed by vault-relative file path).
@@ -500,6 +658,8 @@ export class FileSystemSyncService {
       this.watchRegistry.closeAll();
       this.watchRegistry = null;
     }
+    this.appliedRoomDirs = new Set();
+    this.appliedSubscribedDirs = new Set();
     await this.runningFlush;
   }
 }
