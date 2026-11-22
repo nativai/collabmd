@@ -353,12 +353,15 @@ export function loadBacklinksConfig(env = process.env) {
     throw new Error(`COLLABMD_BACKLINKS_SOURCE must be one of: ${[...BACKLINK_SOURCES].join(', ')}.`);
   }
 
+  const mapBatchPauseMs = Number.parseInt(env.COLLABMD_BACKLINKS_MAP_BATCH_PAUSE_MS ?? '', 10);
   const config = {
-    gapRefreshMs: parsePositiveInt(env.COLLABMD_BACKLINKS_GAP_REFRESH_MS, 300_000),
-    maxCandidates: parsePositiveInt(env.COLLABMD_BACKLINKS_MAX_CANDIDATES, 500),
+    mapBatchPauseMs: Number.isInteger(mapBatchPauseMs) && mapBatchPauseMs >= 0 ? mapBatchPauseMs : 20,
+    mapBatchRows: parsePositiveInt(env.COLLABMD_BACKLINKS_MAP_BATCH_ROWS, 32),
     overlayWindowMs: parsePositiveInt(env.COLLABMD_BACKLINKS_OVERLAY_WINDOW_MS, 600_000),
     source,
+    storePollMs: parsePositiveInt(env.COLLABMD_BACKLINKS_STORE_POLL_MS, 60_000),
     timeoutMs: parsePositiveInt(env.COLLABMD_BACKLINKS_PG_TIMEOUT_MS, 2_000),
+    warmupTimeoutMs: parsePositiveInt(env.COLLABMD_BACKLINKS_WARMUP_TIMEOUT_MS, 10_000),
   };
   if (source !== 'postgres') {
     return config;
