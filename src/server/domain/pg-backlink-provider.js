@@ -25,6 +25,7 @@ import {
 
 const CANDIDATE_PAGE_SIZE = 100;
 const GAP_LIST_TIMEOUT_MS = 30_000;
+const CLOSE_TIMEOUT_MS = 1_000;
 
 /**
  * The store cuts a document's `text` at 4 MiB UTF-16 code units. A cut document may have
@@ -128,6 +129,7 @@ export class PgBacklinkProvider {
     this._refreshAgain = false;
     this._refreshTimer = null;
     this._pgHealthy = true;
+    this._closed = false;
   }
 
   /** Called once the server listens: adopt the snapshot, then build the gap index in the background. */
@@ -142,13 +144,17 @@ export class PgBacklinkProvider {
     return this.refreshGapSet();
   }
 
+  /** Never waits on an in-flight refresh: a hanging store must not stall shutdown. */
   async close() {
+    this._closed = true;
     if (this._refreshTimer) {
       this.timers.clearIntervalFn(this._refreshTimer);
       this._refreshTimer = null;
     }
-    await this._refreshPromise?.catch(() => {});
-    await this.pg?.end?.();
+    if (this.pg?.end) {
+      await withTimeout(Promise.resolve().then(() => this.pg.end()), CLOSE_TIMEOUT_MS, 'Postgres pool close', this.timers)
+        .catch((error) => this.logger.warn(`[backlinks] ${error.message}`));
+    }
   }
 
   /** No full-vault build exists in this mode (the test reset endpoint calls this). */
@@ -362,6 +368,9 @@ export class PgBacklinkProvider {
       this._markPostgresHealthy();
     } catch (error) {
       this._markPostgresFailed(error);
+      return;
+    }
+    if (this._closed) {
       return;
     }
 
