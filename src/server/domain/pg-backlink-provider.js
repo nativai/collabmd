@@ -18,6 +18,7 @@
  */
 
 import { BacklinkIndex } from './backlink-index.js';
+import { mapWithConcurrency } from '../shared/async-utils.js';
 import { createWikiTargetIndex, resolveWikiTargetWithIndex } from '../../domain/wiki-link-resolver.js';
 import { isImageAttachmentFilePath, isMarkdownFilePath } from '../../domain/file-kind.js';
 import {
@@ -33,6 +34,7 @@ const CLOSE_TIMEOUT_MS = 1_000;
 /** The client waits this much past the server-side statement_timeout, so the server's cancel lands first. */
 const CANCEL_GRACE_MS = 1_000;
 const CONNECT_TIMEOUT_MS = 5_000;
+const GAP_READ_CONCURRENCY = 8;
 
 /**
  * The store cuts a document's `text` at 4 MiB UTF-16 code units. A cut document may have
@@ -502,16 +504,7 @@ export class PgBacklinkProvider {
 
       if (!this._gapIndex || this._needsFullGapBuild) {
         this._needsFullGapBuild = false;
-        // ⚠️ The gap index resolves with THIS provider's wiki index (one 47 MB copy at main scale, not
-        // two), in the canonical snapshot order the Postgres part uses.
-        const gapIndex = new BacklinkIndex({
-          createTargetIndex: () => this._wikiTargetIndex,
-          vaultFileStore: this.vaultFileStore,
-        });
-        await gapIndex.build({
-          workspaceState: { filePaths: this._filePaths, markdownPaths: Array.from(nextGap) },
-        });
-        this._gapIndex = gapIndex;
+        this._gapIndex = await this._buildGapIndex(nextGap);
       } else {
         for (const filePath of this._gapSet) {
           if (!nextGap.has(filePath)) {
@@ -529,6 +522,27 @@ export class PgBacklinkProvider {
     } catch (error) {
       this.logger.warn(`[backlinks] gap index refresh failed: ${error.message}`);
     }
+  }
+
+  /**
+   * A fresh gap index, indexed file by file: BacklinkIndex.build would first hold every gap
+   * file's content at once. ⚠️ The gap index resolves with THIS provider's wiki index (one
+   * 47 MB copy at main scale, not two), in the canonical snapshot order the Postgres part uses.
+   */
+  async _buildGapIndex(gapPaths) {
+    const gapIndex = new BacklinkIndex({
+      createTargetIndex: () => this._wikiTargetIndex,
+      vaultFileStore: this.vaultFileStore,
+    });
+    await gapIndex.build({ workspaceState: { filePaths: this._filePaths, markdownPaths: [] } });
+    await mapWithConcurrency(Array.from(gapPaths), GAP_READ_CONCURRENCY, async (filePath) => {
+      const content = await this.vaultFileStore.readMarkdownFile(filePath);
+      if (content !== null) {
+        gapIndex.updateFile(filePath, content, { refreshIndex: false });
+      }
+    });
+    this.logger.log(`[backlinks] gap index built: ${gapPaths.size} markdown sources`);
+    return gapIndex;
   }
 
   async _refreshLinkMap(storeRows) {
