@@ -344,6 +344,47 @@ function loadHostedConfig(overrides = {}, { authStrategy, vaultDir } = {}) {
   };
 }
 
+const BACKLINK_SOURCES = new Set(['memory', 'postgres']);
+const PG_SSL_MODES = new Set(['disable', 'require', 'verify-full']);
+
+export function loadBacklinksConfig(env = process.env) {
+  const source = normalizeOptionalString(env.COLLABMD_BACKLINKS_SOURCE).toLowerCase() || 'memory';
+  if (!BACKLINK_SOURCES.has(source)) {
+    throw new Error(`COLLABMD_BACKLINKS_SOURCE must be one of: ${[...BACKLINK_SOURCES].join(', ')}.`);
+  }
+
+  const config = {
+    gapRefreshMs: parsePositiveInt(env.COLLABMD_BACKLINKS_GAP_REFRESH_MS, 300_000),
+    maxCandidates: parsePositiveInt(env.COLLABMD_BACKLINKS_MAX_CANDIDATES, 500),
+    overlayWindowMs: parsePositiveInt(env.COLLABMD_BACKLINKS_OVERLAY_WINDOW_MS, 600_000),
+    source,
+    timeoutMs: parsePositiveInt(env.COLLABMD_BACKLINKS_PG_TIMEOUT_MS, 2_000),
+  };
+  if (source !== 'postgres') {
+    return config;
+  }
+
+  const pg = {
+    database: normalizeOptionalString(env.COLLABMD_PG_DATABASE),
+    host: normalizeOptionalString(env.COLLABMD_PG_HOST),
+    password: String(env.COLLABMD_PG_PASSWORD ?? ''),
+    port: parsePort(env.COLLABMD_PG_PORT, 5432),
+    sslmode: normalizeOptionalString(env.COLLABMD_PG_SSLMODE).toLowerCase() || 'require',
+    user: normalizeOptionalString(env.COLLABMD_PG_USER),
+  };
+  const missing = ['host', 'database', 'user']
+    .filter((key) => !pg[key])
+    .map((key) => `COLLABMD_PG_${key.toUpperCase()}`);
+  if (missing.length > 0) {
+    throw new Error(`COLLABMD_BACKLINKS_SOURCE=postgres requires ${missing.join(', ')}.`);
+  }
+  if (!PG_SSL_MODES.has(pg.sslmode)) {
+    throw new Error(`COLLABMD_PG_SSLMODE must be one of: ${[...PG_SSL_MODES].join(', ')}.`);
+  }
+
+  return { ...config, pg };
+}
+
 export function loadConfig(overrides = {}) {
   const nodeEnv = process.env.NODE_ENV || 'development';
   const vaultDir = resolveConfiguredVaultDir(overrides);
@@ -385,6 +426,7 @@ export function loadConfig(overrides = {}) {
       sessionSecret: authOverrides.sessionSecret || process.env.AUTH_SESSION_SECRET || createRandomSessionSecret(),
       strategy: authStrategy,
     },
+    backlinks: loadBacklinksConfig(),
     basePath,
     build,
     drawioBaseUrl: resolveDrawioBaseUrl(process.env.COLLABMD_DRAWIO_BASE_URL || process.env.DRAWIO_BASE_URL),

@@ -4,6 +4,7 @@ import { loadConfig } from './config/env.js';
 import { createAuthService } from './auth/create-auth-service.js';
 import { logPerfEvent } from './config/perf-logging.js';
 import { BacklinkIndex } from './domain/backlink-index.js';
+import { PgBacklinkProvider, createPgDocsClient } from './domain/pg-backlink-provider.js';
 import { BaseQueryService } from './domain/bases/base-query-service.js';
 import { CollaborationDocumentStore } from './domain/collaboration/collaboration-document-store.js';
 import { CollaborationRoom } from './domain/collaboration/collaboration-room.js';
@@ -49,7 +50,23 @@ function closeHttpServer(httpServer) {
   });
 }
 
-export function createAppServer(config = loadConfig()) {
+function createBacklinkIndex(config, { backlinksPg, vaultFileStore }) {
+  if (config.backlinks?.source !== 'postgres') {
+    return new BacklinkIndex({ vaultFileStore });
+  }
+
+  const { gapRefreshMs, maxCandidates, overlayWindowMs, pg, timeoutMs } = config.backlinks;
+  return new PgBacklinkProvider({
+    gapRefreshMs,
+    maxCandidates,
+    overlayWindowMs,
+    pg: backlinksPg ?? createPgDocsClient({ ...pg, timeoutMs }),
+    timeoutMs,
+    vaultFileStore,
+  });
+}
+
+export function createAppServer(config = loadConfig(), { backlinksPg = null } = {}) {
   const authService = createAuthService(config);
   const hostedWorkspaceService = new HostedWorkspaceService({
     claim: config.hosted?.claim,
@@ -72,7 +89,7 @@ export function createAppServer(config = loadConfig()) {
       })
     : null;
   const vaultFileStore = new VaultFileStore({ vaultDir: config.vaultDir });
-  const backlinkIndex = new BacklinkIndex({ vaultFileStore });
+  const backlinkIndex = createBacklinkIndex(config, { backlinksPg, vaultFileStore });
   let fileSystemSyncService = null;
   let workspaceMutationCoordinator = null;
   const baseQueryService = new BaseQueryService({
@@ -232,33 +249,38 @@ export function createAppServer(config = loadConfig()) {
       vaultFileCount,
     });
 
-    const backlinkBuildStartedAt = Date.now();
-    await backlinkIndex.build({ workspaceState: initialWorkspaceSnapshot });
-    logPerfEvent(config.perfLoggingEnabled, 'startup', {
-      durationMs: Date.now() - backlinkBuildStartedAt,
-      markdownFileCount: initialWorkspaceSnapshot.markdownPaths?.length ?? 0,
-      phase: 'backlink-build',
-    });
-
-    const liveWorkspaceScanStartedAt = Date.now();
-    const liveWorkspaceSnapshot = await vaultFileStore.scanWorkspaceState();
-    const workspaceChangedDuringStartup = !workspaceStateMetadataEqual(initialWorkspaceSnapshot, liveWorkspaceSnapshot);
-    vaultFileCount = liveWorkspaceSnapshot.vaultFileCount ?? vaultFileCount;
-    logPerfEvent(config.perfLoggingEnabled, 'startup', {
-      changedDuringStartup: workspaceChangedDuringStartup,
-      durationMs: Date.now() - liveWorkspaceScanStartedAt,
-      phase: 'workspace-rescan',
-      vaultFileCount,
-    });
-
-    if (workspaceChangedDuringStartup) {
-      const backlinkRebuildStartedAt = Date.now();
-      await backlinkIndex.build({ workspaceState: liveWorkspaceSnapshot });
+    // The postgres provider has no full-vault build; its gap index starts after listen.
+    const requiresStartupBuild = backlinkIndex.requiresStartupBuild !== false;
+    let liveWorkspaceSnapshot = initialWorkspaceSnapshot;
+    if (requiresStartupBuild) {
+      const backlinkBuildStartedAt = Date.now();
+      await backlinkIndex.build({ workspaceState: initialWorkspaceSnapshot });
       logPerfEvent(config.perfLoggingEnabled, 'startup', {
-        durationMs: Date.now() - backlinkRebuildStartedAt,
-        markdownFileCount: liveWorkspaceSnapshot.markdownPaths?.length ?? 0,
-        phase: 'backlink-rebuild',
+        durationMs: Date.now() - backlinkBuildStartedAt,
+        markdownFileCount: initialWorkspaceSnapshot.markdownPaths?.length ?? 0,
+        phase: 'backlink-build',
       });
+
+      const liveWorkspaceScanStartedAt = Date.now();
+      liveWorkspaceSnapshot = await vaultFileStore.scanWorkspaceState();
+      const workspaceChangedDuringStartup = !workspaceStateMetadataEqual(initialWorkspaceSnapshot, liveWorkspaceSnapshot);
+      vaultFileCount = liveWorkspaceSnapshot.vaultFileCount ?? vaultFileCount;
+      logPerfEvent(config.perfLoggingEnabled, 'startup', {
+        changedDuringStartup: workspaceChangedDuringStartup,
+        durationMs: Date.now() - liveWorkspaceScanStartedAt,
+        phase: 'workspace-rescan',
+        vaultFileCount,
+      });
+
+      if (workspaceChangedDuringStartup) {
+        const backlinkRebuildStartedAt = Date.now();
+        await backlinkIndex.build({ workspaceState: liveWorkspaceSnapshot });
+        logPerfEvent(config.perfLoggingEnabled, 'startup', {
+          durationMs: Date.now() - backlinkRebuildStartedAt,
+          markdownFileCount: liveWorkspaceSnapshot.markdownPaths?.length ?? 0,
+          phase: 'backlink-rebuild',
+        });
+      }
     }
 
     const workspaceInitStartedAt = Date.now();
@@ -300,6 +322,8 @@ export function createAppServer(config = loadConfig()) {
           phase: 'listen',
           port: result.port,
         });
+        // Not awaited: the gap index builds in the background and never gates readiness.
+        void backlinkIndex.start?.({ workspaceState: liveWorkspaceSnapshot });
         logPerfEvent(config.perfLoggingEnabled, 'startup-total', {
           durationMs: Date.now() - startupStartedAt,
           markdownFileCount: liveWorkspaceSnapshot.markdownPaths?.length ?? 0,
@@ -325,6 +349,7 @@ export function createAppServer(config = loadConfig()) {
         closeHttpServer(httpServer),
         config.git?.cleanup?.(),
         hostedWorkspaceService.close(),
+        backlinkIndex.close?.(),
       ]);
     })().then(() => undefined);
 
