@@ -15,6 +15,7 @@ import {
 import { createWikiTargetIndex } from '../../src/domain/wiki-link-resolver.js';
 import { loadBacklinksConfig, loadConfig } from '../../src/server/config/env.js';
 import { createAppServer } from '../../src/server/create-app-server.js';
+import { createPgDocsClient } from '../../src/server/domain/pg-backlink-provider.js';
 
 // A synthetic vault. Every case the Backlinks panel must get right sits in it; the parity
 // test below compares both implementations on EVERY file of it.
@@ -44,6 +45,13 @@ const FIXTURE = [
   // Parity cases where today's index DOES count a link (and so must the provider):
   ['parity/fence.md', 'Before\n```\n[[target]] inside a code fence\n```\nAfter'],
   ['parity/dup-b.md', 'Qualified [[b/dup]] reaches b/dup.md.'],
+  // Names that stress the store's tokenizer (hyphen, non-ASCII, underscore, CJK, padding):
+  ['names/C-EFFORT.md', '# c'],
+  ['names/Über Notiz.md', '# u'],
+  ['names/snake_case_note.md', '# s'],
+  ['names/日本語ノート.md', '# j'],
+  ['sources/names.md', 'See [[C-EFFORT]], [[Über Notiz]], [[snake_case_note]], [[日本語ノート]] and [[ C-EFFORT ]].'],
+  ['negatives/case.md', 'The resolver is case-sensitive: [[c-effort]] is not names/C-EFFORT.md.'],
 ];
 
 /** The store's `text` column: a line of the path's words, then the body (see the provider). */
@@ -203,6 +211,13 @@ test('negative cases: mention without a link, same-stem link, ambiguous basename
 
   assert.deepEqual(await provider.getBacklinks('x.md'), [], '[x](../x.md) is not a backlink in either mode');
   assert.deepEqual(await provider.getBacklinks('notes/self.md'), [], 'self links do not count');
+});
+
+test('tokenizer-stressing names resolve; a case mismatch does not', async () => {
+  const { provider } = await createPair(FIXTURE);
+  for (const target of ['names/C-EFFORT.md', 'names/Über Notiz.md', 'names/snake_case_note.md', 'names/日本語ノート.md']) {
+    assert.deepEqual((await provider.getBacklinks(target)).map((entry) => entry.file), ['sources/names.md'], target);
+  }
 });
 
 test('non-markdown targets: wiki embeds and relative (also percent-encoded) image links are found', async () => {
@@ -453,4 +468,117 @@ test('startup with Postgres unreachable (real pg client) reaches listen and the 
   const response = await fetch(`http://127.0.0.1:${port}/api/backlinks?file=${encodeURIComponent('notes/target.md')}`);
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { backlinks: [], file: 'notes/target.md' });
+});
+
+// --- the real store: PostgreSQL + pg_search of the version wisdom-pg runs ---
+//
+// Runs where COLLABMD_TEST_PG_ADMIN_URL names a superuser connection to a PostgreSQL with
+// pg_search available (wisdom-pg: PostgreSQL 17.11 + pg_search 0.26.6). It creates a
+// throwaway database with the production wisdom_docs DDL and BM25 index, a SELECT-only
+// role, and runs the provider through the real pg client. Skipped elsewhere.
+const REAL_PG_ADMIN_URL = process.env.COLLABMD_TEST_PG_ADMIN_URL ?? '';
+
+// Copied from argocd-master-application wisdom-pg/base/admin/schema.sql (§B.5 wisdom_docs).
+const WISDOM_DOCS_DDL = [
+  `CREATE TABLE public.wisdom_docs (
+    id uuid PRIMARY KEY, path text NOT NULL, handle text NOT NULL, brick_id text, area text,
+    scratch boolean NOT NULL DEFAULT false, hash text NOT NULL, title text, mtime timestamptz, text text, bm25_text text)`,
+  'CREATE INDEX wisdom_docs_path ON public.wisdom_docs (path)',
+  `CREATE INDEX wisdom_docs_bm25 ON public.wisdom_docs USING bm25
+    (id, (text::pdb.simple('ascii_folding=true')), (bm25_text::pdb.simple('stemmer=english', 'stopwords_language=english', 'ascii_folding=true')),
+     (path::pdb.literal), (brick_id::pdb.literal), (area::pdb.literal), scratch)`,
+  'ALTER INDEX public.wisdom_docs_bm25 SET (mutable_segment_rows=0)',
+];
+
+test('real pg_search: parity on every fixture file, paging, cut docs, least-privilege role, index scan', {
+  skip: REAL_PG_ADMIN_URL ? false : 'set COLLABMD_TEST_PG_ADMIN_URL to run against a real pg_search',
+  timeout: 120_000,
+}, async (t) => {
+  const { default: pg } = await import('pg');
+  const suffix = `${process.pid}_${Date.now()}`;
+  const database = `collabmd_backlinks_${suffix}`;
+  const role = `collabmd_backlinks_${suffix}`;
+  const admin = new pg.Client({ connectionString: REAL_PG_ADMIN_URL });
+  await admin.connect();
+  await admin.query(`CREATE DATABASE ${database}`);
+  await admin.query(`CREATE ROLE ${role} LOGIN`);
+  // One hook, in order: close every connection into the database before dropping it.
+  const closeFirst = [];
+  t.after(async () => {
+    for (const close of closeFirst.reverse()) {
+      await close();
+    }
+    await admin.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`);
+    await admin.query(`DROP ROLE IF EXISTS ${role}`);
+    await admin.end();
+  });
+
+  const adminUrl = new URL(REAL_PG_ADMIN_URL);
+  adminUrl.pathname = `/${database}`;
+  const owner = new pg.Client({ connectionString: adminUrl.toString() });
+  await owner.connect();
+  closeFirst.push(() => owner.end());
+  await owner.query('CREATE EXTENSION IF NOT EXISTS pg_search CASCADE');
+  const { rows: [{ extversion }] } = await owner.query("SELECT extversion FROM pg_extension WHERE extname = 'pg_search'");
+  t.diagnostic(`pg_search ${extversion}; ${(await owner.query('SELECT version()')).rows[0].version}`);
+  for (const statement of WISDOM_DOCS_DDL) {
+    await owner.query(statement);
+  }
+
+  const hubSources = Array.from({ length: 230 }, (_, index) => [`hub-sources/${String(index).padStart(3, '0')}.md`, 'See [[hub]].']);
+  const files = [...FIXTURE, ['hub.md', '# hub'], ...hubSources, ['big/cut.md', 'kept on disk [[target]]']];
+  const insertDoc = (path, text) => owner.query(
+    `INSERT INTO wisdom_docs (id, path, handle, area, hash, title, text, bm25_text)
+     VALUES (gen_random_uuid(), $1, 'brain/' || $1, split_part($1, '/', 1), md5($2), $1, $2, $2)`,
+    [path, text],
+  );
+  // Row by row, as the store's writer lands documents (many small segments).
+  for (const [path, body] of storeDocsFor(files, { exclude: ['sources/plain.md', 'big/cut.md'] })) {
+    await insertDoc(path, body);
+  }
+  // A document stored cut at the cap: its stored text lost the link.
+  await insertDoc('big/cut.md', storeText('big/cut.md', 'x'.repeat(STORE_TEXT_CAP_CHARS)));
+
+  await owner.query(`GRANT CONNECT ON DATABASE ${database} TO ${role}`);
+  await owner.query(`GRANT USAGE ON SCHEMA public TO ${role}`);
+  await owner.query(`GRANT SELECT ON wisdom_docs TO ${role}`);
+
+  const vaultFileStore = new StubVaultStore(files);
+  const workspaceState = await vaultFileStore.scanWorkspaceState();
+  const index = new BacklinkIndex({ vaultFileStore: new StubVaultStore(files) });
+  await index.build({ workspaceState });
+  const logger = quietLogger();
+  const provider = new PgBacklinkProvider({
+    logger,
+    pg: createPgDocsClient({
+      database,
+      host: adminUrl.hostname,
+      password: '',
+      port: Number(adminUrl.port || 5432),
+      sslmode: 'disable',
+      timeoutMs: 5_000,
+      user: role,
+    }),
+    timeoutMs: 5_000,
+    vaultFileStore,
+  });
+  closeFirst.push(() => provider.close());
+  await provider.start({ workspaceState });
+
+  assert.ok(provider._gapSet.has('sources/plain.md'), 'a file missing from the store is a gap file');
+  assert.ok(provider._gapSet.has('big/cut.md'), 'a document at the cap is a gap file');
+  assert.equal(logger.lines.warn.length, 0, logger.lines.warn.join('\n'));
+
+  const totalBacklinks = await assertParity(index, provider, files);
+  assert.ok(totalBacklinks >= 240, `populated: ${totalBacklinks}`);
+  assert.equal((await provider.getBacklinks('hub.md')).length, 230, 'all three pages read');
+  assert.ok((await provider.getBacklinks('notes/target.md')).some((entry) => entry.file === 'big/cut.md'));
+  assert.equal(logger.lines.warn.length, 0, logger.lines.warn.join('\n'));
+
+  // Each literal goes through the BM25 index (the phrase), not a scan of the whole table.
+  await owner.query('ANALYZE wisdom_docs');
+  const query = buildCandidateQuery(['C-EFFORT'], { afterPath: '', limit: 100 });
+  const plan = (await owner.query({ text: `EXPLAIN ${query.text}`, values: query.values })).rows.map((row) => row['QUERY PLAN']).join('\n');
+  t.diagnostic(plan);
+  assert.match(plan, /ParadeDB|Custom Scan|wisdom_docs_bm25/u);
 });
