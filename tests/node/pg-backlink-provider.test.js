@@ -425,15 +425,148 @@ test('freshness: a link the store gains appears after the next poll; a link it l
   assert.deepEqual(files(await provider.getBacklinks('target.md')), ['src.md']);
 });
 
-test('overlay: an edit through updateFile adds a backlink at once although the store still has the old text, and expires after the window', async () => {
-  let now = 1_000_000;
+test('memory: the gap index resolves with the wiki index of the provider (one copy), also after a file is created', async () => {
+  const { provider, vaultFileStore, workspaceState } = await createPair(FIXTURE, { exclude: ['sources/plain.md'] });
+  assert.equal(provider._gapIndex._wikiTargetIndex, provider._wikiTargetIndex);
+
+  vaultFileStore.files.set('new/note.md', 'new [[target]]');
+  const nextState = await vaultFileStore.scanWorkspaceState();
+  await provider.applyWorkspaceChange({ changedPaths: ['new/note.md'] }, { nextState, previousState: workspaceState });
+  assert.equal(provider._gapIndex._wikiTargetIndex, provider._wikiTargetIndex);
+  assert.ok(provider._wikiTargetIndex.exactPaths.has('new/note.md'));
+});
+
+test('memory: an unchanged file list keeps the wiki index; a changed one rebuilds it', async () => {
+  const { provider, vaultFileStore, workspaceState } = await createPair(FIXTURE);
+  const before = provider._wikiTargetIndex;
+  vaultFileStore.files.set('sources/alias.md', 'edited, same membership');
+  await provider.applyWorkspaceChange({ changedPaths: ['sources/alias.md'] }, { nextState: workspaceState, previousState: workspaceState });
+  assert.equal(provider._wikiTargetIndex, before, 'a save that changes no membership must not rebuild the index');
+
+  vaultFileStore.files.set('extra.md', '# extra');
+  const nextState = await vaultFileStore.scanWorkspaceState();
+  await provider.applyWorkspaceChange({ changedPaths: ['extra.md'] }, { nextState, previousState: workspaceState });
+  assert.notEqual(provider._wikiTargetIndex, before);
+  assert.ok(provider._wikiTargetIndex.exactPaths.has('extra.md'));
+});
+
+test('overlay: an edit through updateFile shows at once although the store still has the old text', async () => {
   const vault = [['target.md', '# t'], ['src.md', 'no link yet']];
-  const { provider } = await createPair(vault, { providerOptions: { now: () => now, overlayWindowMs: 60_000 } });
+  const { provider } = await createPair(vault);
   assert.deepEqual(await provider.getBacklinks('target.md'), []);
   provider.updateFile('src.md', 'now [[target]]');
   assert.deepEqual(await provider.getBacklinks('target.md'), [{ file: 'src.md', contexts: ['now [[target]]'] }]);
+});
+
+test('overlay (G5): past the window it stays while the store is stale, leaves once the store caught up, and is bounded', async () => {
+  let now = 1_000_000;
+  const vault = [['target.md', '# t'], ['src.md', 'no link yet'], ['scratch.md', 'no link yet']];
+  const { pg, provider } = await createPair(vault, { providerOptions: { now: () => now, overlayMaxMs: 3_600_000, overlayWindowMs: 60_000 } });
+  provider.updateFile('src.md', 'now [[target]]');
+  provider.updateFile('scratch.md', 'scratch [[target]]');
+
   now += 60_001;
-  assert.deepEqual(await provider.getBacklinks('target.md'), [], 'after the window the (old) store text decides again');
+  await provider.pollStore();
+  assert.deepEqual(files(await provider.getBacklinks('target.md')), ['scratch.md', 'src.md'], 'the store has not re-read either file: both stay');
+
+  // The store re-reads src.md (its hash changes); scratch.md waits for the full walk.
+  pg.docs.set('src.md', storeText('src.md', 'now [[target]]'));
+  await provider.pollStore();
+  assert.ok(!provider._overlay.has('src.md'), 'caught up: the overlay entry is gone');
+  assert.ok(provider._overlay.has('scratch.md'), 'still stale: the overlay entry stays');
+  assert.deepEqual(files(await provider.getBacklinks('target.md')), ['scratch.md', 'src.md'], 'src.md now comes from the store');
+
+  now += 3_600_000;
+  await provider.pollStore();
+  assert.ok(!provider._overlay.has('scratch.md'), 'the upper bound drops it even while the store stays stale');
+  assert.deepEqual(files(await provider.getBacklinks('target.md')), ['src.md']);
+});
+
+test('overlay (G5): a gap file drops at the window (the gap index holds its disk content)', async () => {
+  let now = 1_000_000;
+  const { provider } = await createPair(FIXTURE, { exclude: ['sources/plain.md'], providerOptions: { now: () => now, overlayWindowMs: 60_000 } });
+  provider.updateFile('sources/plain.md', 'gap edit [[target]]');
+  now += 60_001;
+  await provider.pollStore();
+  assert.ok(!provider._overlay.has('sources/plain.md'));
+  assert.ok(files(await provider.getBacklinks('notes/target.md')).includes('sources/plain.md'), 'served by the gap index');
+});
+
+test('G4.f2: the first successful request after an outage refreshes the gap set and builds the link map at once', async () => {
+  const vaultFileStore = new StubVaultStore(FIXTURE);
+  const workspaceState = await vaultFileStore.scanWorkspaceState();
+  const pg = new FakeDocsStore(storeDocsFor(FIXTURE, { exclude: ['sources/plain.md'] }));
+  pg.failWith = new Error('connect ECONNREFUSED');
+  const provider = new PgBacklinkProvider({ logger: quietLogger(), mapBatchPauseMs: 0, pg, storePollMs: 3_600_000, vaultFileStore });
+  providersToClose.push(provider);
+  await provider.start({ workspaceState });
+  assert.equal(provider._gapIndex, null);
+
+  pg.failWith = null;
+  await provider.getBacklinks('notes/target.md');
+  await waitFor(() => provider.mapReady && provider._gapIndex !== null, 'the recovery poll');
+  assert.ok(files(await provider.getBacklinks('notes/target.md')).includes('sources/plain.md'), 'the gap file is back without waiting for the next poll');
+});
+
+test('M1 (intended difference): after a target rename, memory mode keeps [[old]] via its alias map until restart; postgres mode does not', async () => {
+  const vault = [['old-name.md', '# t'], ['linker.md', 'see [[old-name]]']];
+  const { index, provider, vaultFileStore, workspaceState } = await createPair(vault);
+  vaultFileStore.files.delete('old-name.md');
+  vaultFileStore.files.set('new-name.md', '# t');
+  const nextState = await vaultFileStore.scanWorkspaceState();
+  const change = { renamedPaths: [{ newPath: 'new-name.md', oldPath: 'old-name.md' }] };
+  index.onFileRenamed('old-name.md', 'new-name.md');
+  await provider.applyWorkspaceChange(change, { nextState, previousState: workspaceState });
+
+  assert.deepEqual(files(await index.getBacklinks('new-name.md')), ['linker.md'], 'memory mode: alias kept until restart');
+  assert.deepEqual(await provider.getBacklinks('new-name.md'), [], 'postgres mode: [[old-name]] no longer resolves');
+  // Postgres mode equals memory mode after a restart (a fresh build).
+  const restarted = new BacklinkIndex({ vaultFileStore: new StubVaultStore([...vaultFileStore.files]) });
+  await restarted.build({ workspaceState: nextState });
+  assert.equal(JSON.stringify(await provider.getBacklinks('new-name.md')), JSON.stringify(await restarted.getBacklinks('new-name.md')));
+});
+
+test('G4.f1: each query carries a server-side statement_timeout of the time left; a late checkout never runs; cancels keep the connection', async () => {
+  const log = [];
+  let releaseLater = null;
+  const makeClient = (name) => ({
+    query: async (config) => {
+      log.push([name, typeof config === 'string' ? config : config.text]);
+      if (typeof config !== 'string' && config.text === 'cancel me') {
+        const error = new Error('canceling statement due to statement timeout');
+        error.code = '57014';
+        throw error;
+      }
+      if (typeof config !== 'string' && config.text === 'break me') {
+        throw new Error('connection reset');
+      }
+      return { rows: [] };
+    },
+    release: (error) => log.push([name, `release:${error ? 'discard' : 'reuse'}`]),
+  });
+  const pool = {
+    connect: () => (releaseLater ? new Promise((resolve) => { releaseLater = () => resolve(makeClient('late')); }) : Promise.resolve(makeClient('c'))),
+    end: async () => {},
+  };
+  const client = createPgDocsClient({ createPool: () => pool, database: 'd', host: 'h', user: 'u' });
+
+  await client.query({ text: 'SELECT 1' }, { timeoutMs: 2_000 });
+  assert.match(log[0][1], /^SET statement_timeout = (199\d|2000)$/u);
+  assert.deepEqual(log.slice(1), [['c', 'SELECT 1'], ['c', 'release:reuse']]);
+
+  log.length = 0;
+  await assert.rejects(client.query({ text: 'cancel me' }, { timeoutMs: 500 }), /statement timeout/u);
+  assert.deepEqual(log.at(-1), ['c', 'release:reuse'], 'a server-side cancel leaves the connection usable');
+  log.length = 0;
+  await assert.rejects(client.query({ text: 'break me' }, { timeoutMs: 500 }), /connection reset/u);
+  assert.deepEqual(log.at(-1), ['c', 'release:discard']);
+
+  log.length = 0;
+  releaseLater = () => {};
+  await assert.rejects(client.query({ text: 'SELECT late' }, { timeoutMs: 30 }), /no Postgres connection free within 30 ms/u);
+  releaseLater();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(log, [['late', 'release:reuse']], 'the late connection is handed back without running anything');
 });
 
 test('overlay: removing a link through updateFile removes the backlink although the store still has it', async () => {
@@ -738,6 +871,34 @@ test('real pg_search: parity in both modes on every fixture file, paging, cut do
     assert.equal(logger.lines.warn.length, 0, logger.lines.warn.join('\n'));
   }
   provider._mapReady = true;
+
+  // G4.f1: a locked (stuck) store never accumulates backends. Every timed-out request's statement
+  // is cancelled by the server at its deadline; the pool (panels + background) stays at <= 2.
+  const lock = new pg.Client({ connectionString: adminUrl.toString() });
+  await lock.connect();
+  closeFirst.push(() => lock.end());
+  await lock.query('BEGIN');
+  await lock.query('LOCK TABLE wisdom_docs IN ACCESS EXCLUSIVE MODE');
+  provider.timeoutMs = 300;
+  const backends = async () => Number((await owner.query(
+    "SELECT count(*) AS n FROM pg_stat_activity WHERE application_name = 'collabmd-backlinks' AND datname = $1 AND state = 'active'",
+    [database],
+  )).rows[0].n);
+  let maxActive = 0;
+  const sampler = setInterval(() => { backends().then((n) => { maxActive = Math.max(maxActive, n); }, () => {}); }, 25);
+  const answers = await Promise.all(Array.from({ length: 10 }, () => provider.getBacklinks('notes/target.md')));
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  clearInterval(sampler);
+  const activeAfter = await backends();
+  await lock.query('COMMIT');
+  t.diagnostic(`stuck store: max active collabmd backends ${maxActive}; active 1.5 s after the last request ${activeAfter}`);
+  assert.ok(answers.every((answer) => Array.isArray(answer)), 'every request answered');
+  assert.ok(maxActive <= 2, `at most 2 backends, saw ${maxActive}`);
+  assert.equal(activeAfter, 0, 'every timed-out statement was cancelled by the server');
+  assert.ok(!logger.lines.warn.some((line) => line.includes('Postgres unavailable')), 'a stuck store is a timeout, not an outage');
+  provider.timeoutMs = 5_000;
+  logger.lines.warn.length = 0;
+  assert.equal(JSON.stringify(await provider.getBacklinks('notes/target.md')), JSON.stringify(await index.getBacklinks('notes/target.md')), 'recovers after the lock');
 
   // Each warm-up literal is its own index scan: the phrase drives the BM25 index and strpos
   // filters only its hits. ORed literals degraded to a heap filter over every row

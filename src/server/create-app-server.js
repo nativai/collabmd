@@ -56,13 +56,14 @@ function createBacklinkIndex(config, { backlinksPg, vaultFileStore }) {
   }
 
   const {
-    mapBatchPauseMs, mapBatchRows, overlayWindowMs, pg, storePollMs, timeoutMs, warmupTimeoutMs,
+    mapBatchPauseMs, mapBatchRows, overlayMaxMs, overlayWindowMs, pg, storePollMs, timeoutMs, warmupTimeoutMs,
   } = config.backlinks;
   return new PgBacklinkProvider({
     mapBatchPauseMs,
     mapBatchRows,
+    overlayMaxMs,
     overlayWindowMs,
-    pg: backlinksPg ?? createPgDocsClient({ ...pg, timeoutMs }),
+    pg: backlinksPg ?? createPgDocsClient(pg),
     storePollMs,
     timeoutMs,
     vaultFileStore,

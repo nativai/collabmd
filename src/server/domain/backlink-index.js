@@ -33,12 +33,15 @@ function createDeferred() {
 
 export class BacklinkIndex {
   constructor({
+    createTargetIndex = createWikiTargetIndex,
     rebuildDelayMs = 150,
     setTimeoutFn = setTimeout,
     clearTimeoutFn = clearTimeout,
     vaultFileStore,
   }) {
     this.vaultFileStore = vaultFileStore;
+    // Injectable so a caller holding the same file list can share one index (PgBacklinkProvider's gap index).
+    this._createTargetIndex = createTargetIndex;
     this.rebuildDelayMs = rebuildDelayMs;
     this.setTimeoutFn = setTimeoutFn;
     this.clearTimeoutFn = clearTimeoutFn;
@@ -58,7 +61,7 @@ export class BacklinkIndex {
     this._sourceFileList = [];
     /** @type {Set<string>} file path membership set */
     this._fileSet = new Set();
-    this._wikiTargetIndex = createWikiTargetIndex(this._fileList);
+    this._wikiTargetIndex = this._createTargetIndex(this._fileList);
     this._built = false;
     this._requestedBuildVersion = 0;
     this._completedBuildVersion = 0;
@@ -562,8 +565,13 @@ export class BacklinkIndex {
     this.forward.delete(filePath);
   }
 
+  /** Re-read the target index from `createTargetIndex` (a caller sharing its index changed it). */
+  refreshTargetIndex() {
+    this._refreshWikiTargetIndex();
+  }
+
   _refreshWikiTargetIndex() {
-    this._wikiTargetIndex = createWikiTargetIndex(this._fileList);
+    this._wikiTargetIndex = this._createTargetIndex(this._fileList);
   }
 
   _removeRawTargetSourceContributions(filePath) {

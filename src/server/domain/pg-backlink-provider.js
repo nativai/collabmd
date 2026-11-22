@@ -30,6 +30,9 @@ const CANDIDATE_PAGE_SIZE = 100;
 const FETCH_CHUNK_SIZE = 100;
 const BACKGROUND_QUERY_TIMEOUT_MS = 30_000;
 const CLOSE_TIMEOUT_MS = 1_000;
+/** The client waits this much past the server-side statement_timeout, so the server's cancel lands first. */
+const CANCEL_GRACE_MS = 1_000;
+const CONNECT_TIMEOUT_MS = 5_000;
 
 /**
  * The store cuts a document's `text` at 4 MiB UTF-16 code units. A cut document may have
@@ -44,7 +47,7 @@ export const STORE_POLL_SQL = `SELECT path, hash, octet_length(text) >= ${STORE_
 export const MAP_BATCH_SQL = 'SELECT path, hash, text FROM wisdom_docs WHERE path > $1::text ORDER BY path LIMIT $2::int';
 export const FETCH_BY_PATH_SQL = 'SELECT path, hash, text FROM wisdom_docs WHERE path = ANY($1::text[])';
 
-class QueryTimeoutError extends Error {}
+export class QueryTimeoutError extends Error {}
 
 /** A query that ran too long on a store that answers: not an outage. */
 function isQueryTimeout(error) {
@@ -135,6 +138,7 @@ export class PgBacklinkProvider {
     mapBatchPauseMs = 20,
     mapBatchRows = 32,
     now = Date.now,
+    overlayMaxMs = 7_200_000,
     overlayWindowMs = 600_000,
     pg,
     setIntervalFn = setInterval,
@@ -150,6 +154,7 @@ export class PgBacklinkProvider {
     this.timeoutMs = timeoutMs;
     this.warmupTimeoutMs = warmupTimeoutMs;
     this.overlayWindowMs = overlayWindowMs;
+    this.overlayMaxMs = Math.max(overlayMaxMs, overlayWindowMs);
     this.storePollMs = storePollMs;
     this.mapBatchRows = mapBatchRows;
     this.mapBatchPauseMs = mapBatchPauseMs;
@@ -161,7 +166,7 @@ export class PgBacklinkProvider {
     this._fileSet = new Set();
     this._markdownSet = new Set();
     this._wikiTargetIndex = createWikiTargetIndex([]);
-    /** @type {Map<string, { content: string, at: number }>} */
+    /** @type {Map<string, { at: number, baseHash: string | null, content: string }>} */
     this._overlay = new Map();
     this._gapSet = new Set();
     this._gapIndex = null;
@@ -227,6 +232,7 @@ export class PgBacklinkProvider {
       this._filePaths.push(filePath);
       if (refreshIndex) {
         this._wikiTargetIndex = createWikiTargetIndex(this._filePaths);
+        this._gapIndex?.refreshTargetIndex();
       }
     }
 
@@ -235,7 +241,7 @@ export class PgBacklinkProvider {
     }
 
     this._markdownSet.add(filePath);
-    this._overlay.set(filePath, { at: this.now(), content });
+    this._setOverlay(filePath, content);
     if (this._gapSet.has(filePath)) {
       this._gapIndex?.updateFile(filePath, content, { refreshIndex });
     }
@@ -263,7 +269,7 @@ export class PgBacklinkProvider {
     for (const pathValue of touchedPaths) {
       const content = await this.vaultFileStore.readMarkdownFile(pathValue);
       if (content !== null) {
-        this._overlay.set(pathValue, { at: this.now(), content });
+        this._setOverlay(pathValue, content);
       }
     }
 
@@ -313,7 +319,11 @@ export class PgBacklinkProvider {
       } else {
         await this._collectFromPhraseQuery(targetPath, bySource, timeoutMs);
       }
-      this._markPostgresHealthy();
+      if (!this._pgHealthy) {
+        // Back after an outage: bring the gap set and the link map up to date now, not at the next poll.
+        this._markPostgresHealthy();
+        void this.pollStore();
+      }
     } catch (error) {
       if (isQueryTimeout(error)) {
         this.logger.warn(`[backlinks] ${targetPath}: Postgres part cut short after ${timeoutMs} ms (${this._mapReady ? 'link map' : 'warm-up'}); returning partial results`);
@@ -352,13 +362,20 @@ export class PgBacklinkProvider {
 
   _setWorkspace(workspaceState) {
     // Same derivation as BacklinkIndex._performBuild, so both resolve against the same list in the same order.
-    this._workspaceState = workspaceState ?? null;
-    this._filePaths = Array.from(workspaceState?.filePaths ?? workspaceState?.markdownPaths ?? []);
-    this._fileSet = new Set(this._filePaths);
+    const filePaths = Array.from(workspaceState?.filePaths ?? workspaceState?.markdownPaths ?? []);
+    const unchanged = filePaths.length === this._filePaths.length
+      && filePaths.every((filePath, index) => filePath === this._filePaths[index]);
+    // Every watched save lands here; rebuilding the wiki index (47 MB at main scale) for an
+    // unchanged file list would be pure churn.
+    if (!unchanged) {
+      this._filePaths = filePaths;
+      this._fileSet = new Set(filePaths);
+      this._wikiTargetIndex = createWikiTargetIndex(filePaths);
+      this._gapIndex?.refreshTargetIndex();
+    }
     this._markdownSet = new Set(Array.from(
-      workspaceState?.markdownPaths ?? this._filePaths.filter((filePath) => isMarkdownFilePath(filePath)),
+      workspaceState?.markdownPaths ?? filePaths.filter((filePath) => isMarkdownFilePath(filePath)),
     ).filter((filePath) => this._fileSet.has(filePath)));
-    this._wikiTargetIndex = createWikiTargetIndex(this._filePaths);
   }
 
   _contextsFor(sourcePath, content, targetPath) {
@@ -408,7 +425,6 @@ export class PgBacklinkProvider {
     for (let index = 0; index < paths.length; index += FETCH_CHUNK_SIZE) {
       const remainingMs = Math.max(1, deadline - this.now());
       const { rows } = await this._query({
-        query_timeout: remainingMs,
         text: FETCH_BY_PATH_SQL,
         values: [paths.slice(index, index + FETCH_CHUNK_SIZE)],
       }, remainingMs, 'backlink source fetch');
@@ -426,10 +442,11 @@ export class PgBacklinkProvider {
       let afterPath = '';
       for (;;) {
         const remainingMs = Math.max(1, deadline - this.now());
-        const { rows } = await this._query({
-          ...buildCandidateQuery(literal, { afterPath, limit: CANDIDATE_PAGE_SIZE }),
-          query_timeout: remainingMs,
-        }, remainingMs, 'backlink candidate query');
+        const { rows } = await this._query(
+          buildCandidateQuery(literal, { afterPath, limit: CANDIDATE_PAGE_SIZE }),
+          remainingMs,
+          'backlink candidate query',
+        );
         rows.forEach((row) => this._confirmRow(row, targetPath, bySource));
         if (rows.length < CANDIDATE_PAGE_SIZE) {
           break;
@@ -440,11 +457,11 @@ export class PgBacklinkProvider {
   }
 
   _query(queryConfig, timeoutMs, label) {
-    return withTimeout(Promise.resolve().then(() => this.pg.query(queryConfig)), timeoutMs, label, this.timers);
+    return withTimeout(Promise.resolve().then(() => this.pg.query(queryConfig, { timeoutMs })), timeoutMs, label, this.timers);
   }
 
   _backgroundQuery(queryConfig, label) {
-    return this._query({ query_timeout: BACKGROUND_QUERY_TIMEOUT_MS, ...queryConfig }, BACKGROUND_QUERY_TIMEOUT_MS, label);
+    return this._query(queryConfig, BACKGROUND_QUERY_TIMEOUT_MS, label);
   }
 
   async _pollStoreOnce() {
@@ -485,7 +502,12 @@ export class PgBacklinkProvider {
 
       if (!this._gapIndex || this._needsFullGapBuild) {
         this._needsFullGapBuild = false;
-        const gapIndex = new BacklinkIndex({ vaultFileStore: this.vaultFileStore });
+        // ⚠️ The gap index resolves with THIS provider's wiki index (one 47 MB copy at main scale, not
+        // two), in the canonical snapshot order the Postgres part uses.
+        const gapIndex = new BacklinkIndex({
+          createTargetIndex: () => this._wikiTargetIndex,
+          vaultFileStore: this.vaultFileStore,
+        });
         await gapIndex.build({
           workspaceState: { filePaths: this._filePaths, markdownPaths: Array.from(nextGap) },
         });
@@ -617,13 +639,50 @@ export class PgBacklinkProvider {
     });
   }
 
+  _setOverlay(filePath, content) {
+    this._overlay.set(filePath, {
+      at: this.now(),
+      // The store's hash for this path when the edit happened (null: not known yet).
+      baseHash: this._mapReady ? (this._mapSources.get(filePath)?.hash ?? null) : null,
+      content,
+    });
+  }
+
+  /**
+   * An overlay entry outlives the window until the store has caught up with that path: its
+   * polled hash changed since the edit (the store re-read the file after it). Agent scratch is
+   * reindexed only on the store's full walk (30 min) and a store-writer outage stops all
+   * reindexing, so dropping at the window alone would hide a link the file still holds.
+   * Bounded by overlayMaxMs. Gap files drop at the window: the gap index holds their disk content.
+   */
   _pruneOverlay() {
-    const oldest = this.now() - this.overlayWindowMs;
+    const now = this.now();
     for (const [filePath, entry] of this._overlay) {
-      if (entry.at < oldest || !this._markdownSet.has(filePath)) {
+      const age = now - entry.at;
+      if (!this._markdownSet.has(filePath) || age >= this.overlayMaxMs) {
+        this._overlay.delete(filePath);
+        continue;
+      }
+      if (age < this.overlayWindowMs) {
+        continue;
+      }
+      if (this._gapSet.has(filePath) || this._storeCaughtUp(filePath, entry)) {
         this._overlay.delete(filePath);
       }
     }
+  }
+
+  _storeCaughtUp(filePath, entry) {
+    const current = this._mapReady ? (this._mapSources.get(filePath)?.hash ?? null) : null;
+    if (current === null) {
+      return false;
+    }
+    if (entry.baseHash === null) {
+      // Edited before the store's hash was known: wait for a change from the first one seen.
+      entry.baseHash = current;
+      return false;
+    }
+    return current !== entry.baseHash;
   }
 
   _markPostgresFailed(error) {
@@ -641,34 +700,44 @@ export class PgBacklinkProvider {
   }
 }
 
-/** A lazily created `pg` Pool: the dependency is loaded on the first query, never at startup. */
+/**
+ * A lazily created `pg` Pool (the dependency is loaded on the first query, never at startup),
+ * shared by panel requests and the background stream: at most `max` (2) connections in total,
+ * under the role's connection limit of 3.
+ *
+ * Every query carries its own server-side `statement_timeout` = the time left to its caller,
+ * so a query that outlives its request is cancelled BY THE SERVER (lock waits included) and
+ * its backend is freed; the client waits CANCEL_GRACE_MS longer so the cancel lands first and
+ * the connection stays reusable. A checkout that misses its deadline is handed back unused.
+ * ⚠️ Do not replace this with the client-side `query_timeout` alone: it abandons the client
+ * while the statement keeps a backend busy up to the role's statement timeout, and backends
+ * pile up with every slow panel open (VERIFICATION G4.f1).
+ */
 export function createPgDocsClient({
+  createPool = null,
   database,
   host,
   password,
   port = 5432,
   sslmode = 'require',
-  timeoutMs = 2_000,
   user,
 }) {
   let poolPromise = null;
   const getPool = () => {
-    poolPromise ??= import('pg').then(({ default: pg }) => {
-      const pool = new pg.Pool({
-        application_name: 'collabmd-backlinks',
-        connectionTimeoutMillis: timeoutMs,
-        database,
-        host,
-        idleTimeoutMillis: 30_000,
-        max: 2,
-        password,
-        port,
-        ssl: sslmode === 'disable' ? false : { rejectUnauthorized: sslmode === 'verify-full' },
-        statement_timeout: BACKGROUND_QUERY_TIMEOUT_MS,
-        user,
-      });
+    poolPromise ??= (createPool ? Promise.resolve(createPool()) : import('pg').then(({ default: pg }) => new pg.Pool({
+      application_name: 'collabmd-backlinks',
+      connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+      database,
+      host,
+      idleTimeoutMillis: 30_000,
+      max: 2,
+      password,
+      port,
+      ssl: sslmode === 'disable' ? false : { rejectUnauthorized: sslmode === 'verify-full' },
+      user,
+    }))).then((pool) => {
       // An idle client's error is emitted on the pool; unhandled it would crash the process.
-      pool.on('error', (error) => {
+      pool.on?.('error', (error) => {
         console.warn(`[backlinks] idle Postgres client error: ${error.message}`);
       });
       return pool;
@@ -682,8 +751,39 @@ export function createPgDocsClient({
         await (await poolPromise).end();
       }
     },
-    async query(queryConfig) {
-      return (await getPool()).query(queryConfig);
+    async query(queryConfig, { timeoutMs = BACKGROUND_QUERY_TIMEOUT_MS } = {}) {
+      const deadline = Date.now() + timeoutMs;
+      const pool = await getPool();
+      const checkout = pool.connect();
+      let timer = null;
+      const client = await Promise.race([
+        checkout,
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(null), timeoutMs);
+          timer.unref?.();
+        }),
+      ]).finally(() => clearTimeout(timer));
+      if (!client) {
+        // Hand the connection back the moment the pool produces it; never run a late query on it.
+        checkout.then((late) => late.release(), () => {});
+        throw new QueryTimeoutError(`no Postgres connection free within ${timeoutMs} ms`);
+      }
+
+      let failure;
+      try {
+        const remainingMs = Math.ceil(deadline - Date.now());
+        if (remainingMs <= 0) {
+          throw new QueryTimeoutError(`no time left after waiting ${timeoutMs} ms for a connection`);
+        }
+        await client.query(`SET statement_timeout = ${remainingMs}`);
+        return await client.query({ ...queryConfig, query_timeout: remainingMs + CANCEL_GRACE_MS });
+      } catch (error) {
+        failure = error;
+        throw error;
+      } finally {
+        // A server-side cancel (57014) leaves the connection healthy; anything else discards it.
+        client.release(failure && failure.code !== '57014' && !(failure instanceof QueryTimeoutError) ? failure : undefined);
+      }
     },
   };
 }

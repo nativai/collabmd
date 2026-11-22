@@ -358,6 +358,7 @@ export function loadBacklinksConfig(env = process.env) {
     mapBatchPauseMs: Number.isInteger(mapBatchPauseMs) && mapBatchPauseMs >= 0 ? mapBatchPauseMs : 20,
     mapBatchRows: parsePositiveInt(env.COLLABMD_BACKLINKS_MAP_BATCH_ROWS, 32),
     overlayWindowMs: parsePositiveInt(env.COLLABMD_BACKLINKS_OVERLAY_WINDOW_MS, 600_000),
+    overlayMaxMs: parsePositiveInt(env.COLLABMD_BACKLINKS_OVERLAY_MAX_MS, 7_200_000),
     source,
     storePollMs: parsePositiveInt(env.COLLABMD_BACKLINKS_STORE_POLL_MS, 60_000),
     timeoutMs: parsePositiveInt(env.COLLABMD_BACKLINKS_PG_TIMEOUT_MS, 2_000),
